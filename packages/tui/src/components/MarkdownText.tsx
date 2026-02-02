@@ -2,7 +2,7 @@
  * MarkdownText Component
  *
  * Renders markdown content with ANSI terminal styling using marked + marked-terminal.
- * Uses dynamic terminal width and handles streaming gracefully.
+ * Color scheme inspired by OpenCode's TUI theme for a polished look.
  */
 
 import React, { useMemo } from 'react';
@@ -12,7 +12,13 @@ import { Marked } from 'marked';
 import { markedTerminal } from 'marked-terminal';
 import chalk from 'chalk';
 
-const CODE_COLOR = '#8642EC';
+// OpenCode-inspired color palette
+const PURPLE = '#9d7cd8';   // headings
+const GREEN = '#7fd88f';    // code
+const ORANGE = '#f5a742';   // bold/strong
+const YELLOW = '#e5c07b';   // italic/emphasis, blockquotes
+const CYAN = '#56b6c2';     // links
+const MUTED = '#808080';    // hr, dim elements
 
 export interface MarkdownTextProps {
   content: string;
@@ -26,27 +32,28 @@ export const MarkdownText = React.memo(function MarkdownText({ content, width }:
   const rendered = useMemo(() => {
     if (!content.trim()) return '';
     try {
-      // Create renderer per-call with current width
       const renderer = markedTerminal({
         // Headings
-        firstHeading: chalk.bold.white.underline,
-        heading: chalk.bold.white,
+        firstHeading: chalk.bold.hex(PURPLE).underline,
+        heading: chalk.bold.hex(PURPLE),
         // Code
-        code: chalk.hex(CODE_COLOR),
-        codespan: chalk.hex(CODE_COLOR),
+        code: chalk.hex(GREEN),
+        codespan: chalk.hex(GREEN),
         // Text styling
-        strong: chalk.bold,
-        em: chalk.italic,
+        strong: chalk.bold.hex(ORANGE),
+        em: chalk.italic.hex(YELLOW),
         del: chalk.dim.strikethrough,
         // Links
-        link: chalk.cyan,
-        href: chalk.cyan.underline,
+        link: chalk.hex(CYAN),
+        href: chalk.hex(CYAN).underline,
         // Lists & blocks
         listitem: chalk.reset,
-        blockquote: chalk.gray.italic,
+        blockquote: chalk.italic.hex(YELLOW),
         // Layout
         paragraph: chalk.reset,
         table: chalk.reset,
+        // Horizontal rule
+        hr: chalk.hex(MUTED),
         // Options
         reflowText: true,
         showSectionPrefix: false,

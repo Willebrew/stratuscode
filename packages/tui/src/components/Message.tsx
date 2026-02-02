@@ -1,23 +1,14 @@
 /**
  * Message Component
  *
- * Renders a single chat message in Static (terminal scrollback).
- *
- * IMPORTANT: Tool calls and reasoning are NOT rendered here because they were
- * already displayed in real-time by the dynamic streaming section in Chat.tsx.
- * Ink's Static writes items into scrollback, but the dynamic section's output
- * also scrolls into scrollback as content grows. Rendering tool calls in both
- * places causes visible duplication.
- *
- * For assistant messages, we show:
- *   - A compact tool call summary line (e.g. "Used 5 tools")
- *   - The final text content
- * For user messages, we show the content as-is.
+ * Renders a single chat message. When showToolCalls is true (for history),
+ * tool calls are rendered inline with each assistant message.
  */
 
 import React from 'react';
 import { Box, Text } from 'ink';
 import type { Message as MessageType } from '@stratuscode/shared';
+import { ToolCallDisplay } from './ToolCall';
 import { MarkdownText } from './MarkdownText';
 import { colors } from '../theme/colors';
 import { icons } from '../theme/icons';
@@ -28,31 +19,33 @@ import { icons } from '../theme/icons';
 
 export interface MessageProps {
   message: MessageType;
+  /** Show full tool call details (for previous turns in history) */
+  showToolCalls?: boolean;
 }
 
 // ============================================
 // Component
 // ============================================
 
-// Purple color matching splash screen
 const CODE_COLOR = '#8642EC';
 
-export const Message = React.memo(function Message({ message }: MessageProps) {
+export const Message = React.memo(function Message({ message, showToolCalls }: MessageProps) {
   const isUser = message.role === 'user';
   const isTool = message.role === 'tool';
 
-  if (isTool) {
-    // Tool results are shown inline during streaming
-    return null;
-  }
+  if (isTool) return null;
 
   const content = typeof message.content === 'string'
     ? message.content
     : JSON.stringify(message.content);
 
-  // For assistant messages with no text content (tool-only turns), show nothing
-  // since the tool calls were already visible during the dynamic streaming phase.
-  if (!isUser && !content.trim() && message.toolCalls && message.toolCalls.length > 0) {
+  // For assistant messages with no text and no tool calls to show, skip
+  if (!isUser && !content.trim() && (!message.toolCalls || message.toolCalls.length === 0)) {
+    return null;
+  }
+
+  // Tool-only turn with showToolCalls=false — show nothing (already shown live)
+  if (!isUser && !content.trim() && message.toolCalls && message.toolCalls.length > 0 && !showToolCalls) {
     return null;
   }
 
@@ -70,8 +63,17 @@ export const Message = React.memo(function Message({ message }: MessageProps) {
         )}
       </Box>
 
-      {/* Compact tool call summary (not the full list — that was shown during streaming) */}
-      {!isUser && message.toolCalls && message.toolCalls.length > 0 && (
+      {/* Tool calls (full detail for history) */}
+      {!isUser && showToolCalls && message.toolCalls && message.toolCalls.length > 0 && (
+        <Box flexDirection="column">
+          {message.toolCalls.map((tc) => (
+            <ToolCallDisplay key={tc.id} toolCall={tc} />
+          ))}
+        </Box>
+      )}
+
+      {/* Compact tool summary (when not showing full details) */}
+      {!isUser && !showToolCalls && message.toolCalls && message.toolCalls.length > 0 && (
         <Box marginLeft={2}>
           <Text color={colors.textDim}>
             {icons.check} Used {message.toolCalls.length} tool{message.toolCalls.length !== 1 ? 's' : ''}
