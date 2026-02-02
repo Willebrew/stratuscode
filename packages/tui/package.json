@@ -1,0 +1,44 @@
+{
+  "name": "@stratuscode/tui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "stratuscode": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "start": "bun run src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@sage/core": "file:/Users/willkillebrew/Documents/Stratus-Server/Personal/SAGE/packages/core",
+    "@stratuscode/shared": "workspace:*",
+    "@stratuscode/storage": "workspace:*",
+    "@stratuscode/tools": "workspace:*",
+    "chalk": "^5.3.0",
+    "ink": "^5.0.1",
+    "ink-text-input": "^6.0.0",
+    "marked": "^17.0.1",
+    "marked-terminal": "^7.3.0",
+    "react": "^18.3.1",
+    "yargs": "^17.7.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.0",
+    "@types/yargs": "^17.0.33",
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.0"
+  }
+}

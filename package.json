@@ -1,0 +1,27 @@
+{
+  "name": "stratuscode",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI coding agent powered by SAGE with OpenAI Responses API",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "stratuscode": "bun run packages/tui/src/cli.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.0"
+  },
+  "packageManager": "bun@1.1.38",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
