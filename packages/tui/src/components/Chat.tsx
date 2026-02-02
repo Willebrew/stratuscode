@@ -93,7 +93,10 @@ export const Chat = React.memo(function Chat({
       )}
 
       {/* Active streaming session */}
-      {isLoading && (
+      {isLoading && (() => {
+        // Find the last reasoning action to make it keyboard-active
+        const lastReasoningId = [...actions].reverse().find(a => a.type === 'reasoning')?.id;
+        return (
         <Box flexDirection="column" marginTop={1}>
           {/* Assistant header */}
           <Box marginBottom={0}>
@@ -113,7 +116,11 @@ export const Chat = React.memo(function Chat({
                 </Box>
               )}
               {action.type === 'reasoning' && (
-                <ReasoningBlock reasoning={action.content} isStreaming={false} />
+                <ReasoningBlock
+                  reasoning={action.content}
+                  isStreaming={false}
+                  isActive={action.id === lastReasoningId && !streamingReasoning}
+                />
               )}
             </Box>
           ))}
@@ -141,21 +148,39 @@ export const Chat = React.memo(function Chat({
             </Box>
           )}
         </Box>
-      )}
+        );
+      })()}
 
       {/* Completed response — stays until next turn pushes it to history */}
-      {!isLoading && currentAssistantMsg && (
+      {!isLoading && currentAssistantMsg && (() => {
+        const lastReasoningId = [...actions].reverse().find(a => a.type === 'reasoning')?.id;
+        return (
         <Box flexDirection="column" marginTop={1}>
-          {/* Tool calls from the completed turn */}
-          {actions.filter(a => a.type === 'tool' && a.toolCall).map((action) => (
+          {/* Actions from the completed turn (reasoning + tools + text interleaved) */}
+          {actions.map((action) => (
             <Box key={action.id} marginY={0}>
-              <ToolCallDisplay toolCall={action.toolCall!} />
+              {action.type === 'tool' && action.toolCall && (
+                <ToolCallDisplay toolCall={action.toolCall} />
+              )}
+              {action.type === 'text' && (
+                <Box marginLeft={2}>
+                  <Text color="white" wrap="wrap">{action.content}</Text>
+                </Box>
+              )}
+              {action.type === 'reasoning' && (
+                <ReasoningBlock
+                  reasoning={action.content}
+                  isStreaming={false}
+                  isActive={action.id === lastReasoningId}
+                />
+              )}
             </Box>
           ))}
           {/* Final assistant message */}
           <Message message={currentAssistantMsg} />
         </Box>
-      )}
+        );
+      })()}
 
       {/* Error display */}
       {error && (

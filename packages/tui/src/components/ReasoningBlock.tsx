@@ -2,7 +2,8 @@
  * ReasoningBlock Component
  *
  * Shows reasoning/thinking with animated indicator while streaming.
- * Collapses when done, can be expanded by pressing Enter.
+ * Collapses when done. Only the active block (isActive=true) listens
+ * for Enter to toggle — avoids MaxListenersExceeded with many blocks.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -15,10 +16,11 @@ const SWEEP_CHARS = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '�
 export interface ReasoningBlockProps {
   reasoning: string;
   isStreaming: boolean;
-  isFocused?: boolean;
+  /** Only one reasoning block should be active for keyboard input at a time */
+  isActive?: boolean;
 }
 
-export function ReasoningBlock({ reasoning, isStreaming, isFocused = false }: ReasoningBlockProps) {
+export function ReasoningBlock({ reasoning, isStreaming, isActive = false }: ReasoningBlockProps) {
   const [frame, setFrame] = useState(0);
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -27,7 +29,6 @@ export function ReasoningBlock({ reasoning, isStreaming, isFocused = false }: Re
     if (isStreaming) {
       setIsExpanded(true);
     } else {
-      // Collapse after streaming stops
       const timer = setTimeout(() => setIsExpanded(false), 500);
       return () => clearTimeout(timer);
     }
@@ -42,37 +43,38 @@ export function ReasoningBlock({ reasoning, isStreaming, isFocused = false }: Re
     return () => clearInterval(interval);
   }, [isStreaming]);
 
-  // Handle keyboard input to toggle expand/collapse
-  // Active whenever not streaming (no focus gate — reasoning blocks are
-  // non-interactive display elements, Enter toggle should always work)
+  // Only register input listener when this block is the active one
+  // (prevents MaxListenersExceeded when many blocks exist in history)
   useInput((input, key) => {
-    if (key.return && !isStreaming) {
+    if (key.return) {
       setIsExpanded(prev => !prev);
     }
-  }, { isActive: !isStreaming });
+  }, { isActive: isActive && !isStreaming });
 
   if (!reasoning) return null;
 
-  // Collapsed view - just shows "Thought for X seconds" or similar
+  // Collapsed view
   if (!isExpanded && !isStreaming) {
     const wordCount = reasoning.split(/\s+/).length;
     return (
-      <Box marginLeft={2} marginY={1}>
+      <Box marginLeft={2} marginY={0}>
         <Text color={colors.textDim}>
           ~ Thought ({wordCount} words)
         </Text>
-        <Text color={colors.textMuted}> - press Enter to expand</Text>
+        {isActive && (
+          <Text color={colors.textMuted}> - press Enter to expand</Text>
+        )}
       </Box>
     );
   }
 
   // Expanded/streaming view
-  const displayText = isStreaming 
-    ? reasoning.slice(-300) // Show last 300 chars while streaming
+  const displayText = isStreaming
+    ? reasoning.slice(-300)
     : reasoning;
 
   return (
-    <Box flexDirection="column" marginLeft={2} marginY={1}>
+    <Box flexDirection="column" marginLeft={2} marginY={0}>
       {/* Header */}
       <Box>
         {isStreaming ? (
@@ -83,14 +85,16 @@ export function ReasoningBlock({ reasoning, isStreaming, isFocused = false }: Re
         ) : (
           <>
             <Text color={colors.textDim}>~ Reasoning</Text>
-            <Text color={colors.textMuted}> - press Enter to collapse</Text>
+            {isActive && (
+              <Text color={colors.textMuted}> - press Enter to collapse</Text>
+            )}
           </>
         )}
       </Box>
 
       {/* Content */}
-      <Box 
-        marginTop={1}
+      <Box
+        marginTop={0}
         paddingLeft={2}
         borderStyle="single"
         borderColor={colors.border}
