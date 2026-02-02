@@ -101,15 +101,7 @@ export const Chat = React.memo(function Chat({
             <Text bold color={CODE_COLOR}>Code</Text>
           </Box>
 
-          {/* Reasoning (thinking) */}
-          {streamingReasoning && (
-            <ReasoningBlock
-              reasoning={streamingReasoning}
-              isStreaming={true}
-            />
-          )}
-
-          {/* Actions in order: interleaved text chunks + tool calls */}
+          {/* Actions in chronological order: reasoning → tool → text → reasoning → tool → ... */}
           {actions.map((action) => (
             <Box key={action.id} marginY={0}>
               {action.type === 'tool' && action.toolCall && (
@@ -120,10 +112,21 @@ export const Chat = React.memo(function Chat({
                   <Text color="white" wrap="wrap">{action.content}</Text>
                 </Box>
               )}
+              {action.type === 'reasoning' && (
+                <ReasoningBlock reasoning={action.content} isStreaming={false} />
+              )}
             </Box>
           ))}
 
-          {/* Remaining streaming text */}
+          {/* Live streaming reasoning (current block being streamed) */}
+          {streamingReasoning && (
+            <ReasoningBlock
+              reasoning={streamingReasoning}
+              isStreaming={true}
+            />
+          )}
+
+          {/* Live streaming text */}
           {streamingContent && (
             <Box marginLeft={2}>
               <Text color="white" wrap="wrap">{streamingContent}</Text>

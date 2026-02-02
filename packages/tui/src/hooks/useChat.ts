@@ -365,8 +365,20 @@ export function useChat(options: UseChatOptions): UseChatReturn {
               streamingReasoningRef.current += text;
             },
             onToolCall: (tc: ToolCall) => {
+              // Snapshot any accumulated reasoning BEFORE this tool call as a reasoning action.
+              // This preserves chronological order: reasoning → tool → reasoning → tool → ...
+              const pendingReasoning = streamingReasoningRef.current;
+              if (pendingReasoning) {
+                const reasoningId = `action-${++actionIdRef.current}`;
+                setActions(prev => [
+                  ...prev,
+                  { id: reasoningId, type: 'reasoning', content: pendingReasoning, status: 'completed' },
+                ]);
+                streamingReasoningRef.current = '';
+                setStreamingReasoning('');
+              }
+
               // Snapshot any accumulated text BEFORE this tool call as a text action.
-              // This preserves the ordering: text → tool → text → tool → ...
               const pendingText = streamingContentRef.current;
               if (pendingText) {
                 const textId = `action-${++actionIdRef.current}`;
@@ -374,7 +386,6 @@ export function useChat(options: UseChatOptions): UseChatReturn {
                   ...prev,
                   { id: textId, type: 'text', content: pendingText, status: 'completed' },
                 ]);
-                // Reset streaming ref — this text is now captured in actions
                 streamingContentRef.current = '';
                 setStreamingContent('');
               }
