@@ -254,7 +254,7 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
         showSystemMessage(`Unknown command: ${command.action}`);
         break;
     }
-  }, [clear, executeTool, loadSession, showSystemMessage, config.model, todoCounts, projectDir]);
+  }, [clear, executeTool, loadSession, showSystemMessage, config.model, todoCounts, projectDir, sessionId]);
 
   // Handle global keyboard shortcuts
   useInput((input, key) => {

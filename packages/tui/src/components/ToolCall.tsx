@@ -1,64 +1,55 @@
 /**
  * ToolCall Component
  *
- * Renders a tool call as a flat single-line display with icon, name, args, and status.
- * No expand/collapse — tools are compact inline indicators.
- * Errors are shown as a second line below the tool line.
+ * Renders a tool call with a clean, readable layout.
+ * Shows tool name with a left border accent, args below.
  */
 
 import React from 'react';
 import { Box, Text } from 'ink';
 import type { ToolCall } from '@stratuscode/shared';
 import { colors } from '../theme/colors';
-import { icons } from '../theme/icons';
 
 // ============================================
-// Tool Icons (ASCII - no emojis)
+// Tool display names and colors
 // ============================================
 
-const TOOL_ICONS: Record<string, string> = {
-  read: icons.file,
-  write: icons.file,
-  edit: icons.edit,
-  multi_edit: icons.edit,
-  bash: icons.terminal,
-  grep: icons.search,
-  glob: icons.search,
-  ls: icons.folder,
-  task: icons.bullet,
-  websearch: icons.search,
-  webfetch: icons.search,
-  apply_patch: icons.edit,
-  question: '?',
-  todoread: icons.check,
-  todowrite: icons.check,
-  codesearch: icons.search,
-  lsp: icons.code,
-  revert: '<-',
-  skill: icons.code,
-  batch: icons.folder,
+const TOOL_LABELS: Record<string, { label: string; color: string }> = {
+  read:        { label: 'Read',        color: '#7fd88f' }, // green
+  write:       { label: 'Write',       color: '#f5a742' }, // orange
+  edit:        { label: 'Edit',        color: '#f5a742' },
+  multi_edit:  { label: 'Multi Edit',  color: '#f5a742' },
+  bash:        { label: 'Terminal',    color: '#56b6c2' }, // cyan
+  grep:        { label: 'Search',      color: '#9d7cd8' }, // purple
+  glob:        { label: 'Glob',        color: '#9d7cd8' },
+  ls:          { label: 'List',        color: '#9d7cd8' },
+  task:        { label: 'Task',        color: '#e5c07b' }, // yellow
+  websearch:   { label: 'Web Search',  color: '#56b6c2' },
+  webfetch:    { label: 'Fetch',       color: '#56b6c2' },
+  apply_patch: { label: 'Patch',       color: '#f5a742' },
+  question:    { label: 'Question',    color: '#e5c07b' },
+  todoread:    { label: 'Todos',       color: '#e5c07b' },
+  todowrite:   { label: 'Todos',       color: '#e5c07b' },
+  codesearch:  { label: 'Code Search', color: '#9d7cd8' },
+  lsp:         { label: 'LSP',         color: '#9d7cd8' },
+  revert:      { label: 'Revert',      color: '#e06c75' }, // red
+  skill:       { label: 'Skill',       color: '#56b6c2' },
+  batch:       { label: 'Batch',       color: '#e5c07b' },
 };
 
-function getToolIcon(name: string): string {
-  return TOOL_ICONS[name] || '*';
+function getToolInfo(name: string): { label: string; color: string } {
+  return TOOL_LABELS[name] || { label: name, color: colors.textMuted };
 }
 
 // ============================================
-// Status indicators
+// Status
 // ============================================
 
 const STATUS_ICONS: Record<string, string> = {
   pending: '○',
-  running: '◐',
-  completed: '✓',
-  failed: '✗',
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  pending: colors.textMuted,
-  running: colors.warning,
-  completed: colors.success,
-  failed: colors.error,
+  running: '●',
+  completed: '●',
+  failed: '✕',
 };
 
 // ============================================
@@ -69,12 +60,18 @@ function formatArgs(tc: ToolCall): string {
   try {
     const args = JSON.parse(tc.function.arguments);
     if (args.file_path) return args.file_path;
-    if (args.command) return args.command.slice(0, 60) + (args.command.length > 60 ? '...' : '');
+    if (args.command) {
+      const cmd = args.command.replace(/\n/g, ' ');
+      return cmd.length > 72 ? cmd.slice(0, 72) + '…' : cmd;
+    }
     if (args.query) return `"${args.query}"`;
     if (args.pattern) return args.pattern;
     if (args.directory_path) return args.directory_path;
-    if (args.description) return args.description.slice(0, 60) + (args.description.length > 60 ? '...' : '');
-    if (args.url) return args.url.slice(0, 50);
+    if (args.description) {
+      const d = args.description;
+      return d.length > 72 ? d.slice(0, 72) + '…' : d;
+    }
+    if (args.url) return args.url.length > 60 ? args.url.slice(0, 60) + '…' : args.url;
     return '';
   } catch {
     return '';
@@ -103,31 +100,33 @@ export interface ToolCallDisplayProps {
 }
 
 export const ToolCallDisplay = React.memo(function ToolCallDisplay({ toolCall }: ToolCallDisplayProps) {
-  const icon = getToolIcon(toolCall.function.name);
+  const info = getToolInfo(toolCall.function.name);
   const subtitle = formatArgs(toolCall);
   const status = (toolCall.status || 'pending') as 'pending' | 'running' | 'completed' | 'failed';
   const statusIcon = STATUS_ICONS[status] || '○';
-  const statusColor = STATUS_COLORS[status] || colors.textMuted;
   const errorMessage = status === 'failed' ? getErrorMessage(toolCall.result) : null;
+  const isRunning = status === 'running';
+  const isFailed = status === 'failed';
 
   return (
-    <Box flexDirection="column" marginLeft={2}>
-      {/* Single-line tool display: status + icon + name + args */}
+    <Box flexDirection="column" marginLeft={2} marginY={0}>
+      {/* Tool line: colored dot + label + args */}
       <Box>
-        <Box width={3}><Text color={statusColor}>{statusIcon}</Text></Box>
-        <Box width={4}><Text color={colors.secondary}>{icon}</Text></Box>
-        <Text color={colors.text} bold>{toolCall.function.name}</Text>
+        <Text color={isFailed ? colors.error : info.color}>
+          {statusIcon}
+        </Text>
+        <Text color={info.color} bold> {info.label}</Text>
         {subtitle && (
           <Text color={colors.textMuted}> {subtitle}</Text>
         )}
-        {status === 'running' && (
-          <Text color={colors.warning}> ...</Text>
+        {isRunning && (
+          <Text color={colors.textMuted}> …</Text>
         )}
       </Box>
 
-      {/* Error line (only when failed) */}
+      {/* Error detail */}
       {errorMessage && (
-        <Box marginLeft={4}>
+        <Box marginLeft={2}>
           <Text color={colors.error}>{errorMessage}</Text>
         </Box>
       )}
@@ -144,7 +143,7 @@ export interface ToolCallListProps {
   focusedIndex?: number;
 }
 
-export function ToolCallList({ toolCalls, focusedIndex }: ToolCallListProps) {
+export function ToolCallList({ toolCalls }: ToolCallListProps) {
   if (toolCalls.length === 0) return null;
 
   return (

@@ -10,7 +10,11 @@ import { Text, useStdout } from 'ink';
 import { Marked } from 'marked';
 // @ts-ignore -- no types available
 import { markedTerminal } from 'marked-terminal';
-import chalk from 'chalk';
+import { Chalk } from 'chalk';
+
+// Force color level 3 (truecolor) — chalk's auto-detection fails in Ink's
+// piped stdout, but Ink renders ANSI just fine via its own output.
+const chalk = new Chalk({ level: 3 });
 
 // OpenCode-inspired color palette
 const PURPLE = '#9d7cd8';   // headings

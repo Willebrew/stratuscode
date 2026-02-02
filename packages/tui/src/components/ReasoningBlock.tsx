@@ -43,11 +43,13 @@ export function ReasoningBlock({ reasoning, isStreaming, isFocused = false }: Re
   }, [isStreaming]);
 
   // Handle keyboard input to toggle expand/collapse
+  // Active whenever not streaming (no focus gate — reasoning blocks are
+  // non-interactive display elements, Enter toggle should always work)
   useInput((input, key) => {
-    if (isFocused && key.return && !isStreaming) {
+    if (key.return && !isStreaming) {
       setIsExpanded(prev => !prev);
     }
-  });
+  }, { isActive: !isStreaming });
 
   if (!reasoning) return null;
 
