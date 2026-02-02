@@ -69,7 +69,17 @@ export const Chat = React.memo(function Chat({
     // Messages were cleared — reset
     staticItemsRef.current = [];
   }
-  for (let i = staticItemsRef.current.length; i < messages.length; i++) {
+
+  // Keep the trailing assistant message OUT of Static. It lives in the dynamic
+  // section until the next user message pushes it into Static. This avoids an
+  // Ink race condition where Static adds a new item in the same render that the
+  // dynamic section shrinks, causing Ink's cursor management to overwrite the
+  // newly-added Static item.
+  const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
+  const trailingAssistant = lastMsg?.role === 'assistant' ? lastMsg : null;
+  const staticEnd = trailingAssistant ? messages.length - 1 : messages.length;
+
+  for (let i = staticItemsRef.current.length; i < staticEnd; i++) {
     staticItemsRef.current.push({ id: `msg-${i}`, msg: messages[i]! });
   }
 
@@ -127,6 +137,20 @@ export const Chat = React.memo(function Chat({
                 <ThinkingIndicator />
               </Box>
             )}
+          </Box>
+        )}
+
+        {/* Completed response — stays in dynamic section until next user message */}
+        {!isLoading && trailingAssistant && (
+          <Box flexDirection="column" marginY={1}>
+            {/* Show tool calls from the completed turn */}
+            {actions.filter(a => a.type === 'tool' && a.toolCall).map((action) => (
+              <Box key={action.id} marginY={0}>
+                <ToolCallDisplay toolCall={action.toolCall!} />
+              </Box>
+            ))}
+            {/* Final assistant message */}
+            <Message message={trailingAssistant} />
           </Box>
         )}
 

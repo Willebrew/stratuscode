@@ -472,12 +472,6 @@ export function useChat(options: UseChatOptions): UseChatReturn {
           input: prev.input + result.inputTokens,
           output: prev.output + result.outputTokens,
         }));
-
-        // Yield to event loop so React commits the new message to Ink's Static
-        // before we clear the dynamic streaming section. Without this, React
-        // batches setMessages + setIsLoading(false) into a single render and
-        // Ink's cursor management can overwrite the newly-added Static item.
-        await new Promise(resolve => setTimeout(resolve, 50));
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
         setError(errorMessage);
@@ -499,9 +493,6 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         setMessages([...messagesRef.current]);
 
         persistSessionUpdate(sid, { status: 'failed', error: errorMessage });
-
-        // Yield for Ink Static rendering (same as success path)
-        await new Promise(resolve => setTimeout(resolve, 50));
       } finally {
         // Stop streaming flush interval
         if (streamingFlushRef.current) {
@@ -514,9 +505,9 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         setStreamingReasoning('');
         streamingContentRef.current = '';
         streamingReasoningRef.current = '';
-        setActions([]);
-        setToolCalls([]);
-        toolCallsRef.current = [];
+        // NOTE: actions and toolCalls are NOT cleared here — they stay visible
+        // as part of the completed response in the dynamic section. They are
+        // cleared at the start of the next sendMessage() call.
         abortRef.current = null;
       }
     },
