@@ -195,7 +195,10 @@ async function main() {
       alias: 'm',
       type: 'string',
       description: 'Model override',
-      default: 'gpt-5-mini',
+    })
+    .option('provider', {
+      type: 'string',
+      description: 'Named provider (e.g. opencode-zen)',
     })
     .help()
     .alias('help', 'h')
@@ -220,6 +223,23 @@ async function main() {
 
   // Initialize database
   initDatabase();
+
+  // Apply CLI overrides to config
+  if (argv.model) {
+    config.model = argv.model;
+  }
+
+  // Resolve named provider into the default provider slot so both
+  // non-interactive and interactive modes use it seamlessly.
+  const providerName = argv.provider as string | undefined;
+  if (providerName && (config as any).providers?.[providerName]) {
+    const p = (config as any).providers[providerName];
+    config.provider = {
+      apiKey: p.apiKey ?? config.provider.apiKey,
+      baseUrl: p.baseUrl ?? config.provider.baseUrl,
+      ...p,
+    };
+  }
 
   // Non-interactive mode
   if (argv.prompt) {

@@ -1,10 +1,9 @@
 /**
  * Chat Component
  *
- * Uses Ink's Static component for completed messages (rendered once into terminal
- * scrollback) and a dynamic bottom section for the active session. This prevents
- * flickering and duplication. The terminal's native scrollback handles viewing
- * older messages.
+ * Previous turns live in Ink's Static (terminal scrollback).
+ * The CURRENT turn (latest user message + assistant response) lives in the
+ * dynamic section so it's always visible and never lost to Ink's race conditions.
  */
 
 import React, { useRef } from 'react';
@@ -57,37 +56,42 @@ export const Chat = React.memo(function Chat({
   onQuestionAnswer,
   onQuestionSkip,
 }: ChatProps) {
-  // Maintain stable item references for Ink's Static component.
-  // Static tracks items by reference identity — if we create new wrapper
-  // objects each render (via .map()), it treats ALL items as new and
-  // re-renders everything, causing duplication in scrollback.
   const staticItemsRef = useRef<Array<{ id: string; msg: MessageType }>>([]);
 
-  // Grow the stable items list as new messages arrive.
-  // Shrink it if messages are cleared (new session / clear command).
+  // Reset if messages were cleared (new session / clear command).
   if (staticItemsRef.current.length > messages.length) {
-    // Messages were cleared — reset
     staticItemsRef.current = [];
   }
 
-  // Keep the trailing assistant message OUT of Static. It lives in the dynamic
-  // section until the next user message pushes it into Static. This avoids an
-  // Ink race condition where Static adds a new item in the same render that the
-  // dynamic section shrinks, causing Ink's cursor management to overwrite the
-  // newly-added Static item.
-  const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
-  const trailingAssistant = lastMsg?.role === 'assistant' ? lastMsg : null;
-  const staticEnd = trailingAssistant ? messages.length - 1 : messages.length;
+  // Find where the current turn starts. A "turn" is the latest user message
+  // plus the assistant's response (if any). Everything before goes to Static.
+  // This keeps the current turn in the dynamic section where Ink can safely
+  // re-render it without the Static race condition.
+  let currentTurnStart = messages.length;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]!.role === 'user') {
+      currentTurnStart = i;
+      break;
+    }
+    if (messages[i]!.role === 'assistant') {
+      currentTurnStart = i;
+      // keep looking for the user message before it
+    }
+  }
 
-  for (let i = staticItemsRef.current.length; i < staticEnd; i++) {
+  // Only add messages BEFORE the current turn to Static
+  for (let i = staticItemsRef.current.length; i < currentTurnStart; i++) {
     staticItemsRef.current.push({ id: `msg-${i}`, msg: messages[i]! });
   }
 
+  // The current turn messages (rendered in dynamic section)
+  const currentTurnMessages = messages.slice(currentTurnStart);
+  const currentUserMsg = currentTurnMessages.find(m => m.role === 'user');
+  const currentAssistantMsg = currentTurnMessages.find(m => m.role === 'assistant');
+
   return (
     <Box flexDirection="column" flexGrow={1}>
-      {/* ── Completed messages ──
-          Rendered ONCE into terminal scrollback. Ink never re-renders these.
-          User scrolls back in terminal to see older messages. */}
+      {/* ── Previous turns ── in terminal scrollback */}
       <Static items={staticItemsRef.current}>
         {({ id, msg }) => (
           <Box key={id} paddingX={1} paddingLeft={gutter + 1}>
@@ -96,11 +100,22 @@ export const Chat = React.memo(function Chat({
         )}
       </Static>
 
-      {/* ── Dynamic section ── re-renders each tick, stays at bottom of terminal */}
+      {/* ── Current turn ── always in dynamic section */}
       <Box flexDirection="column" paddingX={1} paddingLeft={gutter + 1}>
-        {/* Active session — interleaved text + tool calls + streaming */}
+        {/* User message for current turn */}
+        {currentUserMsg && (
+          <Message message={currentUserMsg} />
+        )}
+
+        {/* Active streaming session */}
         {isLoading && (
-          <Box flexDirection="column" marginY={1}>
+          <Box flexDirection="column" marginTop={1}>
+            {/* Assistant header */}
+            <Box marginBottom={0}>
+              <Text bold color="white">{'\u203A'} Stratus</Text>
+              <Text bold color={CODE_COLOR}>Code</Text>
+            </Box>
+
             {/* Reasoning (thinking) */}
             {streamingReasoning && (
               <ReasoningBlock
@@ -123,11 +138,11 @@ export const Chat = React.memo(function Chat({
               </Box>
             ))}
 
-            {/* Remaining streaming text (after the last captured text chunk) */}
+            {/* Remaining streaming text */}
             {streamingContent && (
               <Box marginLeft={2}>
                 <Text color="white" wrap="wrap">{streamingContent}</Text>
-                <Text color={CODE_COLOR}>▌</Text>
+                <Text color={CODE_COLOR}>{'\u258C'}</Text>
               </Box>
             )}
 
@@ -140,17 +155,17 @@ export const Chat = React.memo(function Chat({
           </Box>
         )}
 
-        {/* Completed response — stays in dynamic section until next user message */}
-        {!isLoading && trailingAssistant && (
-          <Box flexDirection="column" marginY={1}>
-            {/* Show tool calls from the completed turn */}
+        {/* Completed response — stays until next turn */}
+        {!isLoading && currentAssistantMsg && (
+          <Box flexDirection="column" marginTop={1}>
+            {/* Tool calls from the completed turn */}
             {actions.filter(a => a.type === 'tool' && a.toolCall).map((action) => (
               <Box key={action.id} marginY={0}>
                 <ToolCallDisplay toolCall={action.toolCall!} />
               </Box>
             ))}
             {/* Final assistant message */}
-            <Message message={trailingAssistant} />
+            <Message message={currentAssistantMsg} />
           </Box>
         )}
 

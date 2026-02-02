@@ -120,6 +120,8 @@ export async function runNonInteractive(options: NonInteractiveOptions): Promise
     provider: {
       apiKey: config.provider.apiKey,
       baseUrl: config.provider.baseUrl,
+      type: (config.provider as any).type as 'responses-api' | 'chat-completions' | undefined,
+      headers: (config.provider as any).headers as Record<string, string> | undefined,
     },
     agent: {
       name: config.agent.name,
