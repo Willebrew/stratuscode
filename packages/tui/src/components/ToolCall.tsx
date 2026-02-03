@@ -181,7 +181,7 @@ export const ToolCallDisplay = React.memo(function ToolCallDisplay({ toolCall }:
           <RichDiff
             diff={diffInfo.diff}
             filePath={diffInfo.filePath}
-            defaultCollapsed={true}
+            defaultCollapsed={false}
             maxLines={80}
           />
         </Box>
