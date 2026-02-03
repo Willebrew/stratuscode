@@ -261,11 +261,11 @@ function DiffLineDisplay({ line, showLineNumbers = true }: { line: DiffLine; sho
     line.type === 'remove' ? '#ef4444' :   // bright red
     colors.textMuted;
 
-  // Background: dark green for additions, dark red for deletions, black for context
-  const bgColor = 
+  // Background: subtle tint for additions/deletions only, no bg for context
+  const bgColor =
     line.type === 'add' ? '#052e16' :      // dark green bg
     line.type === 'remove' ? '#450a0a' :   // dark red bg
-    '#000000';                              // black bg
+    undefined;
 
   return (
     <Box>

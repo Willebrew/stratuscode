@@ -15,19 +15,20 @@ export interface ThinkingIndicatorProps {
 const SWEEP_CHARS = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const CODE_COLOR = '#8642EC';
 
-export function ThinkingIndicator({ text }: ThinkingIndicatorProps) {
+/** Isolated spinner — only this tiny component re-renders on each tick */
+const Spinner = React.memo(function Spinner() {
   const [frame, setFrame] = useState(0);
-
   useEffect(() => {
-    const interval = setInterval(() => {
-      setFrame(prev => (prev + 1) % SWEEP_CHARS.length);
-    }, 300);
-    return () => clearInterval(interval);
+    const id = setInterval(() => setFrame(f => (f + 1) % SWEEP_CHARS.length), 80);
+    return () => clearInterval(id);
   }, []);
+  return <Text color={CODE_COLOR}>{SWEEP_CHARS[frame]} </Text>;
+});
 
+export function ThinkingIndicator({ text }: ThinkingIndicatorProps) {
   return (
     <Box>
-      <Text color={CODE_COLOR}>{SWEEP_CHARS[frame]} </Text>
+      <Spinner />
       <Text color={colors.textMuted} italic>
         {text ? text.slice(-200) : 'Thinking...'}
       </Text>

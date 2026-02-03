@@ -71,7 +71,8 @@ import {
   getSessionTokenTotals,
 } from '@stratuscode/storage';
 import { processDirectly, type AgentResult, type Message, type ToolCall, type ToolRegistry } from '@sage/core';
-import type { TimelineEvent, TokenUsage } from '@stratuscode/shared';
+import type { TimelineEvent, TokenUsage, ContentPart } from '@stratuscode/shared';
+import type { Attachment } from '../components/UnifiedInput';
 
 // ============================================
 // Plan File Helpers
@@ -197,17 +198,84 @@ export interface UseChatReturn {
   isLoading: boolean;
   error: string | null;
   timelineEvents: TimelineEvent[];
-  sessionTokens: TokenUsage;
+  sessionTokens: TokenUsage | undefined;
   contextUsage: { used: number; limit: number; percent: number };
+  contextStatus: string | null;
   tokens: TokenUsage;
   sessionId: string | undefined;
   planExitProposed: boolean;
-  sendMessage: (content: string, agentOverride?: string, options?: SendMessageOptions) => Promise<void>;
+  sendMessage: (content: string, agentOverride?: string, options?: SendMessageOptions, attachments?: Attachment[]) => Promise<void>;
   executeTool: (name: string, args: Record<string, unknown>) => Promise<string>;
   loadSession: (sessionId: string) => Promise<void>;
   abort: () => void;
   clear: () => void;
   resetPlanExit: () => void;
+}
+
+// ============================================
+// Codex Token Refresh
+// ============================================
+
+const CODEX_ISSUER = 'https://auth.openai.com';
+const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
+
+async function refreshCodexToken(refreshToken: string): Promise<{ access: string; refresh: string; expires: number } | null> {
+  try {
+    const resp = await fetch(`${CODEX_ISSUER}/oauth/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+        client_id: CODEX_CLIENT_ID,
+      }).toString(),
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json() as { access_token: string; refresh_token: string; expires_in?: number };
+    return {
+      access: data.access_token,
+      refresh: data.refresh_token,
+      expires: Date.now() + (data.expires_in ?? 3600) * 1000,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Ensure Codex access token is fresh. Mutates config in place if refreshed.
+ */
+async function ensureCodexToken(config: StratusCodeConfig, providerOverride?: string): Promise<void> {
+  const key = providerOverride || 'openai-codex';
+  const p = (config as any).providers?.[key];
+  if (!p?.auth || p.auth.type !== 'oauth') return;
+  if (!p.baseUrl?.includes('chatgpt.com/backend-api/codex')) return;
+  if (p.auth.expires > Date.now() + 60_000) return; // still valid (60s margin)
+
+  const refreshed = await refreshCodexToken(p.auth.refresh);
+  if (!refreshed) return;
+
+  // Update in-memory config
+  p.apiKey = refreshed.access;
+  p.auth.access = refreshed.access;
+  p.auth.refresh = refreshed.refresh;
+  p.auth.expires = refreshed.expires;
+
+  // Persist to disk
+  try {
+    const os = await import('os');
+    const configPath = path.join(os.default.homedir(), '.stratuscode', 'config.json');
+    const diskConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    if (diskConfig.providers?.[key]) {
+      diskConfig.providers[key].apiKey = refreshed.access;
+      diskConfig.providers[key].auth.access = refreshed.access;
+      diskConfig.providers[key].auth.refresh = refreshed.refresh;
+      diskConfig.providers[key].auth.expires = refreshed.expires;
+      fs.writeFileSync(configPath, JSON.stringify(diskConfig, null, 2));
+    }
+  } catch {
+    // Non-fatal: token is refreshed in memory even if disk write fails
+  }
 }
 
 // ============================================
@@ -220,7 +288,8 @@ export interface UseChatReturn {
 function toSageConfig(
   config: StratusCodeConfig,
   modelOverride?: string,
-  providerOverride?: string
+  providerOverride?: string,
+  sessionId?: string,
 ) {
   // Resolve effective provider config from named providers if override is set
   let effectiveProvider: {
@@ -242,6 +311,29 @@ function toSageConfig(
       baseUrl: p.baseUrl,
       type: p.type as 'responses-api' | 'chat-completions' | undefined,
       headers: p.headers,
+    };
+  }
+
+  // Codex: strip trailing /responses from baseUrl (SAGE appends it)
+  // and inject required headers matching OpenCode's Codex plugin
+  if (effectiveProvider.baseUrl?.includes('chatgpt.com/backend-api/codex')) {
+    effectiveProvider.baseUrl = effectiveProvider.baseUrl.replace(/\/responses\/?$/, '');
+    effectiveProvider.headers = {
+      ...effectiveProvider.headers,
+      'originator': 'opencode',
+      'User-Agent': `stratuscode/0.1.0 (${process.platform} ${process.arch})`,
+      'session_id': sessionId || `sc-${Date.now()}`,
+    };
+  }
+
+  // Inject OpenCode Zen per-request headers (session, request, project)
+  // so Zen's trial limiter correctly identifies the session.
+  if (effectiveProvider.baseUrl?.includes('opencode.ai/zen')) {
+    effectiveProvider.headers = {
+      ...effectiveProvider.headers,
+      'x-opencode-session': sessionId || `sc-${Date.now()}`,
+      'x-opencode-request': `req-${Date.now()}`,
+      'x-opencode-project': 'stratuscode',
     };
   }
 
@@ -272,8 +364,9 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   const [error, setError] = useState<string | null>(null);
   const [timelineEvents, setTimelineEvents] = useState<TimelineEvent[]>([]);
   const [tokens, setTokens] = useState<TokenUsage>({ input: 0, output: 0 });
-  const [sessionTokens, setSessionTokens] = useState<TokenUsage>({ input: 0, output: 0 });
+  const [sessionTokens, setSessionTokens] = useState<TokenUsage | undefined>(undefined);
   const [contextUsage, setContextUsage] = useState({ used: 0, limit: 128000, percent: 0 });
+  const [contextStatus, setContextStatus] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const [planExitProposed, setPlanExitProposed] = useState(false);
 
@@ -319,19 +412,37 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     return BUILT_IN_AGENTS[agent] || BUILT_IN_AGENTS.build!;
   }, [agent]);
 
-  const getContextLimit = useCallback(() => {
-    return config.maxTokens ?? 128000;
-  }, [config.maxTokens]);
+  // Model-aware context window lookup (prompt_tokens limit, not response tokens)
+  const getContextWindow = useCallback(() => {
+    const model = modelOverride || config.model;
+    const CONTEXT_WINDOWS: Record<string, number> = {
+      'gpt-5-mini': 128_000,
+      'gpt-4o': 128_000,
+      'o3-mini': 128_000,
+      'gpt-5.2-codex': 192_000,
+      'gpt-5.1-codex': 192_000,
+      'gpt-5.1-codex-max': 192_000,
+      'gpt-5.1-codex-mini': 192_000,
+      'kimi-k2.5-free': 128_000,
+      'minimax-m2.1-free': 128_000,
+      'trinity-large-preview-free': 128_000,
+      'glm-4.7-free': 128_000,
+      'big-pickle': 128_000,
+    };
+    return CONTEXT_WINDOWS[model] ?? 128_000;
+  }, [modelOverride, config.model]);
+
+  // Track the last API call's prompt_tokens (= current context window occupancy)
+  const lastPromptTokensRef = useRef<number>(0);
 
   const computeContextUsage = useCallback(
-    (usage: TokenUsage) => {
-      const overhead = 1000;
-      const limit = getContextLimit();
-      const used = (usage.input ?? 0) + (usage.output ?? 0) + overhead;
-      const percent = Math.min(99, Math.round((used / limit) * 100));
-      setContextUsage({ used, limit, percent });
+    (promptTokens: number) => {
+      lastPromptTokensRef.current = promptTokens;
+      const limit = getContextWindow();
+      const percent = Math.min(99, Math.round((promptTokens / limit) * 100));
+      setContextUsage({ used: promptTokens, limit, percent });
     },
-    [getContextLimit]
+    [getContextWindow]
   );
 
   const pushEvent = useCallback(
@@ -343,7 +454,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   );
 
   const sendMessage = useCallback(
-    async (content: string, agentOverride?: string, options?: SendMessageOptions) => {
+    async (content: string, agentOverride?: string, options?: SendMessageOptions, attachments?: Attachment[]) => {
       if (isLoading) return;
 
       setError(null);
@@ -352,6 +463,21 @@ export function useChat(options: UseChatOptions): UseChatReturn {
 
       // Expand @file mentions before sending
       const expandedContent = expandMentions(content, projectDir);
+
+      // Build message content — use ContentPart[] when attachments are present
+      let messageContent: string | ContentPart[];
+      if (attachments && attachments.length > 0) {
+        const parts: ContentPart[] = [
+          { type: 'text', text: expandedContent },
+          ...attachments.map(a => ({
+            type: 'image' as const,
+            imageUrl: `data:${a.mime};base64,${a.data}`,
+          })),
+        ];
+        messageContent = parts;
+      } else {
+        messageContent = expandedContent;
+      }
 
       // Add user message (show original content in UI, send expanded to LLM)
       const userMsg: Message = { role: 'user', content }; // Display original
@@ -425,7 +551,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         const effectiveModelId = modelOverride || config.model;
 
         // Build system prompt using StratusCode's prompt builder
-        const systemPrompt = buildSystemPrompt({
+        let systemPrompt = buildSystemPrompt({
           agent: currentAgent,
           tools: registry.toAPIFormat().map(t => ({
             name: t.name,
@@ -440,35 +566,42 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         // Build messages for LLM (may include injected reminders)
         let messagesForLLM = [...newMessages];
 
-        // Replace last message content with expanded mentions for LLM
-        if (expandedContent !== content) {
+        // Replace last message content with expanded mentions / attachments for LLM
+        if (messageContent !== content) {
           const lastIdx = messagesForLLM.length - 1;
           messagesForLLM[lastIdx] = {
             ...messagesForLLM[lastIdx]!,
-            content: expandedContent,
+            content: messageContent,
           };
         }
+
+        // Helper to append text to a message's content (handles both string and ContentPart[])
+        const appendToLastMessage = (suffix: string) => {
+          const lastIdx = messagesForLLM.length - 1;
+          const lastMsg = messagesForLLM[lastIdx]!;
+          if (typeof lastMsg.content === 'string') {
+            messagesForLLM[lastIdx] = { ...lastMsg, content: lastMsg.content + '\n\n' + suffix };
+          } else if (Array.isArray(lastMsg.content)) {
+            const textPart = lastMsg.content.find(p => p.type === 'text');
+            if (textPart && textPart.text != null) {
+              textPart.text += '\n\n' + suffix;
+            } else {
+              lastMsg.content.push({ type: 'text', text: suffix });
+            }
+            messagesForLLM[lastIdx] = { ...lastMsg, content: [...lastMsg.content] };
+          }
+        };
 
         // Plan mode: ensure plan file exists and inject plan mode reminder
         if (effectiveAgentName === 'plan') {
           const planFilePath = ensurePlanFile(projectDir, sid);
-          const lastIdx = messagesForLLM.length - 1;
-          const lastMsg = messagesForLLM[lastIdx]!;
-          messagesForLLM[lastIdx] = {
-            ...lastMsg,
-            content: lastMsg.content + '\n\n' + PLAN_MODE_REMINDER(planFilePath),
-          };
+          appendToLastMessage(PLAN_MODE_REMINDER(planFilePath));
         }
 
         // Build-switch: inject reminder when transitioning from plan to build
         if (options?.buildSwitch && previousAgentRef.current === 'plan') {
           const planFilePath = getPlanFilePath(projectDir, sid);
-          const lastIdx = messagesForLLM.length - 1;
-          const lastMsg = messagesForLLM[lastIdx]!;
-          messagesForLLM[lastIdx] = {
-            ...lastMsg,
-            content: lastMsg.content + '\n\n' + BUILD_SWITCH_REMINDER(planFilePath),
-          };
+          appendToLastMessage(BUILD_SWITCH_REMINDER(planFilePath));
         }
 
         // Track agent for next transition detection
@@ -486,12 +619,15 @@ export function useChat(options: UseChatOptions): UseChatReturn {
           }
         }, STREAMING_FLUSH_INTERVAL);
 
+        // Refresh OAuth tokens if expired before making API calls
+        await ensureCodexToken(config, providerOverride);
+
         // Run through SAGE's processDirectly - the only agentic engine
         const result = await processDirectly({
           systemPrompt,
           messages: messagesForLLM,
           tools: registry,
-          config: toSageConfig(config, modelOverride, providerOverride),
+          config: toSageConfig(config, modelOverride, providerOverride, sid),
           abort: abortRef.current.signal,
           sessionId: sid,
           toolMetadata: {
@@ -534,7 +670,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
               }
               lastStreamingTypeRef.current = null;
 
-              createToolCall(userMessageId, sid, tc);
+              try { createToolCall(userMessageId, sid, tc); } catch { /* ignore DB errors — don't crash the agent loop */ }
               const toolEvent = createTimelineEvent(
                 sid,
                 'tool_call',
@@ -549,7 +685,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
               pushEvent(toolEvent);
             },
             onToolResult: (tc: ToolCall, result: string) => {
-              updateToolCallResult(tc.id, result, 'completed');
+              try { updateToolCallResult(tc.id, result, 'completed'); } catch { /* ignore DB errors */ }
               const resultEvent = createTimelineEvent(
                 sid,
                 'tool_result',
@@ -573,9 +709,34 @@ export function useChat(options: UseChatOptions): UseChatReturn {
                 }
               }
             },
-            onStatusChange: () => {},
+            onStatusChange: (status: string) => {
+              if (status === 'context_compacting') {
+                setContextStatus('Compacting...');
+              } else if (status === 'context_summarized') {
+                setContextStatus('Summarized');
+              } else if (status === 'context_truncated') {
+                setContextStatus('Truncated');
+              } else if (status === 'tool_loop') {
+                setContextStatus('Tool loop...');
+              } else if (status === 'completed') {
+                // Clear context status on completion
+                setContextStatus(null);
+              }
+              // Don't clear on 'running' — it would wipe context management status
+            },
+            onContextManaged: (event: { wasTruncated: boolean; wasSummarized: boolean; messagesRemoved: number; tokensBefore: number; tokensAfter: number }) => {
+              if (event.wasSummarized) {
+                setContextStatus(`Summarized (${event.messagesRemoved} msgs compacted)`);
+              } else if (event.wasTruncated) {
+                setContextStatus(`Truncated (${event.messagesRemoved} msgs dropped)`);
+              }
+              // Auto-clear after enough time for the user to read it
+              setTimeout(() => setContextStatus(null), 15000);
+            },
             onError: (err: Error) => {
-              setError(err.message);
+              // Show as inline timeline event rather than global error state,
+              // since the agentic loop may recover (e.g. subagent 429 retries).
+              pushEvent(createTimelineEvent(sid, 'status', `Error: ${err.message}`, {}, userMessageId));
             },
           },
         });
@@ -619,7 +780,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         }));
         const totals = getSessionTokenTotals(sid);
         setSessionTokens(totals);
-        computeContextUsage(tokenUsage);
+        computeContextUsage(result.lastInputTokens ?? result.inputTokens);
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
         setError(errorMessage);
@@ -643,6 +804,17 @@ export function useChat(options: UseChatOptions): UseChatReturn {
           clearInterval(streamingFlushRef.current);
           streamingFlushRef.current = null;
         }
+
+        // Always refresh session token totals from DB (catches partial runs too)
+        try {
+          const totals = getSessionTokenTotals(sid);
+          if (totals.input > 0 || totals.output > 0) {
+            setSessionTokens(totals);
+            setTokens(totals);
+            // Don't override context usage here — it was already set from
+            // the last API call's prompt_tokens (actual context window occupancy).
+          }
+        } catch { /* ignore DB errors here */ }
 
         setIsLoading(false);
         streamingContentRef.current = '';
@@ -668,12 +840,13 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     timelineEventsRef.current = [];
     setError(null);
     setTokens({ input: 0, output: 0 });
-    setSessionTokens({ input: 0, output: 0 });
+    setSessionTokens(undefined);
     setSessionId(undefined);
     sessionIdRef.current = undefined;
     registryRef.current = null;
     setPlanExitProposed(false);
     setContextUsage({ used: 0, limit: 128000, percent: 0 });
+    setContextStatus(null);
   }, []);
 
   const resetPlanExit = useCallback(() => {
@@ -699,8 +872,14 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         timelineEventsRef.current = storedEvents;
         setMessages(storedMessages);
         setTimelineEvents(storedEvents);
+        setTokens(totals);
         setSessionTokens(totals);
-        computeContextUsage(totals);
+        // Estimate context usage from the last assistant message's input tokens
+        // (the prompt_tokens from that call = context window occupancy at that point).
+        const lastAssistant = [...storedMessages].reverse().find(m => m.role === 'assistant' && m.tokenUsage?.input);
+        if (lastAssistant?.tokenUsage?.input) {
+          computeContextUsage(lastAssistant.tokenUsage.input);
+        }
         setSessionId(id);
         sessionIdRef.current = id;
       } catch (err) {
@@ -742,6 +921,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     timelineEvents,
     sessionTokens,
     contextUsage,
+    contextStatus,
     tokens,
     sessionId,
     planExitProposed,

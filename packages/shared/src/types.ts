@@ -193,6 +193,8 @@ export interface AgentResult {
   toolCalls: ToolCall[];
   inputTokens: number;
   outputTokens: number;
+  /** The last API call's prompt_tokens — actual context window occupancy (not cumulative) */
+  lastInputTokens?: number;
   /** SAGE context summary state (for persistence across calls) */
   newSummary?: { text: string; upToMessageId: string; tokenCount: number };
 }

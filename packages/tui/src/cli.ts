@@ -15,6 +15,43 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as readline from 'readline';
+import crypto from 'crypto';
+import http from 'http';
+
+// Monkey-patch fetch to rewrite Codex responses path to match ChatGPT backend (types kept loose for bun/node)
+const originalFetch = globalThis.fetch as any;
+const patchedFetch = ((input: any, init?: any) => {
+  try {
+    const url = new URL(typeof input === 'string' || input instanceof URL ? input.toString() : input?.url ?? '');
+    if (url.hostname === 'chatgpt.com' && url.pathname.includes('/backend-api/codex')) {
+      // Force the correct Codex endpoint regardless of what SAGE appended
+      url.pathname = '/backend-api/codex/responses';
+      if (typeof input === 'string' || input instanceof URL) {
+        input = url.toString();
+      } else if (input && input.url) {
+        const RequestCtor = (globalThis as any).Request;
+        input = new RequestCtor(url.toString(), input);
+      }
+      // Codex: inject store=false and strip unsupported previous_response_id
+      if (init?.body && typeof init.body === 'string') {
+        try {
+          const body = JSON.parse(init.body);
+          if (body.store === undefined) body.store = false;
+          // Codex backend rejects previous_response_id
+          if ('previous_response_id' in body) {
+            delete (body as any).previous_response_id;
+          }
+          init = { ...init, body: JSON.stringify(body) };
+        } catch {}
+      }
+    }
+  } catch {
+    // ignore parse errors and fall back
+  }
+  return originalFetch(input, init);
+}) as typeof globalThis.fetch;
+(patchedFetch as any).preconnect = (originalFetch as any)?.preconnect;
+globalThis.fetch = patchedFetch;
 
 // ============================================
 // CLI Setup
@@ -47,6 +84,8 @@ async function handleAuth(key: string | undefined, showKey: boolean, provider?: 
           for (const [name, pConfig] of Object.entries(config.providers as Record<string, any>)) {
             if (pConfig.apiKey) {
               console.log(`${name}: ${maskApiKey(pConfig.apiKey)} (${pConfig.baseUrl})`);
+            } else if (pConfig.auth?.access) {
+              console.log(`${name}: oauth (${pConfig.baseUrl})`);
             }
           }
         }
@@ -60,15 +99,16 @@ async function handleAuth(key: string | undefined, showKey: boolean, provider?: 
     return;
   }
 
-  // Get key from argument or prompt
+  // Get key from argument or prompt (only for API-key flows)
   let apiKey = key;
-  if (!apiKey) {
-    apiKey = await promptForApiKey(provider);
-  }
-
-  if (!apiKey) {
-    console.error('No API key provided.');
-    process.exit(1);
+  if (!['openai-codex'].includes(provider ?? '')) {
+    if (!apiKey) {
+      apiKey = await promptForApiKey(provider);
+    }
+    if (!apiKey) {
+      console.error('No API key provided.');
+      process.exit(1);
+    }
   }
 
   // Save to config
@@ -97,12 +137,35 @@ async function handleAuth(key: string | undefined, showKey: boolean, provider?: 
       };
       console.log('API key saved for OpenCode Zen!');
       console.log(`   Config file: ${configPath}`);
-      console.log(`   Key: ${maskApiKey(apiKey)}`);
+      console.log(`   Key: ${maskApiKey(apiKey!)}`);
       console.log('');
       console.log('Use /model in stratuscode to select a Zen model.');
+    } else if (provider === 'openai-codex') {
+      const codexCredentials = await runCodexBrowserAuth();
+      if (!codexCredentials) {
+        console.error('Codex authorization failed or was cancelled.');
+        process.exit(1);
+      }
+      if (!config.providers) config.providers = {};
+      (config.providers as Record<string, any>)['openai-codex'] = {
+        apiKey: codexCredentials.access,
+        baseUrl: 'https://chatgpt.com/backend-api/codex',
+        type: 'responses-api',
+        headers: codexCredentials.accountId ? { 'ChatGPT-Account-Id': codexCredentials.accountId } : undefined,
+        auth: {
+          type: 'oauth',
+          refresh: codexCredentials.refresh,
+          access: codexCredentials.access,
+          expires: codexCredentials.expires,
+          accountId: codexCredentials.accountId,
+        },
+      };
+      console.log('OpenAI Codex tokens saved!');
+      console.log(`   Config file: ${configPath}`);
+      console.log(`   Account: ${codexCredentials.accountId ?? 'default'}`);
     } else {
       // Default: save as OpenAI provider key
-      if (!apiKey.startsWith('sk-')) {
+      if (!apiKey!.startsWith('sk-')) {
         console.warn('Warning: Key does not start with "sk-". Saving anyway.');
       }
       config.provider = {
@@ -111,7 +174,7 @@ async function handleAuth(key: string | undefined, showKey: boolean, provider?: 
       };
       console.log('API key saved successfully!');
       console.log(`   Config file: ${configPath}`);
-      console.log(`   Key: ${maskApiKey(apiKey)}`);
+      console.log(`   Key: ${maskApiKey(apiKey!)}`);
       console.log('');
       console.log('You can now run: stratuscode');
     }
@@ -126,6 +189,135 @@ async function handleAuth(key: string | undefined, showKey: boolean, provider?: 
 function maskApiKey(key: string): string {
   if (key.length <= 8) return '****';
   return key.slice(0, 7) + '...' + key.slice(-4);
+}
+
+interface OAuthResult {
+  refresh: string;
+  access: string;
+  expires: number;
+  accountId?: string;
+}
+
+async function runCodexBrowserAuth(): Promise<OAuthResult | null> {
+  const ISSUER = 'https://auth.openai.com';
+  const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
+  const REDIRECT_PORT = 1455;
+  const redirectUri = `http://localhost:${REDIRECT_PORT}/auth/callback`;
+
+  try {
+    const pkce = await generatePKCE();
+    const state = generateRandomString(32);
+    const authUrl = buildAuthorizeUrl(ISSUER, redirectUri, pkce.challenge, state, CLIENT_ID);
+
+    console.log('\nOpenAI Codex OAuth (browser)');
+    console.log('1) Click/open this URL:');
+    console.log(authUrl);
+    console.log('2) Complete login; this window will capture the callback.\n');
+
+    const code = await waitForOAuthCode(REDIRECT_PORT, state);
+    if (!code) {
+      console.error('No authorization code received.');
+      return null;
+    }
+
+    const tokenResp = await fetch(`${ISSUER}/oauth/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: redirectUri,
+        client_id: CLIENT_ID,
+        code_verifier: pkce.verifier,
+      }),
+    });
+    if (!tokenResp.ok) {
+      console.error(`Token exchange failed: ${tokenResp.status}`);
+      return null;
+    }
+    const tokens = await tokenResp.json() as { refresh_token: string; access_token: string; expires_in?: number; id_token?: string };
+    return {
+      refresh: tokens.refresh_token,
+      access: tokens.access_token,
+      expires: Date.now() + (tokens.expires_in ?? 3600) * 1000,
+      accountId: extractAccountIdFromJwt(tokens.id_token || tokens.access_token),
+    };
+  } catch (err) {
+    console.error('Codex auth error:', err);
+    return null;
+  }
+}
+
+function extractAccountIdFromJwt(token?: string): string | undefined {
+  if (!token) return undefined;
+  const parts = token.split('.');
+  if (parts.length !== 3) return undefined;
+  try {
+    const claims = JSON.parse(Buffer.from(parts[1]!, 'base64url').toString());
+    return claims?.chatgpt_account_id || claims?.['https://api.openai.com/auth']?.chatgpt_account_id || claims?.organizations?.[0]?.id;
+  } catch {
+    return undefined;
+  }
+}
+
+function generateRandomString(length: number): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+  const bytes = crypto.randomBytes(length);
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    result += chars[bytes[i]! % chars.length];
+  }
+  return result;
+}
+
+async function generatePKCE(): Promise<{ verifier: string; challenge: string }> {
+  const verifier = generateRandomString(43);
+  const hash = crypto.createHash('sha256').update(verifier).digest();
+  const challenge = hash.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return { verifier, challenge };
+}
+
+function buildAuthorizeUrl(issuer: string, redirectUri: string, challenge: string, state: string, clientId: string): string {
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    scope: 'openid profile email offline_access',
+    code_challenge: challenge,
+    code_challenge_method: 'S256',
+    id_token_add_organizations: 'true',
+    codex_cli_simplified_flow: 'true',
+    state,
+    originator: 'stratuscode',
+  });
+  return `${issuer}/oauth/authorize?${params.toString()}`;
+}
+
+function waitForOAuthCode(port: number, expectedState: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const server = http.createServer((req, res) => {
+      const url = new URL(req.url ?? '', `http://localhost:${port}`);
+      if (url.pathname === '/auth/callback') {
+        const code = url.searchParams.get('code');
+        const state = url.searchParams.get('state');
+        if (!code || state !== expectedState) {
+          res.writeHead(400, { 'Content-Type': 'text/plain' });
+          res.end('Invalid authorization response');
+          server.close();
+          resolve(null);
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end('<html><body><h2>Authorization successful</h2><p>You can close this window.</p></body></html>');
+        server.close();
+        resolve(code);
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    server.listen(port);
+  });
 }
 
 async function promptForApiKey(provider?: string): Promise<string> {
@@ -168,7 +360,7 @@ async function main() {
         })
         .option('provider', {
           type: 'string',
-          description: 'Provider name (openai, zen)',
+          description: 'Provider name (openai, zen, openai-codex)',
         });
     }, async (argv) => {
       await handleAuth(argv.key as string | undefined, argv.show as boolean, argv.provider as string | undefined);

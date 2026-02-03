@@ -15,6 +15,7 @@ import { ThinkingIndicator } from './ThinkingIndicator';
 import { MarkdownText } from './MarkdownText';
 import { colors } from '../theme/colors';
 import type { Command } from '../commands/registry';
+import type { Attachment } from './UnifiedInput';
 
 const CODE_COLOR = '#8642EC';
 
@@ -29,7 +30,7 @@ export interface ChatProps {
   gutter?: number;
   compactView?: boolean;
   pendingQuestion?: Question;
-  onSubmit: (text: string) => void;
+  onSubmit: (text: string, attachments?: Attachment[]) => void;
   onCommand?: (command: Command) => void;
   onQuestionAnswer?: (answers: string[]) => void;
   onQuestionSkip?: () => void;
@@ -96,7 +97,7 @@ export const Chat = React.memo(function Chat({
   }, [timelineEvents]);
 
   return (
-    <Box flexDirection="column" flexGrow={1} paddingX={1} paddingLeft={gutter + 1}>
+    <Box flexDirection="column" flexGrow={1} paddingLeft={gutter + 2} paddingRight={gutter + 2}>
       {timelineEvents.map((event, idx) => {
         // Skip tool_result events — they're merged into their tool_call
         if (event.kind === 'tool_result') return null;

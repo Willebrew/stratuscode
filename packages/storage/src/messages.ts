@@ -213,15 +213,18 @@ export function createToolCall(
   toolCall: ToolCall
 ): void {
   const now = Date.now();
-  insert('tool_calls', {
-    id: toolCall.id,
-    message_id: messageId,
-    session_id: sessionId,
-    name: toolCall.function.name,
-    arguments: toolCall.function.arguments,
-    status: 'pending',
-    started_at: now,
-  });
+  const db = getDatabase();
+  db.prepare(
+    'INSERT OR IGNORE INTO tool_calls (id, message_id, session_id, name, arguments, status, started_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(
+    toolCall.id,
+    messageId,
+    sessionId,
+    toolCall.function.name,
+    toolCall.function.arguments,
+    'pending',
+    now,
+  );
 }
 
 /**
@@ -331,7 +334,7 @@ export function listTimelineEvents(sessionId: string): TimelineEvent[] {
       kind: parsed.kind,
       content: parsed.content,
       tokens: parsed.tokens,
-      streaming: parsed.streaming,
+      streaming: false, // Loaded events are never streaming
     };
     if (parsed.toolCallId) {
       return {

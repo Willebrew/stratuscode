@@ -110,13 +110,27 @@ export function createSession(options: SessionOptions): SessionManager {
 
   // SAGE context engine state
   let existingSummary: SummaryState | undefined;
+  const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
+    'gpt-5-mini': 128_000,
+    'gpt-4o': 128_000,
+    'o3-mini': 128_000,
+    'gpt-5.2-codex': 192_000,
+    'gpt-5.1-codex': 192_000,
+    'gpt-5.1-codex-max': 192_000,
+    'gpt-5.1-codex-mini': 192_000,
+    'kimi-k2.5-free': 128_000,
+    'minimax-m2.1-free': 128_000,
+    'trinity-large-preview-free': 128_000,
+    'glm-4.7-free': 128_000,
+    'big-pickle': 128_000,
+  };
   const contextConfig: ContextConfig = {
     model: config.model,
-    contextWindow: 128_000, // gpt-5-mini context window
+    contextWindow: MODEL_CONTEXT_WINDOWS[config.model] ?? 128_000,
     maxResponseTokens: config.maxTokens ?? 16_384,
     summary: {
       provider: {
-        apiKey: config.provider.apiKey!,
+        apiKey: config.provider.apiKey || (config as any).provider?.auth?.access || '',
         baseUrl: config.provider.baseUrl,
       },
       model: config.model,

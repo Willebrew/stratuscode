@@ -92,9 +92,32 @@ export function loadConfig(projectDir: string): LoadedConfig {
       apiKey: process.env.OPENCODE_ZEN_API_KEY || process.env.OPENCODE_API_KEY,
       baseUrl: 'https://opencode.ai/zen/v1',
       type: 'chat-completions',
-      headers: { 'HTTP-Referer': 'https://stratuscode.dev/', 'X-Title': 'stratuscode' },
+      headers: {
+        'x-opencode-client': 'cli',
+      },
     };
     sources.push(process.env.OPENCODE_ZEN_API_KEY ? 'OPENCODE_ZEN_API_KEY' : 'OPENCODE_API_KEY');
+  }
+
+  // OpenAI Codex provider (ChatGPT Pro/Plus OAuth tokens)
+  if (process.env.CODEX_REFRESH_TOKEN || process.env.CODEX_ACCESS_TOKEN) {
+    if (!config.providers) (config as any).providers = {};
+    (config as any).providers['openai-codex'] = {
+      apiKey: process.env.CODEX_ACCESS_TOKEN,
+      baseUrl: 'https://chatgpt.com/backend-api/codex',
+      type: 'responses-api',
+      headers: {
+        ...(process.env.CODEX_ACCOUNT_ID ? { 'ChatGPT-Account-Id': process.env.CODEX_ACCOUNT_ID } : {}),
+      },
+      auth: process.env.CODEX_REFRESH_TOKEN || process.env.CODEX_ACCESS_TOKEN ? {
+        type: 'oauth',
+        refresh: process.env.CODEX_REFRESH_TOKEN || '',
+        access: process.env.CODEX_ACCESS_TOKEN || '',
+        expires: Date.now() + 55 * 60 * 1000, // assume ~1h default if not provided
+        ...(process.env.CODEX_ACCOUNT_ID ? { accountId: process.env.CODEX_ACCOUNT_ID } : {}),
+      } : undefined,
+    };
+    sources.push(process.env.CODEX_REFRESH_TOKEN ? 'CODEX_REFRESH_TOKEN' : 'CODEX_ACCESS_TOKEN');
   }
 
   // Apply defaults
@@ -102,6 +125,7 @@ export function loadConfig(projectDir: string): LoadedConfig {
     model: (config as any).model || 'gpt-5-mini',
     provider: {
       apiKey: config.provider?.apiKey,
+      auth: (config.provider as any)?.auth,
       baseUrl: config.provider?.baseUrl || 'https://api.openai.com/v1',
       type: (config.provider as any)?.type,
       headers: (config.provider as any)?.headers,
@@ -149,5 +173,5 @@ export function saveGlobalConfig(config: Partial<StratusCodeConfig>): void {
  * Check if API key is configured
  */
 export function hasApiKey(config: StratusCodeConfig): boolean {
-  return !!config.provider?.apiKey;
+  return !!config.provider?.apiKey || !!(config.provider as any)?.auth?.access;
 }

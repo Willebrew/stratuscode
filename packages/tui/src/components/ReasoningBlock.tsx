@@ -13,6 +13,16 @@ import { colors } from '../theme/colors';
 const CODE_COLOR = '#8642EC';
 const SWEEP_CHARS = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
+/** Isolated spinner — only this component re-renders on each tick */
+const Spinner = React.memo(function Spinner() {
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setFrame(f => (f + 1) % SWEEP_CHARS.length), 80);
+    return () => clearInterval(id);
+  }, []);
+  return <Text color={CODE_COLOR}>{SWEEP_CHARS[frame]} </Text>;
+});
+
 export interface ReasoningBlockProps {
   reasoning: string;
   isStreaming: boolean;
@@ -23,23 +33,19 @@ export interface ReasoningBlockProps {
 }
 
 export function ReasoningBlock({ reasoning, isStreaming, isActive = false, defaultExpanded = false }: ReasoningBlockProps) {
-  const [frame, setFrame] = useState(0);
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
-  // Auto-expand while streaming
+  // Auto-expand while streaming, auto-collapse when done
+  const wasStreamingRef = React.useRef(false);
   useEffect(() => {
     if (isStreaming) {
       setIsExpanded(true);
+      wasStreamingRef.current = true;
+    } else if (wasStreamingRef.current) {
+      // Streaming just ended — collapse
+      setIsExpanded(false);
+      wasStreamingRef.current = false;
     }
-  }, [isStreaming]);
-
-  // Animate spinner while streaming
-  useEffect(() => {
-    if (!isStreaming) return;
-    const interval = setInterval(() => {
-      setFrame(prev => (prev + 1) % SWEEP_CHARS.length);
-    }, 300);
-    return () => clearInterval(interval);
   }, [isStreaming]);
 
   // Only register input listener when this block is the active one
@@ -78,7 +84,7 @@ export function ReasoningBlock({ reasoning, isStreaming, isActive = false, defau
       <Box>
         {isStreaming ? (
           <>
-            <Text color={CODE_COLOR}>{SWEEP_CHARS[frame]} </Text>
+            <Spinner />
             <Text color={colors.textMuted} italic>Thinking</Text>
           </>
         ) : (

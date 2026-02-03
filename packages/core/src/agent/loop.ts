@@ -35,6 +35,50 @@ import type { ContextConfig, SummaryState } from '@sage/core/context';
 import { verifyEdit, formatVerification, detectProjectLinters } from '@sage/core/verification';
 import type { LinterConfig } from '@sage/core/verification';
 
+// --- Network shims to mirror OpenCode provider rewrites (Codex) ---
+(() => {
+  const g: any = globalThis as any;
+  if (g.__stratus_fetch_patched) return;
+  const originalFetch: any = g.fetch;
+  const RequestCtor: any = g.Request;
+
+  g.fetch = (input: any, init?: any) => {
+    try {
+      const req = input instanceof RequestCtor ? input : new RequestCtor(input, init);
+      const url = new URL(req.url);
+
+      // Codex: force ChatGPT codex responses endpoint + inject store=false
+      if (url.hostname === 'chatgpt.com' && url.pathname.includes('/backend-api/codex')) {
+        url.pathname = '/backend-api/codex/responses';
+        const rewritten = new RequestCtor(url.toString(), req);
+        // Inject store=false into request body (Codex requirement)
+        if (init?.body && typeof init.body === 'string') {
+          try {
+            const body = JSON.parse(init.body);
+            if (body.store === undefined) {
+              body.store = false;
+            }
+            // Codex backend rejects previous_response_id — strip it defensively
+            if ('previous_response_id' in body) {
+              delete (body as any).previous_response_id;
+            }
+            init = { ...init, body: JSON.stringify(body) };
+          } catch {}
+        }
+        return originalFetch(rewritten, init);
+      }
+
+    } catch {
+      // fall back to normal fetch
+    }
+    return originalFetch(input, init);
+  };
+
+  // Preserve optional preconnect (bun)
+  (g.fetch as any).preconnect = (originalFetch as any)?.preconnect;
+  g.__stratus_fetch_patched = true;
+})();
+
 // ============================================
 // Types
 // ============================================
@@ -87,7 +131,6 @@ function isResponsesAPIProvider(config: StratusCodeConfig): boolean {
   // Auto-detect from base URL
   const url = config.provider.baseUrl || '';
   if (url.includes('opencode') || url.includes('/zen/')) return false;
-  if (url.includes('anthropic')) return false;
   if (url.includes('openrouter')) return false;
   if (url.includes('together')) return false;
   if (url.includes('groq')) return false;
@@ -97,11 +140,32 @@ function isResponsesAPIProvider(config: StratusCodeConfig): boolean {
 }
 
 /**
+ * Some Responses API-compatible gateways (e.g. ChatGPT Codex, OpenClaw)
+ * ignore `previous_response_id`, which breaks tool continuations. In those
+ * cases we fall back to replaying the full tool call + output history instead
+ * of relying on server-side state.
+ */
+function supportsPreviousResponseContinuation(config: StratusCodeConfig): boolean {
+  const url = config.provider.baseUrl || '';
+
+  // Codex models currently return 400s when continuing with previous_response_id
+  if (config.model.toLowerCase().includes('codex')) return false;
+
+  // ChatGPT Codex backend currently drops previous_response_id
+  if (url.includes('chatgpt.com') || url.includes('/codex')) return false;
+
+  // OpenClaw proxy does the same
+  if (url.includes('openclaw')) return false;
+
+  return true;
+}
+
+/**
  * Build SAGE ProviderConfig from StratusCode config
  */
 function buildProviderConfig(config: StratusCodeConfig): ProviderConfig {
   return {
-    apiKey: config.provider.apiKey!,
+    apiKey: config.provider.apiKey || (config as any).provider?.auth?.access || '',
     baseUrl: config.provider.baseUrl,
     model: config.model,
     temperature: config.temperature,
@@ -140,7 +204,7 @@ export async function processWithToolLoop(
   const hooks = context.config.hooks;
 
   // Safety check: prevent infinite loops
-  if (depth >= maxDepth) {
+  if (depth > maxDepth) {
     throw new MaxDepthError(depth, maxDepth);
   }
 
@@ -450,10 +514,11 @@ export async function processWithToolLoop(
 
     // Determine recursion strategy based on API format
     const useResponsesAPI = isResponsesAPIProvider(context.config);
+    const supportsPrevResponse = supportsPreviousResponseContinuation(context.config);
     let recursiveMessages: Message[];
     let recursivePreviousResponseId: string | undefined;
 
-    if (useResponsesAPI && accumulator.responseId) {
+    if (useResponsesAPI && accumulator.responseId && supportsPrevResponse) {
       // Responses API: send only tool results + previousResponseId
       recursiveMessages = toolResults;
       recursivePreviousResponseId = accumulator.responseId;
@@ -507,6 +572,7 @@ export async function processWithToolLoop(
     toolCalls: [],
     inputTokens: totalTokens.input,
     outputTokens: totalTokens.output,
+    lastInputTokens: accumulator.inputTokens,
     newSummary: summary ? {
       text: summary.text,
       upToMessageId: summary.upToMessageId ?? '',

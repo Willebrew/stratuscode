@@ -12,6 +12,13 @@ export const StratusCodeConfigSchema = z.object({
   // Provider configuration
   provider: z.object({
     apiKey: z.string().optional(),
+    auth: z.object({
+      type: z.literal('oauth'),
+      refresh: z.string(),
+      access: z.string(),
+      expires: z.number(),
+      accountId: z.string().optional(),
+    }).optional(),
     baseUrl: z.string().default('https://api.openai.com/v1'),
     type: z.enum(['responses-api', 'chat-completions']).optional(),
     headers: z.record(z.string(), z.string()).optional(),
@@ -19,7 +26,14 @@ export const StratusCodeConfigSchema = z.object({
 
   // Named provider presets (multiple API keys / endpoints)
   providers: z.record(z.string(), z.object({
-    apiKey: z.string(),
+    apiKey: z.string().optional(),
+    auth: z.object({
+      type: z.literal('oauth'),
+      refresh: z.string(),
+      access: z.string(),
+      expires: z.number(),
+      accountId: z.string().optional(),
+    }).optional(),
     baseUrl: z.string(),
     type: z.enum(['responses-api', 'chat-completions']).optional(),
     headers: z.record(z.string(), z.string()).optional(),
@@ -104,22 +118,22 @@ export type McpConfig = z.infer<typeof McpConfigSchema>;
 
 export const ProjectConfigSchema = z.object({
   $schema: z.string().optional(),
-  
+
   // Extend base config
   ...StratusCodeConfigSchema.shape,
-  
+
   // Agents
   agents: z.record(z.string(), AgentConfigSchema).optional(),
-  
+
   // MCP servers
   mcp: z.record(z.string(), McpConfigSchema).optional(),
-  
+
   // Default agent
   defaultAgent: z.string().default('build'),
-  
+
   // Instructions to prepend to system prompt
   instructions: z.array(z.string()).optional(),
-  
+
   // Keybinds (TUI)
   keybinds: z.record(z.string(), z.string()).optional(),
 });
@@ -169,6 +183,17 @@ export const PROVIDER_MODELS: Record<string, { label: string; models: { id: stri
       { id: 'o3-mini', name: 'o3-mini' },
     ],
   },
+  'openai-codex': {
+    label: 'OpenAI Codex',
+    models: [
+      { id: 'gpt-5.2-codex', name: 'GPT-5.2 Codex', free: true },
+      { id: 'gpt-5.1-codex', name: 'GPT-5.1 Codex', free: true },
+      { id: 'gpt-5.1-codex-max', name: 'GPT-5.1 Codex Max', free: true },
+      { id: 'gpt-5.1-codex-mini', name: 'GPT-5.1 Codex Mini', free: true },
+      { id: 'gpt-5-codex', name: 'GPT-5 Codex', free: true },
+      { id: 'codex-mini', name: 'Codex Mini', free: true },
+    ],
+  },
   'opencode-zen': {
     label: 'OpenCode Zen',
     models: [
@@ -177,11 +202,6 @@ export const PROVIDER_MODELS: Record<string, { label: string; models: { id: stri
       { id: 'kimi-k2.5-free', name: 'Kimi K2.5 Free', free: true },
       { id: 'glm-4.7-free', name: 'GLM-4.7 Free', free: true },
       { id: 'big-pickle', name: 'Big Pickle', free: true },
-      { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5' },
-      { id: 'gemini-3-pro', name: 'Gemini 3 Pro' },
-      { id: 'gpt-5.2', name: 'GPT-5.2' },
-      { id: 'qwen3-coder', name: 'Qwen3 Coder' },
-      { id: 'kimi-k2.5', name: 'Kimi K2.5' },
     ],
   },
 };

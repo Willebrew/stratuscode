@@ -6,7 +6,7 @@
  * — all within one bordered box.
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Box, Text, useInput, useStdout } from 'ink';
 import { CommandPaletteInline, getCommandResultCount, getCommandAtIndex } from './CommandPalette';
 import { FileMentionPalette, getFileResultCount, getFileAtIndex } from './FileMentionPalette';
@@ -15,6 +15,7 @@ import type { TokenUsage } from '@stratuscode/shared';
 import type { TodoItem } from '../hooks/useTodos';
 import { colors, getAgentColor, getStatusColor } from '../theme/colors';
 import { icons, getStatusIcon } from '../theme/icons';
+import { usePaste, type PasteEvent } from '../hooks/usePaste';
 
 const CODE_COLOR = '#8642EC';
 
@@ -22,8 +23,20 @@ const CODE_COLOR = '#8642EC';
 // Types
 // ============================================
 
+export interface Attachment {
+  type: 'image';
+  data: string; // base64
+  mime: string;
+}
+
+interface PastedChunk {
+  id: string;
+  display: string; // e.g. "[Pasted ~10 lines]"
+  full: string;    // the actual pasted text
+}
+
 export interface UnifiedInputProps {
-  onSubmit: (text: string) => void;
+  onSubmit: (text: string, attachments?: Attachment[]) => void;
   onCommand?: (command: Command) => void;
   placeholder?: string;
   disabled?: boolean;
@@ -34,6 +47,7 @@ export interface UnifiedInputProps {
   tokens?: TokenUsage;
   sessionTokens?: TokenUsage;
   contextUsage?: { used: number; limit: number; percent: number };
+  contextStatus?: string | null;
   showTelemetryDetails?: boolean;
   isLoading?: boolean;
   // Tasks
@@ -42,6 +56,8 @@ export interface UnifiedInputProps {
   onToggleTasks?: React.MutableRefObject<(() => void) | null>;
   /** Project directory for @ file mentions */
   projectDir?: string;
+  /** Optional fixed width for centering calculations */
+  width?: number;
 }
 
 // ============================================
@@ -64,6 +80,87 @@ function truncate(text: string, maxLen: number): string {
 }
 
 // ============================================
+// Input Display — renders text with paste tokens highlighted
+// ============================================
+
+function InputDisplay({
+  value,
+  cursorPos,
+  isDisabled,
+  isSlashCommand,
+  pastedChunks,
+}: {
+  value: string;
+  cursorPos: number;
+  isDisabled: boolean;
+  isSlashCommand: boolean;
+  pastedChunks: PastedChunk[];
+}) {
+  const defaultColor = isSlashCommand ? colors.secondary : colors.text;
+
+  // Build segments: text and paste tokens
+  const segments: Array<{ text: string; isPaste: boolean }> = [];
+  let remaining = value;
+  let offset = 0;
+
+  // Find paste tokens in the value and split around them
+  const pasteTokens = pastedChunks
+    .map(chunk => ({ display: chunk.display, index: value.indexOf(chunk.display) }))
+    .filter(t => t.index !== -1)
+    .sort((a, b) => a.index - b.index);
+
+  if (pasteTokens.length === 0) {
+    segments.push({ text: value, isPaste: false });
+  } else {
+    let pos = 0;
+    for (const token of pasteTokens) {
+      if (token.index > pos) {
+        segments.push({ text: value.slice(pos, token.index), isPaste: false });
+      }
+      segments.push({ text: token.display, isPaste: true });
+      pos = token.index + token.display.length;
+    }
+    if (pos < value.length) {
+      segments.push({ text: value.slice(pos), isPaste: false });
+    }
+  }
+
+  // Render segments with cursor overlay
+  const parts: React.ReactNode[] = [];
+  let charIndex = 0;
+
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i]!;
+    const segStart = charIndex;
+    const segEnd = charIndex + seg.text.length;
+    const segColor = seg.isPaste ? colors.warning : defaultColor;
+
+    if (!isDisabled && cursorPos >= segStart && cursorPos < segEnd) {
+      // Cursor is within this segment
+      const localPos = cursorPos - segStart;
+      if (localPos > 0) {
+        parts.push(<Text key={`${i}a`} wrap="wrap" color={segColor}>{seg.text.slice(0, localPos)}</Text>);
+      }
+      parts.push(<Text key={`${i}c`} inverse color={segColor}>{seg.text[localPos]}</Text>);
+      if (localPos + 1 < seg.text.length) {
+        parts.push(<Text key={`${i}b`} wrap="wrap" color={segColor}>{seg.text.slice(localPos + 1)}</Text>);
+      }
+    } else {
+      parts.push(<Text key={`${i}`} wrap="wrap" color={segColor}>{seg.text}</Text>);
+    }
+
+    charIndex = segEnd;
+  }
+
+  // Cursor at end of value
+  if (!isDisabled && cursorPos >= value.length) {
+    parts.push(<Text key="cursor" color={colors.primary}>▎</Text>);
+  }
+
+  return <>{parts}</>;
+}
+
+// ============================================
 // Component
 // ============================================
 
@@ -78,11 +175,13 @@ export function UnifiedInput({
   tokens = { input: 0, output: 0 },
   sessionTokens,
   contextUsage,
+  contextStatus,
   showTelemetryDetails = false,
   isLoading = false,
   todos = [],
   onToggleTasks,
   projectDir,
+  width,
 }: UnifiedInputProps) {
   const { stdout } = useStdout();
   const [value, setValue] = useState('');
@@ -92,10 +191,48 @@ export function UnifiedInput({
   const [showFileMention, setShowFileMention] = useState(false);
   const [fileSelectedIndex, setFileSelectedIndex] = useState(0);
   const [tasksExpanded, setTasksExpanded] = useState(false);
+  const [pastedChunks, setPastedChunks] = useState<PastedChunk[]>([]);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const pasteIdCounter = useRef(0);
 
   const isSlashCommand = value.startsWith('/');
   const commandQuery = isSlashCommand ? value.slice(1) : '';
   const isDisabled = disabled || isLoading;
+
+  // Handle paste events from usePaste hook
+  const handlePaste = useCallback((event: PasteEvent) => {
+    if (isDisabled) return;
+
+    if (event.type === 'image') {
+      setAttachments(prev => [...prev, { type: 'image', data: event.data, mime: event.mime }]);
+      return;
+    }
+
+    // Large text paste — insert summary token, store full text
+    // The usePaste hook intercepts stdin.emit so Ink's useInput never sees
+    // the raw paste data — no guard needed.
+    if (event.type === 'text' && event.isLarge) {
+      const id = `paste_${++pasteIdCounter.current}`;
+      const display = `[Pasted ~${event.lineCount} lines]`;
+      setPastedChunks(prev => [...prev, { id, display, full: event.text }]);
+      setValue(prev => {
+        const newVal = prev.slice(0, cursorPos) + display + prev.slice(cursorPos);
+        setCursorPos(cursorPos + display.length);
+        return newVal;
+      });
+    }
+  }, [isDisabled, cursorPos]);
+
+  usePaste({ onPaste: handlePaste, active: !isDisabled });
+
+  // Expand all paste tokens back to full text for submission
+  const expandPasteTokens = useCallback((text: string): string => {
+    let result = text;
+    for (const chunk of pastedChunks) {
+      result = result.replace(chunk.display, chunk.full);
+    }
+    return result;
+  }, [pastedChunks]);
 
   // Extract @ mention query: text after the last '@' in the value
   const atIndex = value.lastIndexOf('@');
@@ -114,8 +251,8 @@ export function UnifiedInput({
     : 'What would you like to build?';
 
   // Compute divider width dynamically
-  const terminalWidth = stdout?.columns ?? 80;
-  const effectiveWidth = Math.min(terminalWidth, 100);
+  const terminalWidth = width ?? stdout?.columns ?? 80;
+  const effectiveWidth = Math.min(terminalWidth, width ?? 100);
   const dividerWidth = Math.max(10, effectiveWidth - 10);
   const wideLayout = effectiveWidth >= 60;
 
@@ -183,6 +320,8 @@ export function UnifiedInput({
       setShowFileMention(false);
       setFileSelectedIndex(0);
       setCommandSelectedIndex(0);
+      setPastedChunks([]);
+      setAttachments([]);
       return;
     }
 
@@ -309,11 +448,15 @@ export function UnifiedInput({
     if (key.return) {
       if (value === '/') return;
       if (value.trim() && !isSlashCommand) {
-        onSubmit(value);
+        const expandedText = expandPasteTokens(value);
+        const currentAttachments = attachments.length > 0 ? [...attachments] : undefined;
+        onSubmit(expandedText, currentAttachments);
         setValue('');
         setCursorPos(0);
         setShowCommandMenu(false);
         setShowFileMention(false);
+        setPastedChunks([]);
+        setAttachments([]);
       }
       return;
     }
@@ -369,12 +512,43 @@ export function UnifiedInput({
   };
 
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" width="100%">
       <Box
         flexDirection="column"
         borderStyle="round"
         borderColor={colors.primary}
+        width="100%"
       >
+        {/* Expanded tasks (inside box, expands upward) */}
+        {hasTodos && showStatus && !showCommandMenu && tasksExpanded && (
+          <>
+            <Box flexDirection="column" paddingX={1} paddingTop={1}>
+              <Box>
+                <Text color={colors.text} bold>Tasks </Text>
+                <Text color={colors.completed}>{completedCount}</Text>
+                <Text color={colors.textDim}>/{todos.length}</Text>
+                <Text color={colors.textDim}> (Ctrl+T to collapse)</Text>
+              </Box>
+              {todos.map(todo => (
+                <Box key={todo.id}>
+                  <Text color={getStatusColor(todo.status)}>
+                    {getStatusIcon(todo.status)}{' '}
+                  </Text>
+                  <Text
+                    color={todo.status === 'completed' ? colors.textDim : colors.text}
+                    strikethrough={todo.status === 'completed'}
+                  >
+                    {todo.content}
+                  </Text>
+                </Box>
+              ))}
+            </Box>
+            <Box paddingX={1}>
+              <Text color={colors.border}>{'─'.repeat(dividerWidth)}</Text>
+            </Box>
+          </>
+        )}
+
         {/* Inline command palette (when / is typed) */}
         {showCommandMenu && isSlashCommand && (
           <>
@@ -403,84 +577,55 @@ export function UnifiedInput({
           </>
         )}
 
-        {/* Task strip (collapsed or expanded) */}
-        {hasTodos && showStatus && !showCommandMenu && (
+        {/* Task strip — collapsed only (inside box) */}
+        {hasTodos && showStatus && !showCommandMenu && !tasksExpanded && (
           <>
-            {tasksExpanded ? (
-              /* Expanded: full task list */
-              <Box flexDirection="column" paddingX={1} paddingY={0}>
-                <Box>
-                  <Text color={colors.text} bold>Tasks </Text>
-                  <Text color={colors.completed}>{completedCount}</Text>
-                  <Text color={colors.textDim}>/{todos.length}</Text>
-                  <Text color={colors.textDim}> (Ctrl+T to collapse)</Text>
-                </Box>
-                {todos.map(todo => (
-                  <Box key={todo.id}>
-                    <Text color={getStatusColor(todo.status)}>
-                      {getStatusIcon(todo.status)}{' '}
-                    </Text>
-                    <Text
-                      color={todo.status === 'completed' ? colors.textDim : colors.text}
-                      strikethrough={todo.status === 'completed'}
-                    >
-                      {todo.content}
-                    </Text>
-                  </Box>
-                ))}
-              </Box>
-            ) : (
-              /* Collapsed: single line summary */
-              <Box paddingX={1} paddingY={0}>
-                <Text color={colors.text} bold>Tasks </Text>
-                <Text color={colors.completed}>{completedCount}</Text>
-                <Text color={colors.textDim}>/{todos.length} </Text>
-                <Text color={colors.textDim}>{icons.pipe} </Text>
-                {collapsedTasks.visible.map(todo => (
-                  <Text key={todo.id}>
-                    <Text color={getStatusColor(todo.status)}>
-                      {getStatusIcon(todo.status)}{' '}
-                    </Text>
-                    <Text color={todo.status === 'completed' ? colors.textDim : colors.text}>
-                      {truncate(todo.content, 20)}
-                    </Text>
-                    <Text color={colors.textDim}>{'  '}</Text>
+            <Box paddingX={1} paddingY={0}>
+              <Text color={colors.text} bold>Tasks </Text>
+              <Text color={colors.completed}>{completedCount}</Text>
+              <Text color={colors.textDim}>/{todos.length} </Text>
+              <Text color={colors.textDim}>{icons.pipe} </Text>
+              {collapsedTasks.visible.map(todo => (
+                <Text key={todo.id}>
+                  <Text color={getStatusColor(todo.status)}>
+                    {getStatusIcon(todo.status)}{' '}
                   </Text>
-                ))}
-                {collapsedTasks.hidden > 0 && (
-                  <Text color={colors.textDim}>+{collapsedTasks.hidden} more</Text>
-                )}
-              </Box>
-            )}
+                  <Text color={todo.status === 'completed' ? colors.textDim : colors.text}>
+                    {truncate(todo.content, 20)}
+                  </Text>
+                  <Text color={colors.textDim}>{'  '}</Text>
+                </Text>
+              ))}
+              {collapsedTasks.hidden > 0 && (
+                <Text color={colors.textDim}>+{collapsedTasks.hidden} more</Text>
+              )}
+            </Box>
             <Box paddingX={1}>
               <Text color={colors.border}>{'─'.repeat(dividerWidth)}</Text>
             </Box>
           </>
         )}
 
+        {/* Attachment indicators */}
+        {attachments.length > 0 && (
+          <Box paddingX={1} paddingY={0}>
+            {attachments.map((att, i) => (
+              <Text key={i} color={colors.warning}>[Image] </Text>
+            ))}
+          </Box>
+        )}
+
         {/* Input row */}
         <Box paddingX={1} paddingY={0}>
           <Text color={colors.primary} bold>{'› '}</Text>
           {value ? (
-            <>
-              <Text wrap="wrap" color={isSlashCommand ? colors.secondary : colors.text}>
-                {value.slice(0, cursorPos)}
-              </Text>
-              {!isDisabled && (
-                cursorPos < value.length ? (
-                  // Cursor on a character — show it with inverse video
-                  <Text inverse color={isSlashCommand ? colors.secondary : colors.text}>
-                    {value[cursorPos]}
-                  </Text>
-                ) : (
-                  // Cursor at end — show block cursor
-                  <Text color={colors.primary}>▎</Text>
-                )
-              )}
-              <Text wrap="wrap" color={isSlashCommand ? colors.secondary : colors.text}>
-                {value.slice(cursorPos + (isDisabled ? 0 : cursorPos < value.length ? 1 : 0))}
-              </Text>
-            </>
+            <InputDisplay
+              value={value}
+              cursorPos={cursorPos}
+              isDisabled={isDisabled}
+              isSlashCommand={isSlashCommand}
+              pastedChunks={pastedChunks}
+            />
           ) : (
             <>
               {!isDisabled && <Text color={colors.primary}>▎</Text>}
@@ -518,7 +663,9 @@ export function UnifiedInput({
                 <Text color={colors.secondary}>IN {formatNumber(totalTokens.input)}</Text>
                 <Text color={colors.secondary}>OUT {formatNumber(totalTokens.output)}</Text>
                 {ctxPercent !== undefined && (
-                  <Text color={ctxPercent > 90 ? colors.error : colors.textDim}>CTX {ctxPercent}%</Text>
+                  <Text color={ctxPercent > 90 ? colors.error : colors.textDim}>
+                    CTX {ctxPercent}%{contextStatus ? ` · ${contextStatus}` : ''}
+                  </Text>
                 )}
                 {contextUsage && showTelemetryDetails && (
                   <Text color={colors.textDim}>

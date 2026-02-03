@@ -11,7 +11,7 @@ import * as path from 'path';
 import type { StratusCodeConfig } from '@stratuscode/shared';
 import { Chat } from './components/Chat';
 import { Message } from './components/Message';
-import { UnifiedInput } from './components/UnifiedInput';
+import { UnifiedInput, type Attachment } from './components/UnifiedInput';
 import { SplashScreen } from './components/SplashScreen';
 import { PlanActions } from './components/PlanActions';
 import { ModelPicker } from './components/ModelPicker';
@@ -48,7 +48,9 @@ interface SessionInfo {
 export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
-  const { gutter } = useCenteredPadding(100);
+  const { gutter, contentWidth } = useCenteredPadding(100);
+  const fullWidth = stdout?.columns ?? 120;
+  const centerWidth = Math.max(40, Math.min(110, fullWidth - 4));
   const [showSplash, setShowSplash] = useState(true);
   const [agent, setAgent] = useState(initialAgent);
   const [showSessionPicker, setShowSessionPicker] = useState(false);
@@ -72,6 +74,7 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
     timelineEvents,
     sessionTokens,
     contextUsage,
+    contextStatus,
     tokens,
     sessionId,
     sendMessage,
@@ -449,9 +452,9 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
   });
 
   const handleSubmit = useCallback(
-    (text: string) => {
+    (text: string, attachments?: Attachment[]) => {
       if (text.trim() && !isLoading) {
-        sendMessage(text);
+        sendMessage(text, undefined, undefined, attachments);
       }
     },
     [sendMessage, isLoading]
@@ -484,11 +487,11 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
         )}
 
         {/* Centered input box */}
-        <Box width={inputWidth} paddingBottom={1}>
+        <Box width={centerWidth} paddingBottom={1} alignSelf="center">
           <UnifiedInput
-            onSubmit={(text) => {
+            onSubmit={(text, attachments) => {
               setShowSplash(false);
-              sendMessage(text);
+              sendMessage(text, undefined, undefined, attachments);
             }}
             onCommand={handleCommand}
             placeholder="What would you like to build?"
@@ -498,6 +501,7 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
             tokens={tokens}
             sessionTokens={sessionTokens}
             contextUsage={contextUsage}
+            contextStatus={contextStatus}
             showTelemetryDetails={showTelemetryDetails}
             isLoading={false}
             projectDir={projectDir}
@@ -511,7 +515,7 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
     <Box flexDirection="column" flexGrow={1}>
       {/* System message toast */}
       {systemMessage && (
-        <Box paddingX={2} marginY={1} paddingLeft={gutter + 2}>
+        <Box marginY={1} paddingLeft={gutter} paddingRight={gutter}>
           <Text color={colors.secondary}>[i] {systemMessage}</Text>
         </Box>
       )}
@@ -520,7 +524,7 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
       <Box flexGrow={1} flexDirection="column">
         {showShortcutsPanel ? (
           /* Shortcuts reference panel */
-          <Box flexDirection="column" paddingX={1} flexGrow={1} paddingLeft={gutter + 1}>
+          <Box flexDirection="column" flexGrow={1} paddingLeft={gutter} paddingRight={gutter}>
             <Box marginBottom={1}>
               <Text bold color={colors.primary}>Keyboard Shortcuts</Text>
             </Box>
@@ -547,7 +551,7 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
             </Box>
           </Box>
         ) : showModelPicker ? (
-          <Box paddingLeft={gutter}>
+          <Box paddingLeft={gutter} paddingRight={gutter}>
             <ModelPicker
               config={config}
               currentModel={activeModel}
@@ -562,7 +566,7 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
           </Box>
         ) : showSessionPicker ? (
           /* Session picker - full screen mode */
-          <Box flexDirection="column" paddingX={1} flexGrow={1} paddingLeft={gutter + 1}>
+          <Box flexDirection="column" flexGrow={1} paddingLeft={gutter} paddingRight={gutter}>
             <Box marginBottom={1}>
               <Text bold color={colors.primary}>Session History</Text>
             </Box>
@@ -614,31 +618,35 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
 
       {/* Plan actions */}
       {shouldShowPlanActions && (
-        <Box paddingX={2} paddingLeft={gutter + 2}>
-          <PlanActions
-            onAcceptAndBuild={handleAcceptAndBuild}
-            onKeepPlanning={handleKeepPlanning}
-          />
+        <Box justifyContent="center" paddingX={1}>
+          <Box width={contentWidth}>
+            <PlanActions
+              onAcceptAndBuild={handleAcceptAndBuild}
+              onKeepPlanning={handleKeepPlanning}
+            />
+          </Box>
         </Box>
       )}
 
       {/* Combined input and status bar -- always at very bottom */}
-      <Box paddingX={2} paddingY={1} paddingLeft={gutter + 2}>
-        <UnifiedInput
-          onSubmit={handleSubmit}
-          onCommand={handleCommand}
-          showStatus={true}
-          agent={agent}
-          model={activeModel}
-          tokens={tokens}
-          sessionTokens={sessionTokens}
-          contextUsage={contextUsage}
-          showTelemetryDetails={showTelemetryDetails}
-          isLoading={isLoading}
-          todos={todos}
-          onToggleTasks={tasksExpandedRef}
-          projectDir={projectDir}
-        />
+      <Box justifyContent="center" paddingY={1}>
+        <Box width={centerWidth}>
+          <UnifiedInput
+            onSubmit={handleSubmit}
+            onCommand={handleCommand}
+            showStatus={true}
+            agent={agent}
+            model={activeModel}
+            tokens={tokens}
+            sessionTokens={sessionTokens}
+            contextUsage={contextUsage}
+            showTelemetryDetails={showTelemetryDetails}
+            isLoading={isLoading}
+            todos={todos}
+            onToggleTasks={tasksExpandedRef}
+            projectDir={projectDir}
+          />
+        </Box>
       </Box>
     </Box>
   );
