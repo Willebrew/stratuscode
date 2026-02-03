@@ -11,6 +11,8 @@ import { Box, Text, useInput, useStdout } from 'ink';
 import { CommandPaletteInline, getCommandResultCount, getCommandAtIndex } from './CommandPalette';
 import { FileMentionPalette, getFileResultCount, getFileAtIndex } from './FileMentionPalette';
 import type { Command } from '../commands/registry';
+import type { TokenUsage } from '@stratuscode/shared';
+import type { TodoItem } from '../hooks/useTodos';
 import { colors, getAgentColor, getStatusColor } from '../theme/colors';
 import { icons, getStatusIcon } from '../theme/icons';
 
@@ -19,13 +21,6 @@ const CODE_COLOR = '#8642EC';
 // ============================================
 // Types
 // ============================================
-
-export interface TodoItem {
-  id: string;
-  content: string;
-  status: 'pending' | 'in_progress' | 'completed';
-  priority: 'low' | 'medium' | 'high';
-}
 
 export interface UnifiedInputProps {
   onSubmit: (text: string) => void;
@@ -36,7 +31,10 @@ export interface UnifiedInputProps {
   showStatus?: boolean;
   agent?: string;
   model?: string;
-  tokens?: { input: number; output: number };
+  tokens?: TokenUsage;
+  sessionTokens?: TokenUsage;
+  contextUsage?: { used: number; limit: number; percent: number };
+  showTelemetryDetails?: boolean;
   isLoading?: boolean;
   // Tasks
   todos?: TodoItem[];
@@ -78,6 +76,9 @@ export function UnifiedInput({
   agent = 'build',
   model = '',
   tokens = { input: 0, output: 0 },
+  sessionTokens,
+  contextUsage,
+  showTelemetryDetails = false,
   isLoading = false,
   todos = [],
   onToggleTasks,
@@ -130,6 +131,9 @@ export function UnifiedInput({
     const hidden = todos.length - visible.length;
     return { visible, hidden };
   }, [todos, dividerWidth, hasTodos]);
+
+  const totalTokens = sessionTokens ?? tokens;
+  const ctxPercent = contextUsage ? contextUsage.percent : undefined;
 
   // Helper: insert text at cursor position
   const insertAt = (prev: string, pos: number, text: string): string =>
@@ -516,6 +520,21 @@ export function UnifiedInput({
                 <Text color={colors.text}>{formatNumber(tokens.output)}</Text>
                 <Text color={colors.textDim}> out</Text>
               </Box>
+            </Box>
+            <Box paddingX={1} paddingBottom={1} gap={1} flexDirection={showTelemetryDetails ? 'column' : 'row'} flexWrap="wrap">
+              <Text color={colors.secondary}>IN {formatNumber(totalTokens.input)}</Text>
+              <Text color={colors.secondary}>OUT {formatNumber(totalTokens.output)}</Text>
+              {ctxPercent !== undefined && (
+                <Text color={ctxPercent > 90 ? colors.error : colors.textDim}>CTX {ctxPercent}%</Text>
+              )}
+              {contextUsage && showTelemetryDetails && (
+                <Text color={colors.textDim}>
+                  {formatNumber(contextUsage.used)}/{formatNumber(contextUsage.limit)} tokens used
+                </Text>
+              )}
+              {showTelemetryDetails && (
+                <Text color={colors.textDim}>Model {model || 'default'}</Text>
+              )}
             </Box>
           </>
         )}

@@ -57,8 +57,21 @@ function expandMentions(content: string, projectDir: string): string {
 import type { StratusCodeConfig, AgentInfo } from '@stratuscode/shared';
 import { buildSystemPrompt, BUILT_IN_AGENTS } from '@stratuscode/shared';
 import { registerBuiltInTools, createStratusCodeToolRegistry } from '@stratuscode/tools';
-import { getSession as getStoredSession, getMessages as getStoredMessages, createSession as persistSession, updateSession as persistSessionUpdate, createMessage } from '@stratuscode/storage';
+import {
+  getSession as getStoredSession,
+  getMessages as getStoredMessages,
+  createSession as persistSession,
+  updateSession as persistSessionUpdate,
+  createMessage,
+  updateMessageTokens,
+  createTimelineEvent,
+  listTimelineEvents,
+  createToolCall,
+  updateToolCallResult,
+  getSessionTokenTotals,
+} from '@stratuscode/storage';
 import { processDirectly, type AgentResult, type Message, type ToolCall, type ToolRegistry } from '@sage/core';
+import type { TimelineEvent, TokenUsage } from '@stratuscode/shared';
 
 // ============================================
 // Plan File Helpers
@@ -183,11 +196,10 @@ export interface UseChatReturn {
   messages: Message[];
   isLoading: boolean;
   error: string | null;
-  streamingContent: string;
-  streamingReasoning: string;
-  toolCalls: ToolCall[];
-  actions: ActionPart[];
-  tokens: { input: number; output: number };
+  timelineEvents: TimelineEvent[];
+  sessionTokens: TokenUsage;
+  contextUsage: { used: number; limit: number; percent: number };
+  tokens: TokenUsage;
   sessionId: string | undefined;
   planExitProposed: boolean;
   sendMessage: (content: string, agentOverride?: string, options?: SendMessageOptions) => Promise<void>;
@@ -258,11 +270,10 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [streamingContent, setStreamingContent] = useState('');
-  const [streamingReasoning, setStreamingReasoning] = useState('');
-  const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
-  const [actions, setActions] = useState<ActionPart[]>([]);
-  const [tokens, setTokens] = useState({ input: 0, output: 0 });
+  const [timelineEvents, setTimelineEvents] = useState<TimelineEvent[]>([]);
+  const [tokens, setTokens] = useState<TokenUsage>({ input: 0, output: 0 });
+  const [sessionTokens, setSessionTokens] = useState<TokenUsage>({ input: 0, output: 0 });
+  const [contextUsage, setContextUsage] = useState({ used: 0, limit: 128000, percent: 0 });
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const [planExitProposed, setPlanExitProposed] = useState(false);
 
@@ -271,7 +282,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   const abortRef = useRef<AbortController | null>(null);
   const sessionIdRef = useRef<string | undefined>(undefined);
   const actionIdRef = useRef(0);
-  const toolCallsRef = useRef<ToolCall[]>([]);
+  const timelineEventsRef = useRef<TimelineEvent[]>([]);
   const previousAgentRef = useRef<string>(agent);
 
   // Streaming throttle: accumulate in refs, flush to state at intervals
@@ -279,13 +290,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   const streamingReasoningRef = useRef('');
   const streamingFlushRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastStreamingTypeRef = useRef<'text' | 'reasoning' | null>(null);
-  // Track last flushed values to avoid no-op setState calls (which trigger re-renders)
-  const lastFlushedContentRef = useRef('');
-  const lastFlushedReasoningRef = useRef('');
-  // Batch action updates — accumulate adds/updates, flush together with streaming
-  const pendingActionAddsRef = useRef<ActionPart[]>([]);
-  const pendingActionUpdatesRef = useRef<Map<string, Partial<ActionPart>>>(new Map());
-  const STREAMING_FLUSH_INTERVAL = 150; // ms — flush accumulated tokens to state
+  const STREAMING_FLUSH_INTERVAL = 150;
 
   // Initialize tool registry lazily
   const getRegistry = useCallback((): ToolRegistry => {
@@ -312,17 +317,36 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     return BUILT_IN_AGENTS[agent] || BUILT_IN_AGENTS.build!;
   }, [agent]);
 
+  const getContextLimit = useCallback(() => {
+    return config.maxTokens ?? 128000;
+  }, [config.maxTokens]);
+
+  const computeContextUsage = useCallback(
+    (usage: TokenUsage) => {
+      const overhead = 1000;
+      const limit = getContextLimit();
+      const used = (usage.input ?? 0) + (usage.output ?? 0) + overhead;
+      const percent = Math.min(99, Math.round((used / limit) * 100));
+      setContextUsage({ used, limit, percent });
+    },
+    [getContextLimit]
+  );
+
+  const pushEvent = useCallback(
+    (event: TimelineEvent) => {
+      timelineEventsRef.current = [...timelineEventsRef.current, event];
+      setTimelineEvents([...timelineEventsRef.current]);
+    },
+    []
+  );
+
   const sendMessage = useCallback(
     async (content: string, agentOverride?: string, options?: SendMessageOptions) => {
       if (isLoading) return;
 
       setError(null);
       setIsLoading(true);
-      setStreamingContent('');
-      setStreamingReasoning('');
-      setToolCalls([]);
-      setActions([]);
-      toolCallsRef.current = [];
+      timelineEventsRef.current = [...timelineEventsRef.current];
 
       // Expand @file mentions before sending
       const expandedContent = expandMentions(content, projectDir);
@@ -335,11 +359,32 @@ export function useChat(options: UseChatOptions): UseChatReturn {
 
       // Persist user message
       const sid = getSessionId();
-      createMessage(sid, 'user', content);
+      const userMessageId = createMessage(sid, 'user', content);
+      const userEvent = createTimelineEvent(sid, 'user', content, {}, userMessageId);
+      timelineEventsRef.current = [...timelineEventsRef.current, userEvent];
+      setTimelineEvents([...timelineEventsRef.current]);
       persistSessionUpdate(sid, { status: 'running' });
 
       // Create abort controller
       abortRef.current = new AbortController();
+
+      const flushReasoningEvent = () => {
+        const pending = streamingReasoningRef.current;
+        if (pending) {
+          const ev = createTimelineEvent(sid, 'reasoning', pending, {}, userMessageId);
+          pushEvent(ev);
+          streamingReasoningRef.current = '';
+        }
+      };
+
+      const flushTextEvent = () => {
+        const pending = streamingContentRef.current;
+        if (pending) {
+          const ev = createTimelineEvent(sid, 'assistant', pending, {}, userMessageId);
+          pushEvent(ev);
+          streamingContentRef.current = '';
+        }
+      };
 
       try {
         const registry = getRegistry();
@@ -406,47 +451,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         streamingContentRef.current = '';
         streamingReasoningRef.current = '';
         lastStreamingTypeRef.current = null;
-        lastFlushedContentRef.current = '';
-        lastFlushedReasoningRef.current = '';
-        pendingActionAddsRef.current = [];
-        pendingActionUpdatesRef.current = new Map();
-        streamingFlushRef.current = setInterval(() => {
-          // Only call setState when values have actually changed — avoids no-op re-renders
-          const currentContent = streamingContentRef.current;
-          const currentReasoning = streamingReasoningRef.current;
-          let needsRender = false;
-
-          if (currentContent !== lastFlushedContentRef.current) {
-            lastFlushedContentRef.current = currentContent;
-            setStreamingContent(currentContent);
-            needsRender = true;
-          }
-          if (currentReasoning !== lastFlushedReasoningRef.current) {
-            lastFlushedReasoningRef.current = currentReasoning;
-            setStreamingReasoning(currentReasoning);
-            needsRender = true;
-          }
-
-          // Flush batched action adds/updates in one setState call.
-          // IMPORTANT: adds BEFORE updates — when a tool call and its result
-          // arrive in the same flush window, the update must find the action.
-          const adds = pendingActionAddsRef.current;
-          const updates = pendingActionUpdatesRef.current;
-          if (adds.length > 0 || updates.size > 0) {
-            pendingActionAddsRef.current = [];
-            pendingActionUpdatesRef.current = new Map();
-            setActions(prev => {
-              let next = adds.length > 0 ? [...prev, ...adds] : prev;
-              if (updates.size > 0) {
-                next = next.map(a => {
-                  const upd = updates.get(a.toolCall?.id ?? a.id);
-                  return upd ? { ...a, ...upd, toolCall: a.toolCall && upd.toolCall ? { ...a.toolCall, ...upd.toolCall } : a.toolCall } : a;
-                });
-              }
-              return next;
-            });
-          }
-        }, STREAMING_FLUSH_INTERVAL);
+        streamingFlushRef.current = setInterval(() => {}, STREAMING_FLUSH_INTERVAL);
 
         // Run through SAGE's processDirectly - the only agentic engine
         const result = await processDirectly({
@@ -462,83 +467,48 @@ export function useChat(options: UseChatOptions): UseChatReturn {
           },
           callbacks: {
             onToken: (token: string) => {
-              // If we were accumulating reasoning, snapshot it before starting text
               if (lastStreamingTypeRef.current === 'reasoning' && streamingReasoningRef.current) {
-                const reasoningId = `action-${++actionIdRef.current}`;
-                pendingActionAddsRef.current.push(
-                  { id: reasoningId, type: 'reasoning', content: streamingReasoningRef.current, status: 'completed' },
-                );
-                streamingReasoningRef.current = '';
+                flushReasoningEvent();
               }
               lastStreamingTypeRef.current = 'text';
               streamingContentRef.current += token;
             },
             onReasoning: (text: string) => {
-              // If we were accumulating text, snapshot it before starting reasoning
               if (lastStreamingTypeRef.current === 'text' && streamingContentRef.current) {
-                const textId = `action-${++actionIdRef.current}`;
-                pendingActionAddsRef.current.push(
-                  { id: textId, type: 'text', content: streamingContentRef.current, status: 'completed' },
-                );
-                streamingContentRef.current = '';
+                flushTextEvent();
               }
               lastStreamingTypeRef.current = 'reasoning';
               streamingReasoningRef.current += text;
             },
             onToolCall: (tc: ToolCall) => {
-              // Snapshot any accumulated reasoning BEFORE this tool call
-              const pendingReasoning = streamingReasoningRef.current;
-              if (pendingReasoning) {
-                const reasoningId = `action-${++actionIdRef.current}`;
-                pendingActionAddsRef.current.push(
-                  { id: reasoningId, type: 'reasoning', content: pendingReasoning, status: 'completed' },
-                );
-                streamingReasoningRef.current = '';
-              }
-
-              // Snapshot any accumulated text BEFORE this tool call
-              const pendingText = streamingContentRef.current;
-              if (pendingText) {
-                const textId = `action-${++actionIdRef.current}`;
-                pendingActionAddsRef.current.push(
-                  { id: textId, type: 'text', content: pendingText, status: 'completed' },
-                );
-                streamingContentRef.current = '';
-              }
-
-              const actionId = `action-${++actionIdRef.current}`;
-              const newTc: ToolCall = {
-                id: tc.id,
-                type: 'function',
-                function: { name: tc.function.name, arguments: tc.function.arguments },
-                status: 'running',
-              };
-              toolCallsRef.current = [...toolCallsRef.current, newTc];
-              pendingActionAddsRef.current.push({
-                id: actionId,
-                type: 'tool',
-                content: tc.function.name,
-                toolCall: {
-                  id: tc.id,
-                  type: 'function',
-                  function: { name: tc.function.name, arguments: tc.function.arguments },
+              createToolCall(userMessageId, sid, tc);
+              const toolEvent = createTimelineEvent(
+                sid,
+                'tool_call',
+                tc.function.name,
+                {
+                  toolCallId: tc.id,
+                  toolName: tc.function.name,
                   status: 'running',
                 },
-                status: 'running',
-              });
+                userMessageId
+              );
+              pushEvent(toolEvent);
             },
             onToolResult: (tc: ToolCall, result: string) => {
-              toolCallsRef.current = toolCallsRef.current.map(t =>
-                t.id === tc.id ? { ...t, status: 'completed' as const, result } : t
+              updateToolCallResult(tc.id, result, 'completed');
+              const resultEvent = createTimelineEvent(
+                sid,
+                'tool_result',
+                result.slice(0, 2000),
+                {
+                  toolCallId: tc.id,
+                  toolName: tc.function.name,
+                  status: 'completed',
+                },
+                userMessageId
               );
-              // Batch the action update — keyed by toolCall id
-              pendingActionUpdatesRef.current.set(tc.id, {
-                status: 'completed' as const,
-                result,
-                toolCall: { id: tc.id, type: 'function', function: tc.function, status: 'completed' as const, result },
-              });
-
-              // Detect plan_exit tool proposing to exit plan mode
+              pushEvent(resultEvent);
               if (tc.function.name === 'plan_exit') {
                 try {
                   const parsed = JSON.parse(result);
@@ -546,100 +516,45 @@ export function useChat(options: UseChatOptions): UseChatReturn {
                     setPlanExitProposed(true);
                   }
                 } catch {
-                  // Not valid JSON, ignore
+                  // ignore
                 }
               }
             },
-            onStatusChange: (status: string) => {
-              // Could update UI status indicator
-            },
+            onStatusChange: () => {},
             onError: (err: Error) => {
               setError(err.message);
             },
           },
         });
 
-        // Flush any remaining batched action adds/updates synchronously
-        // (adds before updates — same ordering as the interval flush)
-        {
-          const adds = pendingActionAddsRef.current;
-          const updates = pendingActionUpdatesRef.current;
-          if (adds.length > 0 || updates.size > 0) {
-            pendingActionAddsRef.current = [];
-            pendingActionUpdatesRef.current = new Map();
-            setActions(prev => {
-              let next = adds.length > 0 ? [...prev, ...adds] : prev;
-              if (updates.size > 0) {
-                next = next.map(a => {
-                  const upd = updates.get(a.toolCall?.id ?? a.id);
-                  return upd ? { ...a, ...upd, toolCall: a.toolCall && upd.toolCall ? { ...a.toolCall, ...upd.toolCall } : a.toolCall } : a;
-                });
-              }
-              return next;
-            });
-          }
-        }
-
         // Snapshot any trailing text/reasoning in chronological order.
         // The lastStreamingTypeRef tells us which type was streaming most recently,
         // so the other one (if any) came first.
         const trailingText = streamingContentRef.current;
         const trailingReasoning = streamingReasoningRef.current;
-        const lastType = lastStreamingTypeRef.current;
-
-        if (trailingText && trailingReasoning) {
-          // Both have content — snapshot the one that came first
-          if (lastType === 'text') {
-            // Reasoning came first, then text
-            const reasoningId = `action-${++actionIdRef.current}`;
-            const textId = `action-${++actionIdRef.current}`;
-            setActions(prev => [
-              ...prev,
-              { id: reasoningId, type: 'reasoning', content: trailingReasoning, status: 'completed' },
-              { id: textId, type: 'text', content: trailingText, status: 'completed' },
-            ]);
-          } else {
-            // Text came first, then reasoning
-            const textId = `action-${++actionIdRef.current}`;
-            const reasoningId = `action-${++actionIdRef.current}`;
-            setActions(prev => [
-              ...prev,
-              { id: textId, type: 'text', content: trailingText, status: 'completed' },
-              { id: reasoningId, type: 'reasoning', content: trailingReasoning, status: 'completed' },
-            ]);
-          }
-        } else if (trailingText) {
-          const textId = `action-${++actionIdRef.current}`;
-          setActions(prev => [
-            ...prev,
-            { id: textId, type: 'text', content: trailingText, status: 'completed' },
-          ]);
-        } else if (trailingReasoning) {
-          const reasoningId = `action-${++actionIdRef.current}`;
-          setActions(prev => [
-            ...prev,
-            { id: reasoningId, type: 'reasoning', content: trailingReasoning, status: 'completed' },
-          ]);
-        }
+        if (trailingReasoning) flushReasoningEvent();
+        if (trailingText) flushTextEvent();
         streamingContentRef.current = '';
         streamingReasoningRef.current = '';
 
         // Add assistant message — use the ref which is always up-to-date
-        const finalToolCalls = toolCallsRef.current.length > 0
-          ? toolCallsRef.current
-          : undefined;
-
         const assistantMsg: Message = {
           role: 'assistant',
           content: result.content,
           reasoning: result.reasoning,
-          toolCalls: finalToolCalls,
         };
         messagesRef.current = [...messagesRef.current, assistantMsg];
         setMessages([...messagesRef.current]);
 
-        // Persist
-        createMessage(sid, 'assistant', result.content);
+      // Persist
+        const tokenUsage: TokenUsage = {
+          input: result.inputTokens,
+          output: result.outputTokens,
+          context: (result.inputTokens ?? 0) + (result.outputTokens ?? 0),
+          model: effectiveModelId,
+        };
+        const assistantMessageId = createMessage(sid, 'assistant', result.content, undefined, tokenUsage);
+        updateMessageTokens(assistantMessageId, tokenUsage);
         persistSessionUpdate(sid, { status: 'completed' });
 
         // Update tokens
@@ -647,26 +562,25 @@ export function useChat(options: UseChatOptions): UseChatReturn {
           input: prev.input + result.inputTokens,
           output: prev.output + result.outputTokens,
         }));
+        const totals = getSessionTokenTotals(sid);
+        setSessionTokens(totals);
+        computeContextUsage(tokenUsage);
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
         setError(errorMessage);
 
         // Preserve any content/tool calls that were accumulated before the error
         const partialContent = streamingContentRef.current || '';
-        const partialToolCalls = toolCallsRef.current.length > 0
-          ? toolCallsRef.current
-          : undefined;
-
         const errorMsg: Message = {
           role: 'assistant',
           content: partialContent
             ? `${partialContent}\n\n[Error: ${errorMessage}]`
             : `Error: ${errorMessage}`,
-          toolCalls: partialToolCalls,
         };
         messagesRef.current = [...messagesRef.current, errorMsg];
         setMessages([...messagesRef.current]);
 
+        pushEvent(createTimelineEvent(sid, 'status', `Error: ${errorMessage}`, {}, userMessageId));
         persistSessionUpdate(sid, { status: 'failed', error: errorMessage });
       } finally {
         // Stop streaming flush interval
@@ -676,8 +590,6 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         }
 
         setIsLoading(false);
-        setStreamingContent('');
-        setStreamingReasoning('');
         streamingContentRef.current = '';
         streamingReasoningRef.current = '';
         // NOTE: actions and toolCalls are NOT cleared here — they stay visible
@@ -692,23 +604,21 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   const abort = useCallback(() => {
     abortRef.current?.abort();
     setIsLoading(false);
-    setStreamingContent('');
-    setStreamingReasoning('');
   }, []);
 
   const clear = useCallback(() => {
     setMessages([]);
     messagesRef.current = [];
-    setActions([]);
-    setToolCalls([]);
-    setStreamingContent('');
-    setStreamingReasoning('');
+    setTimelineEvents([]);
+    timelineEventsRef.current = [];
     setError(null);
     setTokens({ input: 0, output: 0 });
+    setSessionTokens({ input: 0, output: 0 });
     setSessionId(undefined);
     sessionIdRef.current = undefined;
     registryRef.current = null;
     setPlanExitProposed(false);
+    setContextUsage({ used: 0, limit: 128000, percent: 0 });
   }, []);
 
   const resetPlanExit = useCallback(() => {
@@ -728,15 +638,21 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         }
 
         const storedMessages = getStoredMessages(id);
+        const storedEvents = listTimelineEvents(id);
+        const totals = getSessionTokenTotals(id);
         messagesRef.current = storedMessages;
+        timelineEventsRef.current = storedEvents;
         setMessages(storedMessages);
+        setTimelineEvents(storedEvents);
+        setSessionTokens(totals);
+        computeContextUsage(totals);
         setSessionId(id);
         sessionIdRef.current = id;
       } catch (err) {
         setError(`Failed to load session: ${err}`);
       }
     },
-    [clear]
+    [clear, computeContextUsage]
   );
 
   // Execute a tool directly without going through the agent
@@ -768,10 +684,9 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     messages,
     isLoading,
     error,
-    streamingContent,
-    streamingReasoning,
-    toolCalls,
-    actions,
+    timelineEvents,
+    sessionTokens,
+    contextUsage,
     tokens,
     sessionId,
     planExitProposed,

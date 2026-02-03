@@ -113,6 +113,10 @@ function createTables(db: Database): void {
       reasoning TEXT,
       finish_reason TEXT,
       cost REAL DEFAULT 0,
+      input_tokens INTEGER,
+      output_tokens INTEGER,
+      context_tokens INTEGER,
+      model TEXT,
       created_at INTEGER NOT NULL,
       FOREIGN KEY (session_id) REFERENCES sessions(id),
       FOREIGN KEY (parent_id) REFERENCES messages(id)
@@ -190,6 +194,22 @@ function createTables(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_todos_session ON todos(session_id);
     CREATE INDEX IF NOT EXISTS idx_pending_questions_session ON pending_questions(session_id);
   `);
+
+  // Defensive schema upgrades for existing installations
+  const addColumn = (table: string, column: string, type: string) => {
+    try {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+    } catch {
+      // ignore if column already exists
+    }
+  };
+
+  addColumn('messages', 'input_tokens', 'INTEGER');
+  addColumn('messages', 'output_tokens', 'INTEGER');
+  addColumn('messages', 'context_tokens', 'INTEGER');
+  addColumn('messages', 'model', 'TEXT');
+  addColumn('tool_calls', 'started_at', 'INTEGER');
+  addColumn('tool_calls', 'completed_at', 'INTEGER');
 }
 
 // ============================================

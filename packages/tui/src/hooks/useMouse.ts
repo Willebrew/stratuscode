@@ -85,10 +85,13 @@ export function useMouse(options: UseMouseOptions = {}): UseMouseReturn {
     // SGR extended mouse protocol: \x1b[<button;x;y[Mm]
     const sgrMatch = str.match(/\x1b\[<(\d+);(\d+);(\d+)([Mm])/);
     if (sgrMatch) {
-      const buttonCode = parseInt(sgrMatch[1], 10);
-      const x = parseInt(sgrMatch[2], 10) - 1; // Convert to 0-indexed
-      const y = parseInt(sgrMatch[3], 10) - 1;
-      const isRelease = sgrMatch[4] === 'm';
+      const [, buttonCodeRaw, xRaw, yRaw, modeRaw] = sgrMatch;
+      if (!buttonCodeRaw || !xRaw || !yRaw || !modeRaw) return null;
+
+      const buttonCode = parseInt(buttonCodeRaw, 10);
+      const x = parseInt(xRaw, 10) - 1; // Convert to 0-indexed
+      const y = parseInt(yRaw, 10) - 1;
+      const isRelease = modeRaw === 'm';
 
       // Only handle button releases (clicks)
       if (!isRelease) return null;

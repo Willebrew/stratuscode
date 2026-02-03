@@ -6,19 +6,13 @@
 
 import React from 'react';
 import { Box, Text } from 'ink';
+import type { TodoItem } from '../hooks/useTodos';
 import { colors, getStatusColor, getPriorityColor } from '../theme/colors';
 import { icons, getStatusIcon, getPriorityIcon } from '../theme/icons';
 
 // ============================================
 // Types
 // ============================================
-
-export interface TodoItem {
-  id: string;
-  content: string;
-  status: 'pending' | 'in_progress' | 'completed';
-  priority?: 'low' | 'medium' | 'high';
-}
 
 export interface TodoSidebarProps {
   todos: TodoItem[];

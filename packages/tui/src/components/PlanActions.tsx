@@ -35,7 +35,10 @@ export function PlanActions({ onAcceptAndBuild, onKeepPlanning }: PlanActionsPro
     
     // Enter to select
     if (key.return) {
-      options[selectedIndex].action();
+      const selectedOption = options[selectedIndex];
+      if (selectedOption) {
+        selectedOption.action();
+      }
       return;
     }
     

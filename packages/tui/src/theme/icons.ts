@@ -70,11 +70,12 @@ export const icons = {
 } as const;
 
 export type IconName = keyof typeof icons;
+export type IconValue = (typeof icons)[IconName];
 
 /**
  * Get an icon by name
  */
-export function getIcon(name: IconName): string | string[] {
+export function getIcon(name: IconName): IconValue {
   return icons[name];
 }
 

@@ -253,10 +253,11 @@ export function getCommandResultCount(query: string, maxVisible = 10): number {
 /** Get the command at a specific index for a query */
 export function getCommandAtIndex(query: string, index: number, maxVisible = 10): Command | null {
   const results = searchCommandsFuzzy(query).slice(0, maxVisible);
-  if (index >= 0 && index < results.length) {
-    return results[index].command;
+  if (index < 0 || index >= results.length) {
+    return null;
   }
-  return null;
+  const result = results[index];
+  return result ? result.command : null;
 }
 
 // ============================================
@@ -298,15 +299,19 @@ export function CommandPalette({ query, onSelect, onClose, maxVisible = 12 }: Co
       return;
     }
     
-    if (key.return && visibleResults[selectedIndex]) {
-      onSelect(visibleResults[selectedIndex].command);
+    const selectedResult = visibleResults[selectedIndex];
+    if (key.return && selectedResult) {
+      onSelect(selectedResult.command);
       return;
     }
     
     // Number keys for quick select (1-9)
     const num = parseInt(input, 10);
     if (num >= 1 && num <= Math.min(9, visibleResults.length)) {
-      onSelect(visibleResults[num - 1].command);
+      const quickResult = visibleResults[num - 1];
+      if (quickResult) {
+        onSelect(quickResult.command);
+      }
       return;
     }
   });

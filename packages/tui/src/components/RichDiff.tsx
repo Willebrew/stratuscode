@@ -87,12 +87,15 @@ function parseDiff(diff: string): ParsedDiff {
       if (currentHunk) {
         result.hunks.push(currentHunk);
       }
-      
-      const oldStart = parseInt(hunkMatch[1], 10);
-      const oldCount = parseInt(hunkMatch[2] || '1', 10);
-      const newStart = parseInt(hunkMatch[3], 10);
-      const newCount = parseInt(hunkMatch[4] || '1', 10);
-      
+
+      const [, oldStartRaw, oldCountRaw, newStartRaw, newCountRaw] = hunkMatch;
+      if (!oldStartRaw || !newStartRaw) continue;
+
+      const oldStart = parseInt(oldStartRaw, 10);
+      const oldCount = parseInt(oldCountRaw ?? '1', 10);
+      const newStart = parseInt(newStartRaw, 10);
+      const newCount = parseInt(newCountRaw ?? '1', 10);
+
       currentHunk = {
         header: line,
         lines: [],
@@ -467,42 +470,71 @@ export function generateUnifiedDiff(
   
   let i = 0, j = 0;
   while (i < oldLines.length || j < newLines.length) {
-    if (i >= oldLines.length) {
-      changes.push({ type: 'add', line: newLines[j++] });
-    } else if (j >= newLines.length) {
-      changes.push({ type: 'remove', line: oldLines[i++] });
-    } else if (oldLines[i] === newLines[j]) {
-      changes.push({ type: 'context', line: oldLines[i] });
+    const hasOld = i < oldLines.length;
+    const hasNew = j < newLines.length;
+
+    if (!hasOld && hasNew) {
+      const line = newLines[j] ?? '';
+      changes.push({ type: 'add', line });
+      j++;
+      continue;
+    }
+
+    if (hasOld && !hasNew) {
+      const line = oldLines[i] ?? '';
+      changes.push({ type: 'remove', line });
+      i++;
+      continue;
+    }
+
+    const oldLine = oldLines[i] ?? '';
+    const newLine = newLines[j] ?? '';
+
+    if (oldLine === newLine) {
+      changes.push({ type: 'context', line: oldLine });
       i++;
       j++;
+      continue;
+    }
+
+    // Look ahead for matches
+    const lookAhead = 3;
+    let foundOld = -1, foundNew = -1;
+    
+    for (let k = 1; k <= lookAhead && foundOld === -1; k++) {
+      const candidate = oldLines[i + k];
+      if (candidate !== undefined && candidate === newLine) {
+        foundOld = k;
+      }
+    }
+    for (let k = 1; k <= lookAhead && foundNew === -1; k++) {
+      const candidate = newLines[j + k];
+      if (candidate !== undefined && oldLine === candidate) {
+        foundNew = k;
+      }
+    }
+    
+    if (foundNew !== -1 && (foundOld === -1 || foundNew <= foundOld)) {
+      for (let k = 0; k < foundNew; k++) {
+        const line = newLines[j];
+        if (line !== undefined) {
+          changes.push({ type: 'add', line });
+        }
+        j++;
+      }
+    } else if (foundOld !== -1) {
+      for (let k = 0; k < foundOld; k++) {
+        const line = oldLines[i];
+        if (line !== undefined) {
+          changes.push({ type: 'remove', line });
+        }
+        i++;
+      }
     } else {
-      // Look ahead for matches
-      const lookAhead = 3;
-      let foundOld = -1, foundNew = -1;
-      
-      for (let k = 1; k <= lookAhead && foundOld === -1; k++) {
-        if (i + k < oldLines.length && oldLines[i + k] === newLines[j]) {
-          foundOld = k;
-        }
-      }
-      for (let k = 1; k <= lookAhead && foundNew === -1; k++) {
-        if (j + k < newLines.length && oldLines[i] === newLines[j + k]) {
-          foundNew = k;
-        }
-      }
-      
-      if (foundNew !== -1 && (foundOld === -1 || foundNew <= foundOld)) {
-        for (let k = 0; k < foundNew; k++) {
-          changes.push({ type: 'add', line: newLines[j++] });
-        }
-      } else if (foundOld !== -1) {
-        for (let k = 0; k < foundOld; k++) {
-          changes.push({ type: 'remove', line: oldLines[i++] });
-        }
-      } else {
-        changes.push({ type: 'remove', line: oldLines[i++] });
-        changes.push({ type: 'add', line: newLines[j++] });
-      }
+      changes.push({ type: 'remove', line: oldLine });
+      i++;
+      changes.push({ type: 'add', line: newLine });
+      j++;
     }
   }
   

@@ -4,7 +4,7 @@
  * CRUD operations for messages and message parts.
  */
 
-import type { Message, MessagePart, ToolCall } from '@stratuscode/shared';
+import type { Message, MessagePart, ToolCall, TimelineEvent, TokenUsage, TimelineEventKind } from '@stratuscode/shared';
 import { generateId } from '@stratuscode/shared';
 import { getDatabase, insert, findAll } from './database';
 
@@ -21,6 +21,10 @@ interface MessageRow {
   reasoning: string | null;
   finish_reason: string | null;
   cost: number;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  context_tokens: number | null;
+  model: string | null;
   created_at: number;
 }
 
@@ -56,7 +60,8 @@ export function createMessage(
   sessionId: string,
   role: Message['role'],
   content: string,
-  parentId?: string
+  parentId?: string,
+  tokenUsage?: TokenUsage
 ): string {
   const id = generateId('msg');
   const now = Date.now();
@@ -67,6 +72,10 @@ export function createMessage(
     parent_id: parentId ?? null,
     role,
     content,
+    input_tokens: tokenUsage?.input ?? null,
+    output_tokens: tokenUsage?.output ?? null,
+    context_tokens: tokenUsage?.context ?? null,
+    model: tokenUsage?.model ?? null,
     created_at: now,
   });
 
@@ -87,6 +96,12 @@ export function getMessages(sessionId: string): Message[] {
     role: row.role as Message['role'],
     content: row.content || '',
     reasoning: row.reasoning ?? undefined,
+    tokenUsage: row.input_tokens != null || row.output_tokens != null ? {
+      input: row.input_tokens ?? 0,
+      output: row.output_tokens ?? 0,
+      context: row.context_tokens ?? undefined,
+      model: row.model ?? undefined,
+    } : undefined,
   }));
 }
 
@@ -120,6 +135,22 @@ export function updateMessageContent(id: string, content: string): void {
 export function updateMessageReasoning(id: string, reasoning: string): void {
   const db = getDatabase();
   db.prepare('UPDATE messages SET reasoning = ? WHERE id = ?').run(reasoning, id);
+}
+
+/**
+ * Update message token usage
+ */
+export function updateMessageTokens(id: string, tokenUsage: TokenUsage): void {
+  const db = getDatabase();
+  db.prepare(
+    'UPDATE messages SET input_tokens = ?, output_tokens = ?, context_tokens = ?, model = ? WHERE id = ?'
+  ).run(
+    tokenUsage.input ?? null,
+    tokenUsage.output ?? null,
+    tokenUsage.context ?? null,
+    tokenUsage.model ?? null,
+    id
+  );
 }
 
 // ============================================
@@ -181,6 +212,7 @@ export function createToolCall(
   sessionId: string,
   toolCall: ToolCall
 ): void {
+  const now = Date.now();
   insert('tool_calls', {
     id: toolCall.id,
     message_id: messageId,
@@ -188,6 +220,7 @@ export function createToolCall(
     name: toolCall.function.name,
     arguments: toolCall.function.arguments,
     status: 'pending',
+    started_at: now,
   });
 }
 
@@ -233,4 +266,101 @@ export function getToolCallsForSession(sessionId: string): ToolCallRow[] {
     { session_id: sessionId },
     'started_at ASC'
   );
+}
+
+// ============================================
+// Timeline Event Operations
+// ============================================
+
+export function createTimelineEvent(
+  sessionId: string,
+  kind: TimelineEventKind,
+  content: string,
+  data: { toolCallId?: string; toolName?: string; status?: ToolCall['status']; tokens?: TokenUsage } = {},
+  messageId?: string
+): TimelineEvent {
+  const id = generateId('event');
+  const now = Date.now();
+  const payload = {
+    kind,
+    content,
+    toolCallId: data.toolCallId,
+    toolName: data.toolName,
+    status: data.status,
+    tokens: data.tokens,
+    messageId,
+  };
+
+  insert('message_parts', {
+    id,
+    message_id: messageId ?? sessionId,
+    session_id: sessionId,
+    type: 'timeline_event',
+    data: JSON.stringify(payload),
+    created_at: now,
+  });
+
+  return {
+    id,
+    sessionId,
+    createdAt: now,
+    kind,
+    content,
+    tokens: data.tokens,
+    ...(data.toolCallId ? { toolCallId: data.toolCallId } : {}),
+    ...(data.toolName ? { toolName: data.toolName } : {}),
+    ...(data.status ? { status: data.status } : {}),
+  } as TimelineEvent;
+}
+
+export function listTimelineEvents(sessionId: string): TimelineEvent[] {
+  const rows = findAll<MessagePartRow>(
+    'message_parts',
+    { session_id: sessionId, type: 'timeline_event' },
+    'created_at ASC'
+  );
+
+  return rows.map(row => {
+    const parsed = JSON.parse(row.data) as any;
+    const base: TimelineEvent = {
+      id: row.id,
+      sessionId,
+      createdAt: row.created_at,
+      kind: parsed.kind,
+      content: parsed.content,
+      tokens: parsed.tokens,
+    };
+    if (parsed.toolCallId) {
+      return {
+        ...base,
+        toolCallId: parsed.toolCallId,
+        toolName: parsed.toolName,
+        status: parsed.status,
+      } as TimelineEvent;
+    }
+    return base;
+  });
+}
+
+export function getMessageTokens(messageId: string): TokenUsage | undefined {
+  const db = getDatabase();
+  const row = db.prepare('SELECT input_tokens, output_tokens, context_tokens, model FROM messages WHERE id = ?').get(messageId) as MessageRow | undefined;
+  if (!row) return undefined;
+  if (row.input_tokens == null && row.output_tokens == null) return undefined;
+  return {
+    input: row.input_tokens ?? 0,
+    output: row.output_tokens ?? 0,
+    context: row.context_tokens ?? undefined,
+    model: row.model ?? undefined,
+  };
+}
+
+export function getSessionTokenTotals(sessionId: string): TokenUsage {
+  const db = getDatabase();
+  const row = db.prepare('SELECT SUM(input_tokens) as input, SUM(output_tokens) as output, SUM(context_tokens) as context FROM messages WHERE session_id = ?').get(sessionId) as { input: number | null; output: number | null; context: number | null };
+  return {
+    input: row.input ?? 0,
+    output: row.output ?? 0,
+    context: row.context ?? undefined,
+  };
 }

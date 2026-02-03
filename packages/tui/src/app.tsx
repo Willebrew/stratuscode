@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useCallback, useRef, useMemo } from 'react';
-import { Box, Static, Text, useApp, useInput, useStdout } from 'ink';
+import { Box, Text, useApp, useInput, useStdout } from 'ink';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { StratusCodeConfig } from '@stratuscode/shared';
@@ -63,15 +63,15 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
   const [activeModel, setActiveModel] = useState(config.model);
   const [activeProvider, setActiveProvider] = useState<string | undefined>();
   const tasksExpandedRef = useRef<(() => void) | null>(null);
+  const [showTelemetryDetails, setShowTelemetryDetails] = useState(false);
 
   const {
     messages,
     isLoading,
     error,
-    streamingContent,
-    streamingReasoning,
-    toolCalls,
-    actions,
+    timelineEvents,
+    sessionTokens,
+    contextUsage,
     tokens,
     sessionId,
     sendMessage,
@@ -416,6 +416,11 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
       }
     }
 
+    if (input === 'i' && key.ctrl) {
+      setShowTelemetryDetails(prev => !prev);
+      return;
+    }
+
     // Ctrl+L to clear screen (send clear message)
     if (input === 'l' && key.ctrl) {
       // Clear screen effect - handled by terminal
@@ -450,39 +455,6 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
       }
     },
     [sendMessage, isLoading]
-  );
-
-  // Compute the turn boundary for Static rendering of previous messages.
-  // Previous messages go into <Static> (written once, never re-rendered).
-  // Current turn messages go into the dynamic section.
-  const currentTurnStart = useMemo(() => {
-    let start = messages.length;
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i]!.role === 'user') {
-        start = i;
-        break;
-      }
-      if (messages[i]!.role === 'assistant') {
-        start = i;
-      }
-    }
-    return start;
-  }, [messages]);
-
-  const previousMessages = useMemo(
-    () => messages.slice(0, currentTurnStart),
-    [messages, currentTurnStart]
-  );
-
-  const currentTurnMessages = useMemo(
-    () => messages.slice(currentTurnStart),
-    [messages, currentTurnStart]
-  );
-
-  // Memoize Static items — only recompute when previousMessages changes
-  const staticItems = useMemo(
-    () => previousMessages.map((msg, i) => ({ id: `prev-${i}`, msg })),
-    [previousMessages]
   );
 
   // Show splash screen until first message (unless an overlay is open)
@@ -524,6 +496,9 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
             agent={agent}
             model={activeModel}
             tokens={tokens}
+            sessionTokens={sessionTokens}
+            contextUsage={contextUsage}
+            showTelemetryDetails={showTelemetryDetails}
             isLoading={false}
             projectDir={projectDir}
           />
@@ -534,17 +509,6 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
 
   return (
     <Box flexDirection="column" flexGrow={1}>
-      {/* Previous messages — rendered once via Static, never re-rendered */}
-      {staticItems.length > 0 && !showShortcutsPanel && !showModelPicker && !showSessionPicker && (
-        <Static items={staticItems}>
-          {({ id, msg }) => (
-            <Box key={id} paddingX={1} paddingLeft={gutter + 1}>
-              <Message message={msg} showToolCalls compactView={compactView} />
-            </Box>
-          )}
-        </Static>
-      )}
-
       {/* System message toast */}
       {systemMessage && (
         <Box paddingX={2} marginY={1} paddingLeft={gutter + 2}>
@@ -631,12 +595,8 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
           /* Normal chat view — Static messages + dynamic bottom */
           <Box flexDirection="column" flexGrow={1}>
             <Chat
-              messages={currentTurnMessages}
+              timelineEvents={timelineEvents}
               isLoading={isLoading}
-              streamingContent={streamingContent}
-              streamingReasoning={streamingReasoning}
-              toolCalls={toolCalls}
-              actions={actions}
               gutter={gutter}
               compactView={compactView}
               pendingQuestion={questionForDialog}
@@ -671,6 +631,9 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
           agent={agent}
           model={activeModel}
           tokens={tokens}
+          sessionTokens={sessionTokens}
+          contextUsage={contextUsage}
+          showTelemetryDetails={showTelemetryDetails}
           isLoading={isLoading}
           todos={todos}
           onToggleTasks={tasksExpandedRef}

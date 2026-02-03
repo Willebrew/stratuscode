@@ -10,6 +10,7 @@ export interface Message {
   toolCalls?: ToolCall[];
   toolCallId?: string;
   reasoning?: string;
+  tokenUsage?: TokenUsage;
 }
 
 export interface ContentPart {
@@ -29,6 +30,45 @@ export interface ToolCall {
   status?: 'pending' | 'running' | 'completed' | 'failed';
   result?: string;
 }
+
+// ============================================
+// Token usage & timeline events
+// ============================================
+
+export interface TokenUsage {
+  input: number;
+  output: number;
+  context?: number;
+  model?: string;
+}
+
+export type TimelineEventKind =
+  | 'user'
+  | 'assistant'
+  | 'reasoning'
+  | 'tool_call'
+  | 'tool_result'
+  | 'status';
+
+export interface TimelineEventBase {
+  id: string;
+  sessionId: string;
+  createdAt: number;
+  kind: TimelineEventKind;
+  content: string;
+  tokens?: TokenUsage;
+}
+
+export interface TimelineToolEvent extends TimelineEventBase {
+  kind: 'tool_call' | 'tool_result';
+  toolCallId: string;
+  toolName?: string;
+  status?: ToolCall['status'];
+}
+
+export type TimelineEvent =
+  | (TimelineEventBase & { kind: 'user' | 'assistant' | 'reasoning' | 'status'; role?: Message['role'] })
+  | TimelineToolEvent;
 
 // ============================================
 // Session
