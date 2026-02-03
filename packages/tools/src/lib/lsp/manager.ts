@@ -239,6 +239,7 @@ export class LSPManager {
       h: 'c',
       hpp: 'cpp',
       vue: 'vue',
+      astro: 'astro',
       json: 'json',
       jsonc: 'jsonc',
       css: 'css',

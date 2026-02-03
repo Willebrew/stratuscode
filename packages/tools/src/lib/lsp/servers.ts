@@ -780,6 +780,37 @@ export const Biome: LSPServerInfo = {
   },
 };
 
+export const Astro: LSPServerInfo = {
+  id: 'astro',
+  extensions: ['.astro'],
+  root: NearestRoot(['package-lock.json', 'bun.lockb', 'bun.lock', 'pnpm-lock.yaml', 'yarn.lock', 'astro.config.mjs', 'astro.config.ts']),
+  async spawn(root) {
+    let bin = await which('astro-ls');
+    if (!bin) {
+      const ok = await autoInstall('astro', {
+        strategy: 'bun',
+        packages: ['@astrojs/language-server'],
+      });
+      if (ok) {
+        const js = path.join(BIN_DIR, 'node_modules', '@astrojs', 'language-server', 'bin', 'nodeServer.js');
+        if (await pathExists(js)) {
+          const bunBin = await which('bun');
+          if (bunBin) {
+            return {
+              process: spawnProcess(bunBin, ['run', js, '--stdio'], { cwd: root }),
+            };
+          }
+        }
+        bin = await which('astro-ls');
+      }
+    }
+    if (!bin) return undefined;
+    return {
+      process: spawnProcess(bin, ['--stdio'], { cwd: root }),
+    };
+  },
+};
+
 // ============================================
 // Server Registry
 // ============================================
@@ -798,6 +829,7 @@ export const ALL_SERVERS: LSPServerInfo[] = [
   Swift,
   Clangd,
   Vue,
+  Astro,
   Biome,
 ];
 
