@@ -5,7 +5,7 @@
  * Shows tool name with a left border accent, args below.
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import type { ToolCall } from '@stratuscode/shared';
 import { RichDiff } from './RichDiff';
@@ -142,8 +142,6 @@ export const ToolCallDisplay = React.memo(function ToolCallDisplay({ toolCall }:
     () => diffInfo ? getDiffSummary(diffInfo.diff) : null,
     [diffInfo]
   );
-  const [showDiff, setShowDiff] = useState(false);
-
   return (
     <Box flexDirection="column" marginLeft={2} marginY={0}>
       {/* Tool line: colored dot + label + args + diff summary */}

@@ -427,22 +427,21 @@ export function useChat(options: UseChatOptions): UseChatReturn {
             needsRender = true;
           }
 
-          // Flush batched action adds/updates in one setState call
+          // Flush batched action adds/updates in one setState call.
+          // IMPORTANT: adds BEFORE updates — when a tool call and its result
+          // arrive in the same flush window, the update must find the action.
           const adds = pendingActionAddsRef.current;
           const updates = pendingActionUpdatesRef.current;
           if (adds.length > 0 || updates.size > 0) {
             pendingActionAddsRef.current = [];
             pendingActionUpdatesRef.current = new Map();
             setActions(prev => {
-              let next = prev;
+              let next = adds.length > 0 ? [...prev, ...adds] : prev;
               if (updates.size > 0) {
                 next = next.map(a => {
                   const upd = updates.get(a.toolCall?.id ?? a.id);
                   return upd ? { ...a, ...upd, toolCall: a.toolCall && upd.toolCall ? { ...a.toolCall, ...upd.toolCall } : a.toolCall } : a;
                 });
-              }
-              if (adds.length > 0) {
-                next = [...next, ...adds];
               }
               return next;
             });
@@ -561,6 +560,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         });
 
         // Flush any remaining batched action adds/updates synchronously
+        // (adds before updates — same ordering as the interval flush)
         {
           const adds = pendingActionAddsRef.current;
           const updates = pendingActionUpdatesRef.current;
@@ -568,15 +568,12 @@ export function useChat(options: UseChatOptions): UseChatReturn {
             pendingActionAddsRef.current = [];
             pendingActionUpdatesRef.current = new Map();
             setActions(prev => {
-              let next = prev;
+              let next = adds.length > 0 ? [...prev, ...adds] : prev;
               if (updates.size > 0) {
                 next = next.map(a => {
                   const upd = updates.get(a.toolCall?.id ?? a.id);
                   return upd ? { ...a, ...upd, toolCall: a.toolCall && upd.toolCall ? { ...a.toolCall, ...upd.toolCall } : a.toolCall } : a;
                 });
-              }
-              if (adds.length > 0) {
-                next = [...next, ...adds];
               }
               return next;
             });
