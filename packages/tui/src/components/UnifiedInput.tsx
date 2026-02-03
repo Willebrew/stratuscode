@@ -117,6 +117,7 @@ export function UnifiedInput({
   const terminalWidth = stdout?.columns ?? 80;
   const effectiveWidth = Math.min(terminalWidth, 100);
   const dividerWidth = Math.max(10, effectiveWidth - 10);
+  const wideLayout = effectiveWidth >= 60;
 
   // Task counts
   const completedCount = useMemo(() => todos.filter(t => t.status === 'completed').length, [todos]);
@@ -494,7 +495,7 @@ export function UnifiedInput({
             <Box paddingX={1}>
               <Text color={colors.border}>{'─'.repeat(dividerWidth)}</Text>
             </Box>
-            <Box paddingX={1} justifyContent="space-between">
+            <Box paddingX={1} paddingBottom={1} flexDirection={wideLayout ? 'row' : 'column'} justifyContent={wideLayout ? 'space-between' : 'flex-start'} alignItems={wideLayout ? 'center' : 'flex-start'} gap={1}>
               <Box>
                 <Text color="white" bold>Stratus</Text>
                 <Text color={CODE_COLOR} bold>Code</Text>
@@ -513,28 +514,21 @@ export function UnifiedInput({
                   </>
                 )}
               </Box>
-              <Box>
-                <Text color={colors.textDim}>Tokens </Text>
-                <Text color={colors.text}>{formatNumber(tokens.input)}</Text>
-                <Text color={colors.textDim}> in / </Text>
-                <Text color={colors.text}>{formatNumber(tokens.output)}</Text>
-                <Text color={colors.textDim}> out</Text>
+              <Box flexDirection={showTelemetryDetails ? 'column' : 'row'} flexWrap="wrap" gap={1} marginTop={wideLayout ? 0 : 1}>
+                <Text color={colors.secondary}>IN {formatNumber(totalTokens.input)}</Text>
+                <Text color={colors.secondary}>OUT {formatNumber(totalTokens.output)}</Text>
+                {ctxPercent !== undefined && (
+                  <Text color={ctxPercent > 90 ? colors.error : colors.textDim}>CTX {ctxPercent}%</Text>
+                )}
+                {contextUsage && showTelemetryDetails && (
+                  <Text color={colors.textDim}>
+                    {formatNumber(contextUsage.used)}/{formatNumber(contextUsage.limit)} tokens used
+                  </Text>
+                )}
+                {showTelemetryDetails && (
+                  <Text color={colors.textDim}>Model {model || 'default'}</Text>
+                )}
               </Box>
-            </Box>
-            <Box paddingX={1} paddingBottom={1} gap={1} flexDirection={showTelemetryDetails ? 'column' : 'row'} flexWrap="wrap">
-              <Text color={colors.secondary}>IN {formatNumber(totalTokens.input)}</Text>
-              <Text color={colors.secondary}>OUT {formatNumber(totalTokens.output)}</Text>
-              {ctxPercent !== undefined && (
-                <Text color={ctxPercent > 90 ? colors.error : colors.textDim}>CTX {ctxPercent}%</Text>
-              )}
-              {contextUsage && showTelemetryDetails && (
-                <Text color={colors.textDim}>
-                  {formatNumber(contextUsage.used)}/{formatNumber(contextUsage.limit)} tokens used
-                </Text>
-              )}
-              {showTelemetryDetails && (
-                <Text color={colors.textDim}>Model {model || 'default'}</Text>
-              )}
             </Box>
           </>
         )}

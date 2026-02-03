@@ -276,7 +276,7 @@ export function createTimelineEvent(
   sessionId: string,
   kind: TimelineEventKind,
   content: string,
-  data: { toolCallId?: string; toolName?: string; status?: ToolCall['status']; tokens?: TokenUsage } = {},
+  data: { toolCallId?: string; toolName?: string; status?: ToolCall['status']; tokens?: TokenUsage; streaming?: boolean } = {},
   messageId?: string
 ): TimelineEvent {
   const id = generateId('event');
@@ -288,6 +288,7 @@ export function createTimelineEvent(
     toolName: data.toolName,
     status: data.status,
     tokens: data.tokens,
+    streaming: data.streaming,
     messageId,
   };
 
@@ -307,6 +308,7 @@ export function createTimelineEvent(
     kind,
     content,
     tokens: data.tokens,
+    streaming: data.streaming,
     ...(data.toolCallId ? { toolCallId: data.toolCallId } : {}),
     ...(data.toolName ? { toolName: data.toolName } : {}),
     ...(data.status ? { status: data.status } : {}),
@@ -329,6 +331,7 @@ export function listTimelineEvents(sessionId: string): TimelineEvent[] {
       kind: parsed.kind,
       content: parsed.content,
       tokens: parsed.tokens,
+      streaming: parsed.streaming,
     };
     if (parsed.toolCallId) {
       return {

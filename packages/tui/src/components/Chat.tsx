@@ -59,7 +59,7 @@ export const Chat = React.memo(function Chat({
               <ReasoningBlock
                 key={event.id}
                 reasoning={event.content}
-                isStreaming={false}
+                isStreaming={!!event.streaming}
                 defaultExpanded={false}
               />
             );

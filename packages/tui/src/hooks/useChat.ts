@@ -370,11 +370,19 @@ export function useChat(options: UseChatOptions): UseChatReturn {
 
       const flushReasoningEvent = () => {
         const pending = streamingReasoningRef.current;
-        if (pending) {
-          const ev = createTimelineEvent(sid, 'reasoning', pending, {}, userMessageId);
+        if (!pending) return;
+        const last = timelineEventsRef.current[timelineEventsRef.current.length - 1];
+        if (last && last.kind === 'reasoning') {
+          timelineEventsRef.current = [
+            ...timelineEventsRef.current.slice(0, -1),
+            { ...last, content: pending, streaming: false },
+          ];
+          setTimelineEvents([...timelineEventsRef.current]);
+        } else {
+          const ev = createTimelineEvent(sid, 'reasoning', pending, { streaming: false }, userMessageId);
           pushEvent(ev);
-          streamingReasoningRef.current = '';
         }
+        streamingReasoningRef.current = '';
       };
 
       const flushTextEvent = () => {
@@ -479,6 +487,17 @@ export function useChat(options: UseChatOptions): UseChatReturn {
               }
               lastStreamingTypeRef.current = 'reasoning';
               streamingReasoningRef.current += text;
+              const last = timelineEventsRef.current[timelineEventsRef.current.length - 1];
+              if (last && last.kind === 'reasoning' && last.streaming) {
+                timelineEventsRef.current = [
+                  ...timelineEventsRef.current.slice(0, -1),
+                  { ...last, content: streamingReasoningRef.current, streaming: true },
+                ];
+                setTimelineEvents([...timelineEventsRef.current]);
+              } else {
+                const ev = createTimelineEvent(sid, 'reasoning', streamingReasoningRef.current, { streaming: true }, userMessageId);
+                pushEvent(ev);
+              }
             },
             onToolCall: (tc: ToolCall) => {
               createToolCall(userMessageId, sid, tc);
@@ -537,16 +556,17 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         streamingContentRef.current = '';
         streamingReasoningRef.current = '';
 
-        // Add assistant message — use the ref which is always up-to-date
-        const assistantMsg: Message = {
-          role: 'assistant',
-          content: result.content,
-          reasoning: result.reasoning,
-        };
-        messagesRef.current = [...messagesRef.current, assistantMsg];
-        setMessages([...messagesRef.current]);
+        // Mark last reasoning event as completed (stop spinner)
+        const lastReasoningIdx = timelineEventsRef.current.map(e => e.kind).lastIndexOf('reasoning');
+        if (lastReasoningIdx !== -1) {
+          timelineEventsRef.current[lastReasoningIdx] = {
+            ...timelineEventsRef.current[lastReasoningIdx]!,
+            streaming: false,
+          } as TimelineEvent;
+          setTimelineEvents([...timelineEventsRef.current]);
+        }
 
-      // Persist
+        // Persist (no final assistant timeline event; streamed text already captured)
         const tokenUsage: TokenUsage = {
           input: result.inputTokens,
           output: result.outputTokens,

@@ -57,6 +57,7 @@ export interface TimelineEventBase {
   kind: TimelineEventKind;
   content: string;
   tokens?: TokenUsage;
+  streaming?: boolean;
 }
 
 export interface TimelineToolEvent extends TimelineEventBase {

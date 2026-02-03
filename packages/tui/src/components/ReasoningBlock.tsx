@@ -79,7 +79,7 @@ export function ReasoningBlock({ reasoning, isStreaming, isActive = false, defau
         {isStreaming ? (
           <>
             <Text color={CODE_COLOR}>{SWEEP_CHARS[frame]} </Text>
-            <Text color={colors.textMuted} italic>Thinking...</Text>
+            <Text color={colors.textMuted} italic>Thinking</Text>
           </>
         ) : (
           <>
