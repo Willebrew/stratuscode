@@ -5,9 +5,10 @@
  * Shows tool name with a left border accent, args below.
  */
 
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { Box, Text } from 'ink';
 import type { ToolCall } from '@stratuscode/shared';
+import { RichDiff } from './RichDiff';
 import { colors } from '../theme/colors';
 
 // ============================================
@@ -89,6 +90,30 @@ function getErrorMessage(result: string | undefined): string | null {
   }
 }
 
+const DIFF_TOOLS = new Set(['edit', 'multi_edit', 'write', 'apply_patch']);
+
+function getDiffFromResult(toolName: string, result: string | undefined): { diff: string; filePath?: string } | null {
+  if (!result || !DIFF_TOOLS.has(toolName)) return null;
+  try {
+    const parsed = JSON.parse(result);
+    if (parsed.diff && typeof parsed.diff === 'string') {
+      return { diff: parsed.diff, filePath: parsed.file };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function getDiffSummary(diff: string): { additions: number; deletions: number } {
+  let additions = 0, deletions = 0;
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('+') && !line.startsWith('+++')) additions++;
+    else if (line.startsWith('-') && !line.startsWith('---')) deletions++;
+  }
+  return { additions, deletions };
+}
+
 // ============================================
 // Component
 // ============================================
@@ -108,9 +133,20 @@ export const ToolCallDisplay = React.memo(function ToolCallDisplay({ toolCall }:
   const isRunning = status === 'running';
   const isFailed = status === 'failed';
 
+  // Extract diff from result for edit tools
+  const diffInfo = useMemo(
+    () => getDiffFromResult(toolCall.function.name, toolCall.result),
+    [toolCall.function.name, toolCall.result]
+  );
+  const diffSummary = useMemo(
+    () => diffInfo ? getDiffSummary(diffInfo.diff) : null,
+    [diffInfo]
+  );
+  const [showDiff, setShowDiff] = useState(false);
+
   return (
     <Box flexDirection="column" marginLeft={2} marginY={0}>
-      {/* Tool line: colored dot + label + args */}
+      {/* Tool line: colored dot + label + args + diff summary */}
       <Box>
         <Text color={isFailed ? colors.error : info.color}>
           {statusIcon}
@@ -122,12 +158,32 @@ export const ToolCallDisplay = React.memo(function ToolCallDisplay({ toolCall }:
         {isRunning && (
           <Text color={colors.textMuted}> …</Text>
         )}
+        {diffSummary && (
+          <Text color={colors.textDim}>
+            {' '}
+            <Text color={colors.success}>+{diffSummary.additions}</Text>
+            <Text color={colors.textDim}>/</Text>
+            <Text color={colors.error}>-{diffSummary.deletions}</Text>
+          </Text>
+        )}
       </Box>
 
       {/* Error detail */}
       {errorMessage && (
         <Box marginLeft={2}>
           <Text color={colors.error}>{errorMessage}</Text>
+        </Box>
+      )}
+
+      {/* Diff rendering */}
+      {diffInfo && diffInfo.diff && (
+        <Box marginLeft={2} flexDirection="column">
+          <RichDiff
+            diff={diffInfo.diff}
+            filePath={diffInfo.filePath}
+            defaultCollapsed={true}
+            maxLines={80}
+          />
         </Box>
       )}
     </Box>

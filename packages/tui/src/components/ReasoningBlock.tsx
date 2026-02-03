@@ -18,19 +18,18 @@ export interface ReasoningBlockProps {
   isStreaming: boolean;
   /** Only one reasoning block should be active for keyboard input at a time */
   isActive?: boolean;
+  /** Start expanded (for completed blocks that should be visible) */
+  defaultExpanded?: boolean;
 }
 
-export function ReasoningBlock({ reasoning, isStreaming, isActive = false }: ReasoningBlockProps) {
+export function ReasoningBlock({ reasoning, isStreaming, isActive = false, defaultExpanded = false }: ReasoningBlockProps) {
   const [frame, setFrame] = useState(0);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
-  // Auto-expand while streaming, collapse when done
+  // Auto-expand while streaming
   useEffect(() => {
     if (isStreaming) {
       setIsExpanded(true);
-    } else {
-      const timer = setTimeout(() => setIsExpanded(false), 500);
-      return () => clearTimeout(timer);
     }
   }, [isStreaming]);
 
@@ -39,7 +38,7 @@ export function ReasoningBlock({ reasoning, isStreaming, isActive = false }: Rea
     if (!isStreaming) return;
     const interval = setInterval(() => {
       setFrame(prev => (prev + 1) % SWEEP_CHARS.length);
-    }, 150);
+    }, 300);
     return () => clearInterval(interval);
   }, [isStreaming]);
 

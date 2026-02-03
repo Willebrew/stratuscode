@@ -6,9 +6,10 @@
  * — all within one bordered box.
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Box, Text, useInput, useStdout } from 'ink';
 import { CommandPaletteInline, getCommandResultCount, getCommandAtIndex } from './CommandPalette';
+import { FileMentionPalette, getFileResultCount, getFileAtIndex } from './FileMentionPalette';
 import type { Command } from '../commands/registry';
 import { colors, getAgentColor, getStatusColor } from '../theme/colors';
 import { icons, getStatusIcon } from '../theme/icons';
@@ -39,6 +40,10 @@ export interface UnifiedInputProps {
   isLoading?: boolean;
   // Tasks
   todos?: TodoItem[];
+  /** Ref to expose toggle function for /todos command */
+  onToggleTasks?: React.MutableRefObject<(() => void) | null>;
+  /** Project directory for @ file mentions */
+  projectDir?: string;
 }
 
 // ============================================
@@ -75,16 +80,33 @@ export function UnifiedInput({
   tokens = { input: 0, output: 0 },
   isLoading = false,
   todos = [],
+  onToggleTasks,
+  projectDir,
 }: UnifiedInputProps) {
   const { stdout } = useStdout();
   const [value, setValue] = useState('');
+  const [cursorPos, setCursorPos] = useState(0);
   const [showCommandMenu, setShowCommandMenu] = useState(false);
   const [commandSelectedIndex, setCommandSelectedIndex] = useState(0);
+  const [showFileMention, setShowFileMention] = useState(false);
+  const [fileSelectedIndex, setFileSelectedIndex] = useState(0);
   const [tasksExpanded, setTasksExpanded] = useState(false);
 
   const isSlashCommand = value.startsWith('/');
   const commandQuery = isSlashCommand ? value.slice(1) : '';
   const isDisabled = disabled || isLoading;
+
+  // Extract @ mention query: text after the last '@' in the value
+  const atIndex = value.lastIndexOf('@');
+  const fileMentionQuery = showFileMention && atIndex >= 0 ? value.slice(atIndex + 1) : '';
+
+  // Expose toggle function for /todos command
+  useEffect(() => {
+    if (onToggleTasks) {
+      onToggleTasks.current = () => setTasksExpanded(prev => !prev);
+      return () => { onToggleTasks.current = null; };
+    }
+  }, [onToggleTasks]);
 
   const defaultPlaceholder = showStatus
     ? (isLoading ? 'Processing...' : 'Type a message... (/ for commands)')
@@ -109,12 +131,121 @@ export function UnifiedInput({
     return { visible, hidden };
   }, [todos, dividerWidth, hasTodos]);
 
-  useInput((input, key) => {
-    if (isDisabled) return;
+  // Helper: insert text at cursor position
+  const insertAt = (prev: string, pos: number, text: string): string =>
+    prev.slice(0, pos) + text + prev.slice(pos);
 
-    // Ctrl+T to toggle tasks
+  // Helper: delete char before cursor
+  const deleteAt = (prev: string, pos: number): string =>
+    pos > 0 ? prev.slice(0, pos - 1) + prev.slice(pos) : prev;
+
+  useInput((input, key) => {
+    // Ctrl+T to toggle tasks — always available, even during loading
     if (input === 't' && key.ctrl && hasTodos) {
       setTasksExpanded(prev => !prev);
+      return;
+    }
+
+    // Block text input and command submission when disabled (loading)
+    if (isDisabled) return;
+
+    // Left/right arrow keys — cursor movement (always available when not in palette/mention)
+    if (key.leftArrow && !showCommandMenu && !showFileMention) {
+      setCursorPos(p => Math.max(0, p - 1));
+      return;
+    }
+    if (key.rightArrow && !showCommandMenu && !showFileMention) {
+      setCursorPos(p => Math.min(value.length, p + 1));
+      return;
+    }
+
+    // Ctrl+A — move to start
+    if (input === 'a' && key.ctrl) {
+      setCursorPos(0);
+      return;
+    }
+    // Ctrl+E — move to end
+    if (input === 'e' && key.ctrl) {
+      setCursorPos(value.length);
+      return;
+    }
+
+    // Ctrl+U — clear entire input
+    if (input === 'u' && key.ctrl) {
+      setValue('');
+      setCursorPos(0);
+      setShowCommandMenu(false);
+      setShowFileMention(false);
+      setFileSelectedIndex(0);
+      setCommandSelectedIndex(0);
+      return;
+    }
+
+    // Ctrl+W — delete last word
+    if (input === 'w' && key.ctrl) {
+      setValue(prev => {
+        const before = prev.slice(0, cursorPos);
+        const after = prev.slice(cursorPos);
+        const trimmed = before.trimEnd();
+        const lastSpace = trimmed.lastIndexOf(' ');
+        const newBefore = lastSpace >= 0 ? trimmed.slice(0, lastSpace + 1) : '';
+        const newVal = newBefore + after;
+        setCursorPos(newBefore.length);
+        setShowCommandMenu(newVal.startsWith('/'));
+        if (!newVal.includes('@')) setShowFileMention(false);
+        return newVal;
+      });
+      return;
+    }
+
+    // File mention navigation
+    if (showFileMention && projectDir) {
+      if (key.escape) {
+        setShowFileMention(false);
+        return;
+      }
+      if (key.upArrow) {
+        setFileSelectedIndex(i => Math.max(0, i - 1));
+        return;
+      }
+      if (key.downArrow) {
+        const max = getFileResultCount(projectDir, fileMentionQuery) - 1;
+        setFileSelectedIndex(i => Math.min(Math.max(0, max), i + 1));
+        return;
+      }
+      if (key.tab || key.return) {
+        const filePath = getFileAtIndex(projectDir, fileMentionQuery, fileSelectedIndex);
+        if (filePath) {
+          const before = value.slice(0, atIndex);
+          const newVal = before + '@' + filePath + ' ';
+          setValue(newVal);
+          setCursorPos(newVal.length);
+          setShowFileMention(false);
+          setFileSelectedIndex(0);
+        }
+        return;
+      }
+      if (key.backspace || key.delete) {
+        setValue(prev => {
+          const newVal = deleteAt(prev, cursorPos);
+          setCursorPos(p => Math.max(0, p - 1));
+          if (newVal.lastIndexOf('@') < 0) {
+            setShowFileMention(false);
+          }
+          setFileSelectedIndex(0);
+          return newVal;
+        });
+        return;
+      }
+      if (input && !key.ctrl && !key.meta) {
+        setValue(prev => {
+          const newVal = insertAt(prev, cursorPos, input);
+          setCursorPos(p => p + input.length);
+          return newVal;
+        });
+        setFileSelectedIndex(0);
+        return;
+      }
       return;
     }
 
@@ -123,6 +254,7 @@ export function UnifiedInput({
       if (key.escape) {
         setShowCommandMenu(false);
         setValue('');
+        setCursorPos(0);
         return;
       }
       if (key.upArrow) {
@@ -139,17 +271,16 @@ export function UnifiedInput({
         if (cmd) handleCommandSelect(cmd);
         return;
       }
-      // Number keys for quick select (1-9)
       const num = parseInt(input, 10);
       if (num >= 1 && num <= 9) {
         const cmd = getCommandAtIndex(commandQuery, num - 1);
         if (cmd) handleCommandSelect(cmd);
         return;
       }
-      // Allow typing to filter — fall through to character handling
       if (key.backspace || key.delete) {
         setValue(prev => {
-          const newVal = prev.slice(0, -1);
+          const newVal = deleteAt(prev, cursorPos);
+          setCursorPos(p => Math.max(0, p - 1));
           if (!newVal.startsWith('/')) {
             setShowCommandMenu(false);
           }
@@ -159,7 +290,11 @@ export function UnifiedInput({
         return;
       }
       if (input && !key.ctrl && !key.meta && !key.return) {
-        setValue(prev => prev + input);
+        setValue(prev => {
+          const newVal = insertAt(prev, cursorPos, input);
+          setCursorPos(p => p + input.length);
+          return newVal;
+        });
         setCommandSelectedIndex(0);
         return;
       }
@@ -171,15 +306,21 @@ export function UnifiedInput({
       if (value.trim() && !isSlashCommand) {
         onSubmit(value);
         setValue('');
+        setCursorPos(0);
         setShowCommandMenu(false);
+        setShowFileMention(false);
       }
       return;
     }
 
     if (key.backspace || key.delete) {
       setValue(prev => {
-        const newVal = prev.slice(0, -1);
+        const newVal = deleteAt(prev, cursorPos);
+        setCursorPos(p => Math.max(0, p - 1));
         setShowCommandMenu(newVal.startsWith('/'));
+        if (!newVal.includes('@')) {
+          setShowFileMention(false);
+        }
         return newVal;
       });
       return;
@@ -187,10 +328,15 @@ export function UnifiedInput({
 
     if (input && !key.ctrl && !key.meta) {
       setValue(prev => {
-        const newVal = prev + input;
+        const newVal = insertAt(prev, cursorPos, input);
+        setCursorPos(p => p + input.length);
         if (newVal === '/' || newVal.startsWith('/')) {
           setShowCommandMenu(true);
           setCommandSelectedIndex(0);
+        }
+        if (input === '@' && projectDir && !newVal.startsWith('/')) {
+          setShowFileMention(true);
+          setFileSelectedIndex(0);
         }
         return newVal;
       });
@@ -199,8 +345,20 @@ export function UnifiedInput({
 
   // Handle command selection from inline palette
   const handleCommandSelect = (cmd: Command) => {
-    if (onCommand) onCommand(cmd);
+    if (onCommand) {
+      // Extract args from the typed text (e.g., "/search my query" → args = ["my query"])
+      const inputText = value.slice(1); // Remove leading /
+      const cmdName = cmd.name;
+      const argText = inputText.startsWith(cmdName)
+        ? inputText.slice(cmdName.length).trim()
+        : '';
+      const enrichedCmd = argText
+        ? { ...cmd, args: [argText] }
+        : cmd;
+      onCommand(enrichedCmd);
+    }
     setValue('');
+    setCursorPos(0);
     setShowCommandMenu(false);
     setCommandSelectedIndex(0);
   };
@@ -219,6 +377,20 @@ export function UnifiedInput({
               query={commandQuery}
               selectedIndex={commandSelectedIndex}
               onSelect={handleCommandSelect}
+            />
+            <Box paddingX={1}>
+              <Text color={colors.border}>{'─'.repeat(dividerWidth)}</Text>
+            </Box>
+          </>
+        )}
+
+        {/* File mention palette (when @ is typed) */}
+        {showFileMention && projectDir && !showCommandMenu && (
+          <>
+            <FileMentionPalette
+              query={fileMentionQuery}
+              selectedIndex={fileSelectedIndex}
+              projectDir={projectDir}
             />
             <Box paddingX={1}>
               <Text color={colors.border}>{'─'.repeat(dividerWidth)}</Text>
@@ -285,11 +457,31 @@ export function UnifiedInput({
         <Box paddingX={1} paddingY={0}>
           <Text color={colors.primary} bold>{'› '}</Text>
           {value ? (
-            <Text wrap="wrap" color={isSlashCommand ? colors.secondary : colors.text}>{value}</Text>
+            <>
+              <Text wrap="wrap" color={isSlashCommand ? colors.secondary : colors.text}>
+                {value.slice(0, cursorPos)}
+              </Text>
+              {!isDisabled && (
+                cursorPos < value.length ? (
+                  // Cursor on a character — show it with inverse video
+                  <Text inverse color={isSlashCommand ? colors.secondary : colors.text}>
+                    {value[cursorPos]}
+                  </Text>
+                ) : (
+                  // Cursor at end — show block cursor
+                  <Text color={colors.primary}>▎</Text>
+                )
+              )}
+              <Text wrap="wrap" color={isSlashCommand ? colors.secondary : colors.text}>
+                {value.slice(cursorPos + (isDisabled ? 0 : cursorPos < value.length ? 1 : 0))}
+              </Text>
+            </>
           ) : (
-            <Text color={colors.textDim}>{placeholder || defaultPlaceholder}</Text>
+            <>
+              {!isDisabled && <Text color={colors.primary}>▎</Text>}
+              <Text color={colors.textDim}>{placeholder || defaultPlaceholder}</Text>
+            </>
           )}
-          {!isDisabled && <Text color={colors.primary}>▎</Text>}
         </Box>
 
         {/* Status bar (optional) */}

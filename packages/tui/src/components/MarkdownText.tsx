@@ -23,6 +23,8 @@ const ORANGE = '#f5a742';   // bold/strong
 const YELLOW = '#e5c07b';   // italic/emphasis, blockquotes
 const CYAN = '#56b6c2';     // links
 const MUTED = '#808080';    // hr, dim elements
+const TEXT = '#e0e0e0';     // normal text (bright enough to be readable)
+
 
 export interface MarkdownTextProps {
   content: string;
@@ -50,12 +52,12 @@ export const MarkdownText = React.memo(function MarkdownText({ content, width }:
         // Links
         link: chalk.hex(CYAN),
         href: chalk.hex(CYAN).underline,
-        // Lists & blocks
-        listitem: chalk.reset,
+        // Lists & blocks — use identity to avoid stripping inner bold/em styles
+        listitem: (s: string) => s,
         blockquote: chalk.italic.hex(YELLOW),
-        // Layout
-        paragraph: chalk.reset,
-        table: chalk.reset,
+        // Layout — identity preserves inner ANSI codes (bold, color, etc.)
+        paragraph: (s: string) => s,
+        table: (s: string) => s,
         // Horizontal rule
         hr: chalk.hex(MUTED),
         // Options
@@ -69,7 +71,18 @@ export const MarkdownText = React.memo(function MarkdownText({ content, width }:
       const localMarked = new Marked();
       localMarked.use(renderer);
 
-      const result = localMarked.parse(content, { async: false }) as string;
+      let result = localMarked.parse(content, { async: false }) as string;
+
+      // marked v17 breaks inline formatting inside list items (marked-terminal
+      // requires marked <16). Post-process any remaining raw markdown syntax
+      // that wasn't converted to ANSI by marked-terminal.
+      result = result.replace(/\*\*(.+?)\*\*/g, (_m, text) => chalk.bold.hex(ORANGE)(text));
+      result = result.replace(/`([^`]+)`/g, (_m, text) => chalk.hex(GREEN)(text));
+
+      // Replace asterisk bullets with styled bullet character.
+      // marked-terminal hardcodes '* ' as the bullet prefix (outside any ANSI styling).
+      const styledBullet = chalk.hex(TEXT)('•');
+      result = result.replace(/^(\s*)\* /gm, `$1${styledBullet} `);
       // Strip trailing newlines that marked adds
       return result.replace(/\n+$/, '');
     } catch {

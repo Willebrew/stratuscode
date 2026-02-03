@@ -10,6 +10,7 @@ import { Box, Text } from 'ink';
 import type { Message as MessageType } from '@stratuscode/shared';
 import { ToolCallDisplay } from './ToolCall';
 import { MarkdownText } from './MarkdownText';
+import { ReasoningBlock } from './ReasoningBlock';
 import { colors } from '../theme/colors';
 import { icons } from '../theme/icons';
 
@@ -21,6 +22,8 @@ export interface MessageProps {
   message: MessageType;
   /** Show full tool call details (for previous turns in history) */
   showToolCalls?: boolean;
+  /** Compact view: hide reasoning, show one-line tool summaries */
+  compactView?: boolean;
 }
 
 // ============================================
@@ -29,7 +32,7 @@ export interface MessageProps {
 
 const CODE_COLOR = '#8642EC';
 
-export const Message = React.memo(function Message({ message, showToolCalls }: MessageProps) {
+export const Message = React.memo(function Message({ message, showToolCalls, compactView = false }: MessageProps) {
   const isUser = message.role === 'user';
   const isTool = message.role === 'tool';
 
@@ -63,8 +66,18 @@ export const Message = React.memo(function Message({ message, showToolCalls }: M
         )}
       </Box>
 
+      {/* Reasoning (collapsed for history) */}
+      {!isUser && !compactView && message.reasoning && (
+        <ReasoningBlock
+          reasoning={message.reasoning}
+          isStreaming={false}
+          isActive={false}
+          defaultExpanded={false}
+        />
+      )}
+
       {/* Tool calls (full detail for history) */}
-      {!isUser && showToolCalls && message.toolCalls && message.toolCalls.length > 0 && (
+      {!isUser && showToolCalls && !compactView && message.toolCalls && message.toolCalls.length > 0 && (
         <Box flexDirection="column">
           {message.toolCalls.map((tc) => (
             <ToolCallDisplay key={tc.id} toolCall={tc} />
@@ -72,12 +85,26 @@ export const Message = React.memo(function Message({ message, showToolCalls }: M
         </Box>
       )}
 
-      {/* Compact tool summary (when not showing full details) */}
-      {!isUser && !showToolCalls && message.toolCalls && message.toolCalls.length > 0 && (
-        <Box marginLeft={2}>
-          <Text color={colors.textDim}>
-            {icons.check} Used {message.toolCalls.length} tool{message.toolCalls.length !== 1 ? 's' : ''}
-          </Text>
+      {/* Compact tool summary (compact view OR when not showing full details) */}
+      {!isUser && (compactView || !showToolCalls) && message.toolCalls && message.toolCalls.length > 0 && (
+        <Box marginLeft={2} flexDirection="column">
+          {compactView ? (
+            /* One-line per tool with status dot */
+            message.toolCalls.map((tc) => {
+              const status = (tc.status || 'completed') as string;
+              const dotColor = status === 'completed' ? colors.success : status === 'failed' ? colors.error : colors.textDim;
+              return (
+                <Box key={tc.id}>
+                  <Text color={dotColor}>● </Text>
+                  <Text color={colors.textMuted}>{tc.function.name}</Text>
+                </Box>
+              );
+            })
+          ) : (
+            <Text color={colors.textDim}>
+              {icons.check} Used {message.toolCalls.length} tool{message.toolCalls.length !== 1 ? 's' : ''}
+            </Text>
+          )}
         </Box>
       )}
 

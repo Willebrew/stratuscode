@@ -21,7 +21,7 @@ export function ThinkingIndicator({ text }: ThinkingIndicatorProps) {
   useEffect(() => {
     const interval = setInterval(() => {
       setFrame(prev => (prev + 1) % SWEEP_CHARS.length);
-    }, 150);
+    }, 300);
     return () => clearInterval(interval);
   }, []);
 

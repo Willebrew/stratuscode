@@ -8,6 +8,52 @@
 import { useState, useCallback, useRef } from 'react';
 import * as fs from 'fs';
 import * as path from 'path';
+
+// ============================================
+// @ Mention Expansion
+// ============================================
+
+/**
+ * Expand @file mentions in the message.
+ * Detects @path/to/file tokens, reads the files, and prepends their content.
+ */
+function expandMentions(content: string, projectDir: string): string {
+  // Match @path tokens — a path is alphanumeric + / . - _ starting after @
+  const mentionRegex = /@([\w./-]+\.\w+)/g;
+  const mentions: string[] = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = mentionRegex.exec(content)) !== null) {
+    mentions.push(match[1]!);
+  }
+
+  if (mentions.length === 0) return content;
+
+  let context = '';
+  for (const mention of mentions) {
+    const fullPath = path.isAbsolute(mention)
+      ? mention
+      : path.join(projectDir, mention);
+
+    try {
+      if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+        const fileContent = fs.readFileSync(fullPath, 'utf-8');
+        // Limit file content to avoid blowing up context
+        const truncated = fileContent.length > 10000
+          ? fileContent.slice(0, 10000) + '\n... (truncated)'
+          : fileContent;
+        context += `<file path="${mention}">\n${truncated}\n</file>\n\n`;
+      }
+    } catch {
+      // File not readable, skip
+    }
+  }
+
+  if (context) {
+    return context + content;
+  }
+  return content;
+}
 import type { StratusCodeConfig, AgentInfo } from '@stratuscode/shared';
 import { buildSystemPrompt, BUILT_IN_AGENTS } from '@stratuscode/shared';
 import { registerBuiltInTools, createStratusCodeToolRegistry } from '@stratuscode/tools';
@@ -232,7 +278,14 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   const streamingContentRef = useRef('');
   const streamingReasoningRef = useRef('');
   const streamingFlushRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const STREAMING_FLUSH_INTERVAL = 50; // ms — flush accumulated tokens to state
+  const lastStreamingTypeRef = useRef<'text' | 'reasoning' | null>(null);
+  // Track last flushed values to avoid no-op setState calls (which trigger re-renders)
+  const lastFlushedContentRef = useRef('');
+  const lastFlushedReasoningRef = useRef('');
+  // Batch action updates — accumulate adds/updates, flush together with streaming
+  const pendingActionAddsRef = useRef<ActionPart[]>([]);
+  const pendingActionUpdatesRef = useRef<Map<string, Partial<ActionPart>>>(new Map());
+  const STREAMING_FLUSH_INTERVAL = 150; // ms — flush accumulated tokens to state
 
   // Initialize tool registry lazily
   const getRegistry = useCallback((): ToolRegistry => {
@@ -271,8 +324,11 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       setActions([]);
       toolCallsRef.current = [];
 
-      // Add user message
-      const userMsg: Message = { role: 'user', content };
+      // Expand @file mentions before sending
+      const expandedContent = expandMentions(content, projectDir);
+
+      // Add user message (show original content in UI, send expanded to LLM)
+      const userMsg: Message = { role: 'user', content }; // Display original
       const newMessages = [...messagesRef.current, userMsg];
       messagesRef.current = newMessages;
       setMessages([...newMessages]);
@@ -312,6 +368,15 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         // Build messages for LLM (may include injected reminders)
         let messagesForLLM = [...newMessages];
 
+        // Replace last message content with expanded mentions for LLM
+        if (expandedContent !== content) {
+          const lastIdx = messagesForLLM.length - 1;
+          messagesForLLM[lastIdx] = {
+            ...messagesForLLM[lastIdx]!,
+            content: expandedContent,
+          };
+        }
+
         // Plan mode: ensure plan file exists and inject plan mode reminder
         if (effectiveAgentName === 'plan') {
           const planFilePath = ensurePlanFile(projectDir, sid);
@@ -340,9 +405,48 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         // Start streaming flush interval — accumulate tokens in refs, flush to state periodically
         streamingContentRef.current = '';
         streamingReasoningRef.current = '';
+        lastStreamingTypeRef.current = null;
+        lastFlushedContentRef.current = '';
+        lastFlushedReasoningRef.current = '';
+        pendingActionAddsRef.current = [];
+        pendingActionUpdatesRef.current = new Map();
         streamingFlushRef.current = setInterval(() => {
-          setStreamingContent(streamingContentRef.current);
-          setStreamingReasoning(streamingReasoningRef.current);
+          // Only call setState when values have actually changed — avoids no-op re-renders
+          const currentContent = streamingContentRef.current;
+          const currentReasoning = streamingReasoningRef.current;
+          let needsRender = false;
+
+          if (currentContent !== lastFlushedContentRef.current) {
+            lastFlushedContentRef.current = currentContent;
+            setStreamingContent(currentContent);
+            needsRender = true;
+          }
+          if (currentReasoning !== lastFlushedReasoningRef.current) {
+            lastFlushedReasoningRef.current = currentReasoning;
+            setStreamingReasoning(currentReasoning);
+            needsRender = true;
+          }
+
+          // Flush batched action adds/updates in one setState call
+          const adds = pendingActionAddsRef.current;
+          const updates = pendingActionUpdatesRef.current;
+          if (adds.length > 0 || updates.size > 0) {
+            pendingActionAddsRef.current = [];
+            pendingActionUpdatesRef.current = new Map();
+            setActions(prev => {
+              let next = prev;
+              if (updates.size > 0) {
+                next = next.map(a => {
+                  const upd = updates.get(a.toolCall?.id ?? a.id);
+                  return upd ? { ...a, ...upd, toolCall: a.toolCall && upd.toolCall ? { ...a.toolCall, ...upd.toolCall } : a.toolCall } : a;
+                });
+              }
+              if (adds.length > 0) {
+                next = [...next, ...adds];
+              }
+              return next;
+            });
+          }
         }, STREAMING_FLUSH_INTERVAL);
 
         // Run through SAGE's processDirectly - the only agentic engine
@@ -359,35 +463,48 @@ export function useChat(options: UseChatOptions): UseChatReturn {
           },
           callbacks: {
             onToken: (token: string) => {
+              // If we were accumulating reasoning, snapshot it before starting text
+              if (lastStreamingTypeRef.current === 'reasoning' && streamingReasoningRef.current) {
+                const reasoningId = `action-${++actionIdRef.current}`;
+                pendingActionAddsRef.current.push(
+                  { id: reasoningId, type: 'reasoning', content: streamingReasoningRef.current, status: 'completed' },
+                );
+                streamingReasoningRef.current = '';
+              }
+              lastStreamingTypeRef.current = 'text';
               streamingContentRef.current += token;
             },
             onReasoning: (text: string) => {
+              // If we were accumulating text, snapshot it before starting reasoning
+              if (lastStreamingTypeRef.current === 'text' && streamingContentRef.current) {
+                const textId = `action-${++actionIdRef.current}`;
+                pendingActionAddsRef.current.push(
+                  { id: textId, type: 'text', content: streamingContentRef.current, status: 'completed' },
+                );
+                streamingContentRef.current = '';
+              }
+              lastStreamingTypeRef.current = 'reasoning';
               streamingReasoningRef.current += text;
             },
             onToolCall: (tc: ToolCall) => {
-              // Snapshot any accumulated reasoning BEFORE this tool call as a reasoning action.
-              // This preserves chronological order: reasoning → tool → reasoning → tool → ...
+              // Snapshot any accumulated reasoning BEFORE this tool call
               const pendingReasoning = streamingReasoningRef.current;
               if (pendingReasoning) {
                 const reasoningId = `action-${++actionIdRef.current}`;
-                setActions(prev => [
-                  ...prev,
+                pendingActionAddsRef.current.push(
                   { id: reasoningId, type: 'reasoning', content: pendingReasoning, status: 'completed' },
-                ]);
+                );
                 streamingReasoningRef.current = '';
-                setStreamingReasoning('');
               }
 
-              // Snapshot any accumulated text BEFORE this tool call as a text action.
+              // Snapshot any accumulated text BEFORE this tool call
               const pendingText = streamingContentRef.current;
               if (pendingText) {
                 const textId = `action-${++actionIdRef.current}`;
-                setActions(prev => [
-                  ...prev,
+                pendingActionAddsRef.current.push(
                   { id: textId, type: 'text', content: pendingText, status: 'completed' },
-                ]);
+                );
                 streamingContentRef.current = '';
-                setStreamingContent('');
               }
 
               const actionId = `action-${++actionIdRef.current}`;
@@ -398,46 +515,29 @@ export function useChat(options: UseChatOptions): UseChatReturn {
                 status: 'running',
               };
               toolCallsRef.current = [...toolCallsRef.current, newTc];
-              setToolCalls(prev => [...prev, newTc]);
-              setActions(prev => [
-                ...prev,
-                {
-                  id: actionId,
-                  type: 'tool',
-                  content: tc.function.name,
-                  toolCall: {
-                    id: tc.id,
-                    type: 'function',
-                    function: { name: tc.function.name, arguments: tc.function.arguments },
-                    status: 'running',
-                  },
+              pendingActionAddsRef.current.push({
+                id: actionId,
+                type: 'tool',
+                content: tc.function.name,
+                toolCall: {
+                  id: tc.id,
+                  type: 'function',
+                  function: { name: tc.function.name, arguments: tc.function.arguments },
                   status: 'running',
                 },
-              ]);
+                status: 'running',
+              });
             },
             onToolResult: (tc: ToolCall, result: string) => {
               toolCallsRef.current = toolCallsRef.current.map(t =>
                 t.id === tc.id ? { ...t, status: 'completed' as const, result } : t
               );
-              setToolCalls(prev =>
-                prev.map(t =>
-                  t.id === tc.id
-                    ? { ...t, status: 'completed' as const, result }
-                    : t
-                )
-              );
-              setActions(prev =>
-                prev.map(a =>
-                  a.toolCall?.id === tc.id
-                    ? {
-                        ...a,
-                        status: 'completed' as const,
-                        result,
-                        toolCall: { ...a.toolCall!, status: 'completed' as const, result },
-                      }
-                    : a
-                )
-              );
+              // Batch the action update — keyed by toolCall id
+              pendingActionUpdatesRef.current.set(tc.id, {
+                status: 'completed' as const,
+                result,
+                toolCall: { id: tc.id, type: 'function', function: tc.function, status: 'completed' as const, result },
+              });
 
               // Detect plan_exit tool proposing to exit plan mode
               if (tc.function.name === 'plan_exit') {
@@ -459,6 +559,73 @@ export function useChat(options: UseChatOptions): UseChatReturn {
             },
           },
         });
+
+        // Flush any remaining batched action adds/updates synchronously
+        {
+          const adds = pendingActionAddsRef.current;
+          const updates = pendingActionUpdatesRef.current;
+          if (adds.length > 0 || updates.size > 0) {
+            pendingActionAddsRef.current = [];
+            pendingActionUpdatesRef.current = new Map();
+            setActions(prev => {
+              let next = prev;
+              if (updates.size > 0) {
+                next = next.map(a => {
+                  const upd = updates.get(a.toolCall?.id ?? a.id);
+                  return upd ? { ...a, ...upd, toolCall: a.toolCall && upd.toolCall ? { ...a.toolCall, ...upd.toolCall } : a.toolCall } : a;
+                });
+              }
+              if (adds.length > 0) {
+                next = [...next, ...adds];
+              }
+              return next;
+            });
+          }
+        }
+
+        // Snapshot any trailing text/reasoning in chronological order.
+        // The lastStreamingTypeRef tells us which type was streaming most recently,
+        // so the other one (if any) came first.
+        const trailingText = streamingContentRef.current;
+        const trailingReasoning = streamingReasoningRef.current;
+        const lastType = lastStreamingTypeRef.current;
+
+        if (trailingText && trailingReasoning) {
+          // Both have content — snapshot the one that came first
+          if (lastType === 'text') {
+            // Reasoning came first, then text
+            const reasoningId = `action-${++actionIdRef.current}`;
+            const textId = `action-${++actionIdRef.current}`;
+            setActions(prev => [
+              ...prev,
+              { id: reasoningId, type: 'reasoning', content: trailingReasoning, status: 'completed' },
+              { id: textId, type: 'text', content: trailingText, status: 'completed' },
+            ]);
+          } else {
+            // Text came first, then reasoning
+            const textId = `action-${++actionIdRef.current}`;
+            const reasoningId = `action-${++actionIdRef.current}`;
+            setActions(prev => [
+              ...prev,
+              { id: textId, type: 'text', content: trailingText, status: 'completed' },
+              { id: reasoningId, type: 'reasoning', content: trailingReasoning, status: 'completed' },
+            ]);
+          }
+        } else if (trailingText) {
+          const textId = `action-${++actionIdRef.current}`;
+          setActions(prev => [
+            ...prev,
+            { id: textId, type: 'text', content: trailingText, status: 'completed' },
+          ]);
+        } else if (trailingReasoning) {
+          const reasoningId = `action-${++actionIdRef.current}`;
+          setActions(prev => [
+            ...prev,
+            { id: reasoningId, type: 'reasoning', content: trailingReasoning, status: 'completed' },
+          ]);
+        }
+        streamingContentRef.current = '';
+        streamingReasoningRef.current = '';
 
         // Add assistant message — use the ref which is always up-to-date
         const finalToolCalls = toolCallsRef.current.length > 0

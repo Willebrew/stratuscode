@@ -16,7 +16,7 @@ export interface SplashScreenProps {
 }
 
 // Large ASCII logo - Stratus (white)
-const STRATUS_LARGE = `
+const STRATUS_LOGO = `
  ███████╗████████╗██████╗  █████╗ ████████╗██╗   ██╗███████╗
  ██╔════╝╚══██╔══╝██╔══██╗██╔══██╗╚══██╔══╝██║   ██║██╔════╝
  ███████╗   ██║   ██████╔╝███████║   ██║   ██║   ██║███████╗
@@ -25,13 +25,30 @@ const STRATUS_LARGE = `
  ╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚══════╝`;
 
 // Large ASCII logo - Code (purple)
-const CODE_LARGE = `
+const CODE_LOGO = `
   ██████╗ ██████╗ ██████╗ ███████╗
  ██╔════╝██╔═══██╗██╔══██╗██╔════╝
- ██║     ██║   ██║██║  ██║█████╗  
- ██║     ██║   ██║██║  ██║██╔══╝  
+ ██║     ██║   ██║██║  ██║█████╗
+ ██║     ██║   ██║██║  ██║██╔══╝
  ╚██████╗╚██████╔╝██████╔╝███████╗
   ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝`;
+
+// Compact logo — just the S and C in the same block style
+const S_LOGO = `
+ ███████╗
+ ██╔════╝
+ ███████╗
+ ╚════██║
+ ███████║
+ ╚══════╝`;
+
+const C_LOGO = `
+  ██████╗
+ ██╔════╝
+ ██║
+ ██║
+ ╚██████╗
+  ╚═════╝`;
 
 // Purple color: RGB(134, 66, 236)
 const CODE_COLOR = '#8642EC';
@@ -48,14 +65,15 @@ export function SplashScreen({ version, projectDir, model }: SplashScreenProps) 
     : projectDir;
 
   if (isCompact) {
-    // Compact view for smaller terminals
+    // Compact view — big block S (white) + C (purple)
     return (
       <Box flexDirection="column" alignItems="center" justifyContent="center" flexGrow={1} padding={1}>
-        <Box marginBottom={1}>
-          <Text color="white" bold>Stratus</Text>
-          <Text color={CODE_COLOR} bold>Code</Text>
+        <Box>
+          <Text color="white" bold>{S_LOGO}</Text>
+          <Text>  </Text>
+          <Text color={CODE_COLOR} bold>{C_LOGO}</Text>
         </Box>
-        <Box flexDirection="column" alignItems="center">
+        <Box flexDirection="column" marginTop={1} alignItems="center">
           <Text color={colors.textDim}>v{version} • {model}</Text>
           <Text color={colors.textMuted}>{displayPath}</Text>
         </Box>
@@ -67,9 +85,9 @@ export function SplashScreen({ version, projectDir, model }: SplashScreenProps) 
     <Box flexDirection="column" alignItems="center" justifyContent="center" flexGrow={1} padding={1}>
       {/* Text Logo - Stratus (white) + Code (purple) side by side */}
       <Box>
-        <Text color="white" bold>{STRATUS_LARGE}</Text>
+        <Text color="white" bold>{STRATUS_LOGO}</Text>
         <Text>    </Text>
-        <Text color={CODE_COLOR} bold>{CODE_LARGE}</Text>
+        <Text color={CODE_COLOR} bold>{CODE_LOGO}</Text>
       </Box>
 
       {/* Info line */}
