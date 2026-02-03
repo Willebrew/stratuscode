@@ -168,6 +168,11 @@ TOOL USAGE PATTERNS:
    - Use the task tool to delegate exploration or complex subtasks to subagents.
    - Subagents are faster for broad searches and multi-file analysis.
    - Use "explore" agent for finding code, "general" agent for multi-step work.
+
+6. CODE INTELLIGENCE (LSP)
+   - Use the lsp tool for precise code navigation: go-to-definition, find-references, hover for type info.
+   - LSP is more accurate than grep for finding symbol definitions, callers, and type information.
+   - Language servers are auto-installed on first use — no setup needed.
 </tool_usage>`;
 }
 

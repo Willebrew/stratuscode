@@ -4,10 +4,13 @@
  * The root component for the TUI.
  */
 
-import React, { useState, useCallback } from 'react';
-import { Box, Text, useApp, useInput } from 'ink';
+import React, { useState, useCallback, useRef, useMemo } from 'react';
+import { Box, Static, Text, useApp, useInput } from 'ink';
+import * as fs from 'fs';
+import * as path from 'path';
 import type { StratusCodeConfig } from '@stratuscode/shared';
 import { Chat } from './components/Chat';
+import { Message } from './components/Message';
 import { UnifiedInput } from './components/UnifiedInput';
 import { SplashScreen } from './components/SplashScreen';
 import { PlanActions } from './components/PlanActions';
@@ -53,8 +56,12 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
 
   const [systemMessage, setSystemMessage] = useState<string | null>(null);
   const [showModelPicker, setShowModelPicker] = useState(false);
+  const [showShortcutsPanel, setShowShortcutsPanel] = useState(false);
+  const [compactView, setCompactView] = useState(false);
+  const shortcutsPanelJustOpenedRef = useRef(false);
   const [activeModel, setActiveModel] = useState(config.model);
   const [activeProvider, setActiveProvider] = useState<string | undefined>();
+  const tasksExpandedRef = useRef<(() => void) | null>(null);
 
   const {
     messages,
@@ -104,7 +111,7 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
   // Show a temporary system message
   const showSystemMessage = useCallback((msg: string) => {
     setSystemMessage(msg);
-    setTimeout(() => setSystemMessage(null), 3000);
+    setTimeout(() => setSystemMessage(null), 5000);
   }, []);
 
   // Plan actions only appear when the model calls plan_exit with proposingExit: true
@@ -188,13 +195,35 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
         showSystemMessage('Switched to BUILD mode');
         break;
       case 'mode:compact':
-        showSystemMessage('Compact view not yet implemented');
+        setCompactView(prev => !prev);
+        showSystemMessage(compactView ? 'Expanded view' : 'Compact view');
         break;
 
       // Tool commands - execute directly
-      case 'tool:codesearch':
-        showSystemMessage('Use: /search <query> or type a search query');
+      case 'tool:codesearch': {
+        // If command has args, execute search directly
+        const searchQuery = command.args?.[0];
+        if (searchQuery) {
+          showSystemMessage(`Searching: ${searchQuery}...`);
+          const result = await executeTool('codesearch', { query: searchQuery });
+          try {
+            const parsed = JSON.parse(result);
+            if (parsed.error) {
+              showSystemMessage(`Search error: ${parsed.message}`);
+            } else if (Array.isArray(parsed) && parsed.length > 0) {
+              const summary = parsed.slice(0, 5).map((r: any) => r.filePath || r.file).join(', ');
+              showSystemMessage(`Found ${parsed.length} results: ${summary}`);
+            } else {
+              showSystemMessage('No results found');
+            }
+          } catch {
+            showSystemMessage('Search complete');
+          }
+        } else {
+          showSystemMessage('Usage: /search <query>');
+        }
         break;
+      }
       case 'tool:reindex': {
         showSystemMessage('Reindexing codebase...');
         const result = await executeTool('codesearch', { query: '__reindex__', reindex: true });
@@ -207,8 +236,12 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
         break;
       }
       case 'tool:todos': {
-        // Todos auto-refresh via useTodos hook
-        showSystemMessage(`Todos: ${todoCounts.total} total (${todoCounts.completed} done)`);
+        // Toggle tasks expanded in UnifiedInput
+        if (tasksExpandedRef.current) {
+          tasksExpandedRef.current();
+        } else {
+          showSystemMessage(`Todos: ${todoCounts.total} total (${todoCounts.completed} done)`);
+        }
         break;
       }
       case 'tool:revert': {
@@ -222,44 +255,103 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
         }
         break;
       }
-      case 'tool:lsp':
-        showSystemMessage('LSP status: checking language servers...');
-        // TODO: Actually check LSP status
-        showSystemMessage('LSP servers: typescript (active)');
+      case 'tool:lsp': {
+        // Show LSP server status
+        try {
+          const toolsMod = await import('@stratuscode/tools') as any;
+          const createMgr = toolsMod.createLSPManager;
+
+          const lines: string[] = [];
+
+          if (typeof createMgr === 'function') {
+            const lspManager = createMgr(projectDir);
+            const active = lspManager.getActiveServers();
+            const broken = lspManager.getBrokenServers();
+
+            if (active.length > 0) {
+              lines.push(`Active: ${active.map((s: { id: string; root: string }) => `${s.id} (${s.root})`).join(', ')}`);
+            }
+            if (broken.length > 0) {
+              lines.push(`Broken: ${broken.join(', ')}`);
+            }
+          }
+
+          // Show detected project types
+          const detected: string[] = [];
+          if (fs.existsSync(path.join(projectDir, 'tsconfig.json')) || fs.existsSync(path.join(projectDir, 'package.json'))) {
+            detected.push('TypeScript/JavaScript');
+          }
+          if (fs.existsSync(path.join(projectDir, 'pyproject.toml')) || fs.existsSync(path.join(projectDir, 'setup.py')) || fs.existsSync(path.join(projectDir, 'requirements.txt'))) {
+            detected.push('Python');
+          }
+          if (fs.existsSync(path.join(projectDir, 'go.mod'))) {
+            detected.push('Go');
+          }
+          if (fs.existsSync(path.join(projectDir, 'Cargo.toml'))) {
+            detected.push('Rust');
+          }
+          if (detected.length > 0) {
+            lines.push(`Available: ${detected.join(', ')}`);
+          }
+
+          showSystemMessage(lines.length > 0 ? `LSP:\n${lines.join('\n')}` : 'LSP: No language servers detected');
+        } catch {
+          showSystemMessage('LSP: Unable to query server status');
+        }
         break;
+      }
 
       // Settings commands
       case 'settings:model':
         setShowModelPicker(true);
         break;
       case 'settings:theme':
-        showSystemMessage('Theme settings not yet implemented');
+        showSystemMessage('Theme: default (custom themes coming soon)');
         break;
-      case 'settings:config':
-        showSystemMessage('Config editor not yet implemented');
+      case 'settings:config': {
+        const configPath = path.join(projectDir, '.stratuscode', 'config.json');
+        const configExists = fs.existsSync(configPath);
+        showSystemMessage(configExists
+          ? `Config: ${configPath} | Model: ${activeModel} | Agent: ${agent}`
+          : `No config file. Create ${configPath} to customize.`);
         break;
+      }
 
       // Help commands
       case 'help:show':
-        showSystemMessage('Commands: /new /clear /plan /build /search /todos /revert /help');
+        shortcutsPanelJustOpenedRef.current = true;
+        setShowShortcutsPanel(true);
         break;
       case 'help:shortcuts':
-        showSystemMessage('Shortcuts: Ctrl+C exit | Tab switch mode | Esc cancel | ? help');
+        shortcutsPanelJustOpenedRef.current = true;
+        setShowShortcutsPanel(true);
         break;
       case 'help:about':
-        showSystemMessage('StratusCode - AI coding assistant');
+        showSystemMessage(`StratusCode v0.1.0 — AI coding assistant | Model: ${activeModel} | Agent: ${agent}`);
         break;
 
       default:
         showSystemMessage(`Unknown command: ${command.action}`);
         break;
     }
-  }, [clear, executeTool, loadSession, showSystemMessage, config.model, todoCounts, projectDir, sessionId]);
+  }, [clear, executeTool, loadSession, showSystemMessage, config.model, todoCounts, projectDir, sessionId, compactView, activeModel, agent]);
 
   // Handle global keyboard shortcuts
   useInput((input, key) => {
     // Model picker is open — let it handle its own input
     if (showModelPicker) {
+      return;
+    }
+
+    // Shortcuts panel — dismiss with Esc or any key
+    if (showShortcutsPanel) {
+      if (shortcutsPanelJustOpenedRef.current) {
+        shortcutsPanelJustOpenedRef.current = false;
+        return;
+      }
+      if (key.escape || key.return || input) {
+        setShowShortcutsPanel(false);
+      }
       return;
     }
 
@@ -328,14 +420,14 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
       // Clear screen effect - handled by terminal
     }
 
-    // Ctrl+N for new session
-    if (input === 'n' && key.ctrl && !isLoading) {
+    // Ctrl+N for new session — always available
+    if (input === 'n' && key.ctrl) {
       clear();
       showSystemMessage('Started new session');
     }
 
-    // Tab to switch agents
-    if (key.tab && !isLoading) {
+    // Tab to switch agents — always available
+    if (key.tab) {
       setAgent(prev => (prev === 'build' ? 'plan' : 'build'));
     }
 
@@ -359,8 +451,41 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
     [sendMessage, isLoading]
   );
 
-  // Show splash screen until first message (unless an overlay like model picker is open)
-  if (showSplash && messages.length === 0 && !showModelPicker) {
+  // Compute the turn boundary for Static rendering of previous messages.
+  // Previous messages go into <Static> (written once, never re-rendered).
+  // Current turn messages go into the dynamic section.
+  const currentTurnStart = useMemo(() => {
+    let start = messages.length;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i]!.role === 'user') {
+        start = i;
+        break;
+      }
+      if (messages[i]!.role === 'assistant') {
+        start = i;
+      }
+    }
+    return start;
+  }, [messages]);
+
+  const previousMessages = useMemo(
+    () => messages.slice(0, currentTurnStart),
+    [messages, currentTurnStart]
+  );
+
+  const currentTurnMessages = useMemo(
+    () => messages.slice(currentTurnStart),
+    [messages, currentTurnStart]
+  );
+
+  // Memoize Static items — only recompute when previousMessages changes
+  const staticItems = useMemo(
+    () => previousMessages.map((msg, i) => ({ id: `prev-${i}`, msg })),
+    [previousMessages]
+  );
+
+  // Show splash screen until first message (unless an overlay is open)
+  if (showSplash && messages.length === 0 && !showModelPicker && !showSessionPicker && !showShortcutsPanel) {
     return (
       <Box flexDirection="column" flexGrow={1}>
         {/* Splash logo centers itself via alignItems="center" — no gutter needed */}
@@ -369,6 +494,12 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
           projectDir={projectDir}
           model={activeModel}
         />
+        {/* System message toast (visible on splash screen too) */}
+        {systemMessage && (
+          <Box paddingX={2} marginY={1} paddingLeft={gutter + 2}>
+            <Text color={colors.secondary}>[i] {systemMessage}</Text>
+          </Box>
+        )}
         {/* Input box at bottom — aligned with chat content */}
         <Box flexGrow={1} />
         <Box paddingX={2} paddingY={1} paddingLeft={gutter + 2}>
@@ -384,6 +515,7 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
             model={activeModel}
             tokens={tokens}
             isLoading={false}
+            projectDir={projectDir}
           />
         </Box>
       </Box>
@@ -392,6 +524,17 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
 
   return (
     <Box flexDirection="column" flexGrow={1}>
+      {/* Previous messages — rendered once via Static, never re-rendered */}
+      {staticItems.length > 0 && !showShortcutsPanel && !showModelPicker && !showSessionPicker && (
+        <Static items={staticItems}>
+          {({ id, msg }) => (
+            <Box key={id} paddingX={1} paddingLeft={gutter + 1}>
+              <Message message={msg} showToolCalls compactView={compactView} />
+            </Box>
+          )}
+        </Static>
+      )}
+
       {/* System message toast */}
       {systemMessage && (
         <Box paddingX={2} marginY={1} paddingLeft={gutter + 2}>
@@ -401,7 +544,35 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
 
       {/* Main content area - show model picker, session picker, or chat */}
       <Box flexGrow={1} flexDirection="column">
-        {showModelPicker ? (
+        {showShortcutsPanel ? (
+          /* Shortcuts reference panel */
+          <Box flexDirection="column" paddingX={1} flexGrow={1} paddingLeft={gutter + 1}>
+            <Box marginBottom={1}>
+              <Text bold color={colors.primary}>Keyboard Shortcuts</Text>
+            </Box>
+            <Box flexDirection="column">
+              <Text color={colors.textDim} bold>── General ──</Text>
+              <Text color={colors.text}><Text color={colors.secondary} bold>{process.platform === 'darwin' ? '⌃C       ' : 'Ctrl+C   '}</Text> Exit / Cancel operation</Text>
+              <Text color={colors.text}><Text color={colors.secondary} bold>{process.platform === 'darwin' ? '⌃N       ' : 'Ctrl+N   '}</Text> New session</Text>
+              <Text color={colors.text}><Text color={colors.secondary} bold>Tab      </Text> Switch mode (Plan/Build)</Text>
+              <Text color={colors.text}><Text color={colors.secondary} bold>Esc      </Text> Cancel / Close panel</Text>
+              <Text color={colors.text}><Text color={colors.secondary} bold>?        </Text> Show help</Text>
+              <Text> </Text>
+              <Text color={colors.textDim} bold>── Editing ──</Text>
+              <Text color={colors.text}><Text color={colors.secondary} bold>{process.platform === 'darwin' ? '⌃U       ' : 'Ctrl+U   '}</Text> Clear input line</Text>
+              <Text color={colors.text}><Text color={colors.secondary} bold>{process.platform === 'darwin' ? '⌃W       ' : 'Ctrl+W   '}</Text> Delete last word</Text>
+              <Text color={colors.text}><Text color={colors.secondary} bold>/        </Text> Open command palette</Text>
+              <Text color={colors.text}><Text color={colors.secondary} bold>@        </Text> Mention a file</Text>
+              <Text> </Text>
+              <Text color={colors.textDim} bold>── Chat ──</Text>
+              <Text color={colors.text}><Text color={colors.secondary} bold>{process.platform === 'darwin' ? '⌃T       ' : 'Ctrl+T   '}</Text> Toggle todo list</Text>
+              <Text color={colors.text}><Text color={colors.secondary} bold>Enter    </Text> Toggle reasoning block</Text>
+            </Box>
+            <Box marginTop={1}>
+              <Text color={colors.textDim}>Press any key to close</Text>
+            </Box>
+          </Box>
+        ) : showModelPicker ? (
           <Box paddingLeft={gutter}>
             <ModelPicker
               config={config}
@@ -450,13 +621,14 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
           /* Normal chat view — Static messages + dynamic bottom */
           <Box flexDirection="column" flexGrow={1}>
             <Chat
-              messages={messages}
+              messages={currentTurnMessages}
               isLoading={isLoading}
               streamingContent={streamingContent}
               streamingReasoning={streamingReasoning}
               toolCalls={toolCalls}
               actions={actions}
               gutter={gutter}
+              compactView={compactView}
               pendingQuestion={questionForDialog}
               onSubmit={handleSubmit}
               onCommand={handleCommand}
@@ -491,6 +663,8 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
           tokens={tokens}
           isLoading={isLoading}
           todos={todos}
+          onToggleTasks={tasksExpandedRef}
+          projectDir={projectDir}
         />
       </Box>
     </Box>

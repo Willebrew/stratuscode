@@ -7,7 +7,7 @@
 
 import * as path from 'path';
 import { LspClient } from './client';
-import { getServerForFile, type LSPServerInfo, type LSPServerHandle } from './servers';
+import { getServersForFile, type LSPServerInfo, type LSPServerHandle } from './servers';
 
 // ============================================
 // Types
@@ -27,6 +27,8 @@ interface ManagedServer {
 
 export class LSPManager {
   private servers = new Map<string, ManagedServer>();
+  private broken = new Set<string>();
+  private spawning = new Map<string, Promise<LspClient | null>>();
   private projectDir: string;
   private idleTimeoutMs = 5 * 60 * 1000; // 5 minutes
 
@@ -38,40 +40,86 @@ export class LSPManager {
    * Get or create an LSP client for a file
    */
   async getClient(filePath: string): Promise<LspClient | null> {
-    const serverInfo = getServerForFile(filePath);
-    if (!serverInfo) {
+    const candidates = getServersForFile(filePath);
+    if (candidates.length === 0) {
       return null;
     }
 
-    // Find the root for this file
-    const root = await serverInfo.root(filePath, this.projectDir);
-    if (!root) {
-      return null;
+    // Try each candidate server in order until one succeeds
+    for (const serverInfo of candidates) {
+      const root = await serverInfo.root(filePath, this.projectDir);
+      if (!root) {
+        continue; // This server doesn't apply — try the next candidate
+      }
+
+      const key = `${serverInfo.id}:${root}`;
+
+      // Skip known-broken servers
+      if (this.broken.has(key)) {
+        continue;
+      }
+
+      // Check for existing server with health check
+      const existing = this.servers.get(key);
+      if (existing) {
+        if (!existing.client.isAlive()) {
+          this.servers.delete(key);
+        } else {
+          existing.lastUsed = Date.now();
+          return existing.client;
+        }
+      }
+
+      // Deduplicate in-flight spawns
+      const inflight = this.spawning.get(key);
+      if (inflight) {
+        return inflight;
+      }
+
+      const promise = this.spawnClient(key, serverInfo, root, filePath);
+      this.spawning.set(key, promise);
+      try {
+        const client = await promise;
+        if (client) {
+          return client;
+        }
+        // Spawn failed — continue to next candidate
+      } finally {
+        this.spawning.delete(key);
+      }
     }
 
-    // Check for existing server
-    const key = `${serverInfo.id}:${root}`;
-    const existing = this.servers.get(key);
-    if (existing) {
-      existing.lastUsed = Date.now();
-      return existing.client;
-    }
+    return null;
+  }
 
-    // Start new server
+  /**
+   * Spawn a new LSP client for the given server/root
+   */
+  private async spawnClient(
+    key: string,
+    serverInfo: LSPServerInfo,
+    root: string,
+    filePath: string,
+  ): Promise<LspClient | null> {
     const handle = await serverInfo.spawn(root);
     if (!handle) {
+      this.broken.add(key);
       return null;
     }
 
-    // Create client
     const ext = path.extname(filePath).slice(1);
     const client = new LspClient({
       rootUri: root,
       languageId: this.extToLanguageId(ext),
     });
 
-    // Wire up to existing process
-    await this.connectClientToProcess(client, handle);
+    try {
+      await client.connect(handle.process);
+    } catch {
+      this.broken.add(key);
+      handle.process.kill();
+      return null;
+    }
 
     const managed: ManagedServer = {
       info: serverInfo,
@@ -83,24 +131,6 @@ export class LSPManager {
 
     this.servers.set(key, managed);
     return client;
-  }
-
-  /**
-   * Connect a client to an existing process
-   */
-  private async connectClientToProcess(client: LspClient, handle: LSPServerHandle): Promise<void> {
-    // The client needs to use the existing process
-    // This is a simplified connection - in practice you'd want more robust handling
-    (client as any).process = handle.process;
-    (client as any).initialized = false;
-    
-    // Set up message handling
-    handle.process.stdout?.on('data', (data: Buffer) => {
-      (client as any).handleMessage(data.toString());
-    });
-
-    // Initialize
-    await (client as any).initialize();
   }
 
   /**
@@ -149,11 +179,33 @@ export class LSPManager {
    * Get list of active servers
    */
   getActiveServers(): Array<{ id: string; root: string; lastUsed: number }> {
-    return Array.from(this.servers.entries()).map(([key, server]) => ({
+    return Array.from(this.servers.entries()).map(([_key, server]) => ({
       id: server.info.id,
       root: server.root,
       lastUsed: server.lastUsed,
     }));
+  }
+
+  /**
+   * Get list of broken server keys
+   */
+  getBrokenServers(): string[] {
+    return Array.from(this.broken);
+  }
+
+  /**
+   * Clear broken status so servers can be retried (e.g. after manual install)
+   */
+  resetBroken(serverId?: string): void {
+    if (serverId) {
+      for (const key of this.broken) {
+        if (key.startsWith(`${serverId}:`)) {
+          this.broken.delete(key);
+        }
+      }
+    } else {
+      this.broken.clear();
+    }
   }
 
   /**

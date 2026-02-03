@@ -7,6 +7,11 @@
 import { defineTool } from './sage-adapter';
 import { createLSPManager, type LSPManager } from './lib/lsp/manager';
 import * as path from 'path';
+import * as fs from 'fs/promises';
+
+// Re-export LSP internals for use by other packages (e.g., TUI)
+export { createLSPManager, LSPManager } from './lib/lsp/manager';
+export type { LspClient } from './lib/lsp/client';
 
 // Cache LSP managers per project
 const managers = new Map<string, LSPManager>();
@@ -20,7 +25,7 @@ function getManager(projectDir: string): LSPManager {
   return manager;
 }
 
-export type LspOperation = 
+export type LspOperation =
   | 'definition'
   | 'references'
   | 'hover'
@@ -28,7 +33,11 @@ export type LspOperation =
   | 'documentSymbols'
   | 'workspaceSymbols'
   | 'completion'
-  | 'rename';
+  | 'rename'
+  | 'goToImplementation'
+  | 'prepareCallHierarchy'
+  | 'incomingCalls'
+  | 'outgoingCalls';
 
 export interface LspArgs extends Record<string, unknown> {
   operation: LspOperation;
@@ -52,6 +61,10 @@ Operations:
 - workspaceSymbols: Search for symbols across the workspace
 - completion: Get completion suggestions at position
 - rename: Preview rename of symbol (does not apply changes)
+- goToImplementation: Find implementations of an interface or abstract method
+- prepareCallHierarchy: Get call hierarchy item at a position
+- incomingCalls: Find all callers of the function at position
+- outgoingCalls: Find all functions called by the function at position
 
 Requires filePath and position (line, character) for most operations.
 Position is 0-indexed (first line is 0, first character is 0).`,
@@ -60,7 +73,11 @@ Position is 0-indexed (first line is 0, first character is 0).`,
     properties: {
       operation: {
         type: 'string',
-        enum: ['definition', 'references', 'hover', 'diagnostics', 'documentSymbols', 'workspaceSymbols', 'completion', 'rename'],
+        enum: [
+          'definition', 'references', 'hover', 'diagnostics',
+          'documentSymbols', 'workspaceSymbols', 'completion', 'rename',
+          'goToImplementation', 'prepareCallHierarchy', 'incomingCalls', 'outgoingCalls',
+        ],
         description: 'The LSP operation to perform',
       },
       filePath: {
@@ -92,8 +109,15 @@ Position is 0-indexed (first line is 0, first character is 0).`,
     const { operation, filePath, line, character, query, newName } = args;
 
     // Validate required parameters
-    const needsFile = ['definition', 'references', 'hover', 'diagnostics', 'documentSymbols', 'completion', 'rename'];
-    const needsPosition = ['definition', 'references', 'hover', 'completion', 'rename'];
+    const needsFile = [
+      'definition', 'references', 'hover', 'diagnostics',
+      'documentSymbols', 'completion', 'rename',
+      'goToImplementation', 'prepareCallHierarchy', 'incomingCalls', 'outgoingCalls',
+    ];
+    const needsPosition = [
+      'definition', 'references', 'hover', 'completion', 'rename',
+      'goToImplementation', 'prepareCallHierarchy', 'incomingCalls', 'outgoingCalls',
+    ];
 
     if (needsFile.includes(operation) && !filePath) {
       return JSON.stringify({
@@ -122,7 +146,7 @@ Position is 0-indexed (first line is 0, first character is 0).`,
     // Get LSP manager and client
     const manager = getManager(context.projectDir);
     const absolutePath = filePath ? path.resolve(context.projectDir, filePath) : undefined;
-    
+
     if (absolutePath) {
       const client = await manager.getClient(absolutePath);
       if (!client) {
@@ -134,6 +158,10 @@ Position is 0-indexed (first line is 0, first character is 0).`,
       }
 
       try {
+        // Open the document before any query so the server knows about it
+        const content = await fs.readFile(absolutePath, 'utf-8');
+        client.didOpen(absolutePath, content);
+
         switch (operation) {
           case 'hover': {
             const result = await client.hover(absolutePath, { line: line!, character: character! });
@@ -148,12 +176,10 @@ Position is 0-indexed (first line is 0, first character is 0).`,
             return JSON.stringify({ operation, result });
           }
           case 'diagnostics': {
-            // Diagnostics are typically pushed from the server, not requested
-            return JSON.stringify({ 
-              operation, 
-              result: [],
-              note: 'Diagnostics are received via notifications. Use hover or documentSymbols for code info.',
-            });
+            // Allow time for server to send diagnostics after didOpen
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            const result = client.getDiagnostics(absolutePath);
+            return JSON.stringify({ operation, result });
           }
           case 'documentSymbols': {
             const result = await client.documentSymbols(absolutePath);
@@ -175,6 +201,30 @@ Position is 0-indexed (first line is 0, first character is 0).`,
             }
             // Then do the actual rename
             const result = await client.rename(absolutePath, { line: line!, character: character! }, newName!);
+            return JSON.stringify({ operation, result });
+          }
+          case 'goToImplementation': {
+            const result = await client.goToImplementation(absolutePath, { line: line!, character: character! });
+            return JSON.stringify({ operation, result });
+          }
+          case 'prepareCallHierarchy': {
+            const result = await client.prepareCallHierarchy(absolutePath, { line: line!, character: character! });
+            return JSON.stringify({ operation, result });
+          }
+          case 'incomingCalls': {
+            const items = await client.prepareCallHierarchy(absolutePath, { line: line!, character: character! });
+            if (!items.length) {
+              return JSON.stringify({ operation, result: [], note: 'No call hierarchy item found at position' });
+            }
+            const result = await client.incomingCalls(items[0]!);
+            return JSON.stringify({ operation, result });
+          }
+          case 'outgoingCalls': {
+            const items = await client.prepareCallHierarchy(absolutePath, { line: line!, character: character! });
+            if (!items.length) {
+              return JSON.stringify({ operation, result: [], note: 'No call hierarchy item found at position' });
+            }
+            const result = await client.outgoingCalls(items[0]!);
             return JSON.stringify({ operation, result });
           }
           default:
