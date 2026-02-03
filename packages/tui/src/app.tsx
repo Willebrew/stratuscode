@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useCallback, useRef, useMemo } from 'react';
-import { Box, Static, Text, useApp, useInput } from 'ink';
+import { Box, Static, Text, useApp, useInput, useStdout } from 'ink';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { StratusCodeConfig } from '@stratuscode/shared';
@@ -47,6 +47,7 @@ interface SessionInfo {
 
 export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
   const { exit } = useApp();
+  const { stdout } = useStdout();
   const { gutter } = useCenteredPadding(100);
   const [showSplash, setShowSplash] = useState(true);
   const [agent, setAgent] = useState(initialAgent);
@@ -486,23 +487,32 @@ export function App({ projectDir, config, initialAgent = 'build' }: AppProps) {
 
   // Show splash screen until first message (unless an overlay is open)
   if (showSplash && messages.length === 0 && !showModelPicker && !showSessionPicker && !showShortcutsPanel) {
+    const inputWidth = Math.min((stdout?.columns ?? 120) - 4, 100);
+
     return (
-      <Box flexDirection="column" flexGrow={1}>
-        {/* Splash logo centers itself via alignItems="center" — no gutter needed */}
+      <Box flexDirection="column" flexGrow={1} alignItems="center">
+        {/* Top spacer — pushes logo to visual center (slightly above midpoint) */}
+        <Box flexGrow={2} />
+
+        {/* Logo + version info */}
         <SplashScreen
           version="0.1.0"
           projectDir={projectDir}
           model={activeModel}
         />
-        {/* System message toast (visible on splash screen too) */}
+
+        {/* Bottom spacer */}
+        <Box flexGrow={3} />
+
+        {/* System message toast */}
         {systemMessage && (
-          <Box paddingX={2} marginY={1} paddingLeft={gutter + 2}>
+          <Box marginBottom={1}>
             <Text color={colors.secondary}>[i] {systemMessage}</Text>
           </Box>
         )}
-        {/* Input box at bottom — aligned with chat content */}
-        <Box flexGrow={1} />
-        <Box paddingX={2} paddingY={1} paddingLeft={gutter + 2}>
+
+        {/* Centered input box */}
+        <Box width={inputWidth} paddingBottom={1}>
           <UnifiedInput
             onSubmit={(text) => {
               setShowSplash(false);

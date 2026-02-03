@@ -60,14 +60,13 @@ export function SplashScreen({ version, projectDir, model }: SplashScreenProps) 
 
   // Truncate project dir if needed
   const maxPathLen = Math.max(20, columns - 40);
-  const displayPath = projectDir.length > maxPathLen 
+  const displayPath = projectDir.length > maxPathLen
     ? '...' + projectDir.slice(-maxPathLen + 3)
     : projectDir;
 
   if (isCompact) {
-    // Compact view — big block S (white) + C (purple)
     return (
-      <Box flexDirection="column" alignItems="center" justifyContent="center" flexGrow={1} padding={1}>
+      <Box flexDirection="column" alignItems="center">
         <Box>
           <Text color="white" bold>{S_LOGO}</Text>
           <Text>  </Text>
@@ -82,7 +81,7 @@ export function SplashScreen({ version, projectDir, model }: SplashScreenProps) 
   }
 
   return (
-    <Box flexDirection="column" alignItems="center" justifyContent="center" flexGrow={1} padding={1}>
+    <Box flexDirection="column" alignItems="center">
       {/* Text Logo - Stratus (white) + Code (purple) side by side */}
       <Box>
         <Text color="white" bold>{STRATUS_LOGO}</Text>
