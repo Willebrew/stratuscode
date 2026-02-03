@@ -283,6 +283,8 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   const sessionIdRef = useRef<string | undefined>(undefined);
   const actionIdRef = useRef(0);
   const timelineEventsRef = useRef<TimelineEvent[]>([]);
+  const reasoningEventIdRef = useRef<string | null>(null);
+  const textEventIdRef = useRef<string | null>(null);
   const previousAgentRef = useRef<string>(agent);
 
   // Streaming throttle: accumulate in refs, flush to state at intervals
@@ -364,6 +366,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       timelineEventsRef.current = [...timelineEventsRef.current, userEvent];
       setTimelineEvents([...timelineEventsRef.current]);
       persistSessionUpdate(sid, { status: 'running' });
+      reasoningEventIdRef.current = null;
 
       // Create abort controller
       abortRef.current = new AbortController();
@@ -371,26 +374,42 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       const flushReasoningEvent = () => {
         const pending = streamingReasoningRef.current;
         if (!pending) return;
-        const last = timelineEventsRef.current[timelineEventsRef.current.length - 1];
-        if (last && last.kind === 'reasoning') {
-          timelineEventsRef.current = [
-            ...timelineEventsRef.current.slice(0, -1),
-            { ...last, content: pending, streaming: false },
-          ];
-          setTimelineEvents([...timelineEventsRef.current]);
+        const id = reasoningEventIdRef.current;
+        if (id) {
+          const idx = timelineEventsRef.current.findIndex(e => e.id === id);
+          if (idx !== -1) {
+            timelineEventsRef.current[idx] = { ...timelineEventsRef.current[idx]!, content: pending, streaming: false };
+            setTimelineEvents([...timelineEventsRef.current]);
+          }
         } else {
           const ev = createTimelineEvent(sid, 'reasoning', pending, { streaming: false }, userMessageId);
+          reasoningEventIdRef.current = ev.id;
           pushEvent(ev);
         }
         streamingReasoningRef.current = '';
+        reasoningEventIdRef.current = null;
       };
 
-      const flushTextEvent = () => {
+      const flushTextEvent = (final = true) => {
         const pending = streamingContentRef.current;
-        if (pending) {
-          const ev = createTimelineEvent(sid, 'assistant', pending, {}, userMessageId);
+        if (!pending) return;
+        const id = textEventIdRef.current;
+        if (id) {
+          // Update existing streaming text event
+          const idx = timelineEventsRef.current.findIndex(e => e.id === id);
+          if (idx !== -1) {
+            timelineEventsRef.current[idx] = { ...timelineEventsRef.current[idx]!, content: pending, streaming: !final };
+            setTimelineEvents([...timelineEventsRef.current]);
+          }
+        } else {
+          // Create new streaming text event
+          const ev = createTimelineEvent(sid, 'assistant', pending, { streaming: !final }, userMessageId);
+          textEventIdRef.current = ev.id;
           pushEvent(ev);
+        }
+        if (final) {
           streamingContentRef.current = '';
+          textEventIdRef.current = null;
         }
       };
 
@@ -455,11 +474,17 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         // Track agent for next transition detection
         previousAgentRef.current = effectiveAgentName;
 
-        // Start streaming flush interval — accumulate tokens in refs, flush to state periodically
+        // Start streaming flush interval — periodically push accumulated text to timeline
         streamingContentRef.current = '';
         streamingReasoningRef.current = '';
         lastStreamingTypeRef.current = null;
-        streamingFlushRef.current = setInterval(() => {}, STREAMING_FLUSH_INTERVAL);
+        textEventIdRef.current = null;
+        streamingFlushRef.current = setInterval(() => {
+          // Flush accumulated text to a streaming timeline event
+          if (streamingContentRef.current && lastStreamingTypeRef.current === 'text') {
+            flushTextEvent(false);
+          }
+        }, STREAMING_FLUSH_INTERVAL);
 
         // Run through SAGE's processDirectly - the only agentic engine
         const result = await processDirectly({
@@ -487,24 +512,33 @@ export function useChat(options: UseChatOptions): UseChatReturn {
               }
               lastStreamingTypeRef.current = 'reasoning';
               streamingReasoningRef.current += text;
-              const last = timelineEventsRef.current[timelineEventsRef.current.length - 1];
-              if (last && last.kind === 'reasoning' && last.streaming) {
-                timelineEventsRef.current = [
-                  ...timelineEventsRef.current.slice(0, -1),
-                  { ...last, content: streamingReasoningRef.current, streaming: true },
-                ];
-                setTimelineEvents([...timelineEventsRef.current]);
-              } else {
+              if (!reasoningEventIdRef.current) {
                 const ev = createTimelineEvent(sid, 'reasoning', streamingReasoningRef.current, { streaming: true }, userMessageId);
+                reasoningEventIdRef.current = ev.id;
                 pushEvent(ev);
+              } else {
+                const idx = timelineEventsRef.current.findIndex(e => e.id === reasoningEventIdRef.current);
+                if (idx !== -1) {
+                  timelineEventsRef.current[idx] = { ...timelineEventsRef.current[idx]!, content: streamingReasoningRef.current, streaming: true };
+                  setTimelineEvents([...timelineEventsRef.current]);
+                }
               }
             },
             onToolCall: (tc: ToolCall) => {
+              // Flush any accumulated reasoning/text before the tool call
+              if (lastStreamingTypeRef.current === 'reasoning' && streamingReasoningRef.current) {
+                flushReasoningEvent();
+              }
+              if (lastStreamingTypeRef.current === 'text' && streamingContentRef.current) {
+                flushTextEvent();
+              }
+              lastStreamingTypeRef.current = null;
+
               createToolCall(userMessageId, sid, tc);
               const toolEvent = createTimelineEvent(
                 sid,
                 'tool_call',
-                tc.function.name,
+                tc.function.arguments, // store arguments so Chat can show file paths, commands, etc.
                 {
                   toolCallId: tc.id,
                   toolName: tc.function.name,
@@ -565,6 +599,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
           } as TimelineEvent;
           setTimelineEvents([...timelineEventsRef.current]);
         }
+        reasoningEventIdRef.current = null;
 
         // Persist (no final assistant timeline event; streamed text already captured)
         const tokenUsage: TokenUsage = {
