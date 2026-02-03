@@ -7,6 +7,7 @@
 import { defineTool } from './sage-adapter';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { generateUnifiedDiff } from './lib/diff';
 
 export interface WriteArgs extends Record<string, unknown> {
   file_path: string;
@@ -68,11 +69,15 @@ export const writeTool = defineTool<WriteArgs>({
     const stats = await fs.stat(file_path);
     const lineCount = content.split('\n').length;
 
+    // Generate diff (new file = empty old content)
+    const diff = generateUnifiedDiff('', content, file_path);
+
     return JSON.stringify({
       success: true,
       file: file_path,
       bytes: stats.size,
       lines: lineCount,
+      diff,
       message: `Created file ${file_path} (${lineCount} lines, ${stats.size} bytes)`,
     });
   },

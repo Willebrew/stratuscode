@@ -7,6 +7,7 @@
 import { defineTool } from './sage-adapter';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { generateUnifiedDiff } from './lib/diff';
 
 export interface EditArgs extends Record<string, unknown> {
   file_path: string;
@@ -99,6 +100,9 @@ Usage:
       newContent = content.replace(old_string, new_string);
     }
 
+    // Generate diff before writing
+    const diff = generateUnifiedDiff(content, newContent, file_path);
+
     // Write updated content
     await fs.writeFile(file_path, newContent, 'utf-8');
 
@@ -112,6 +116,7 @@ Usage:
       file: file_path,
       replacements: replace_all ? occurrences : 1,
       lineChange: lineDiff,
+      diff,
       message: `Edited ${file_path}: ${replace_all ? occurrences : 1} replacement(s), ${lineDiff >= 0 ? '+' : ''}${lineDiff} lines`,
     });
   },
