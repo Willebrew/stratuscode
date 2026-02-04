@@ -184,6 +184,24 @@ function createTables(db: Database): void {
     )
   `);
 
+  // Error memories table (SAGE error learning)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS error_memories (
+      id TEXT PRIMARY KEY,
+      project_dir TEXT,
+      tool_name TEXT,
+      error_pattern TEXT NOT NULL,
+      lesson TEXT NOT NULL,
+      raw_error TEXT,
+      error_hash TEXT NOT NULL,
+      occurrence_count INTEGER DEFAULT 1,
+      confidence REAL DEFAULT 0.8,
+      last_occurred_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      tags TEXT
+    )
+  `);
+
   // Create indexes
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_dir);
@@ -193,6 +211,8 @@ function createTables(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_tool_calls_message ON tool_calls(message_id);
     CREATE INDEX IF NOT EXISTS idx_todos_session ON todos(session_id);
     CREATE INDEX IF NOT EXISTS idx_pending_questions_session ON pending_questions(session_id);
+    CREATE INDEX IF NOT EXISTS idx_error_memories_project ON error_memories(project_dir);
+    CREATE INDEX IF NOT EXISTS idx_error_memories_hash ON error_memories(error_hash);
   `);
 
   // Defensive schema upgrades for existing installations

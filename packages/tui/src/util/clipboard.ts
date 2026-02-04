@@ -32,28 +32,24 @@ export function readClipboardImage(): ClipboardImage | null {
 }
 
 function readMacOS(): ClipboardImage | null {
-  // Use osascript to check if clipboard contains image data and extract it
-  const script = `
-    use framework "AppKit"
-    set pb to current application's NSPasteboard's generalPasteboard()
-    set imgTypes to {current application's NSPasteboardTypePNG, current application's NSPasteboardTypeTIFF}
-    set bestType to pb's availableTypeFromArray:imgTypes
-    if bestType is missing value then
-      return "NONE"
-    end if
-    set imgData to pb's dataForType:bestType
-    if imgData is missing value then
-      return "NONE"
-    end if
-    -- Convert to PNG via NSBitmapImageRep
-    set bitmapRep to current application's NSBitmapImageRep's imageRepWithData:imgData
-    set pngData to bitmapRep's representationUsingType:(current application's NSBitmapImageRepFileTypePNG) properties:(missing value)
-    set base64 to pngData's base64EncodedStringWithOptions:0
-    return base64 as text
-  `;
+  // Use Swift to read clipboard image — osascript has issues with NSBitmapImageRep constants
+  const swift = `
+import AppKit
+let pb = NSPasteboard.general
+guard let data = pb.data(forType: .png) ?? pb.data(forType: .tiff) else {
+    print("NONE")
+    exit(0)
+}
+guard let rep = NSBitmapImageRep(data: data),
+      let pngData = rep.representation(using: .png, properties: [:]) else {
+    print("NONE")
+    exit(0)
+}
+print(pngData.base64EncodedString())
+`;
 
-  const result = spawnSync('osascript', ['-e', script], {
-    timeout: 5000,
+  const result = spawnSync('swift', ['-e', swift], {
+    timeout: 10000,
     encoding: 'utf-8',
     maxBuffer: 50 * 1024 * 1024, // 50MB for large images
   });

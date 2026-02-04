@@ -20,6 +20,7 @@
   "dependencies": {
     "@sage/core": "file:../../../../Documents/Stratus-Server/Personal/SAGE/packages/core",
     "@stratuscode/shared": "workspace:*",
+    "@stratuscode/storage": "workspace:*",
     "zod": "^3.23.8"
   },
   "devDependencies": {

@@ -55,7 +55,7 @@ function expandMentions(content: string, projectDir: string): string {
   return content;
 }
 import type { StratusCodeConfig, AgentInfo } from '@stratuscode/shared';
-import { buildSystemPrompt, BUILT_IN_AGENTS } from '@stratuscode/shared';
+import { buildSystemPrompt, BUILT_IN_AGENTS, modelSupportsReasoning } from '@stratuscode/shared';
 import { registerBuiltInTools, createStratusCodeToolRegistry } from '@stratuscode/tools';
 import {
   getSession as getStoredSession,
@@ -63,7 +63,7 @@ import {
   createSession as persistSession,
   updateSession as persistSessionUpdate,
   createMessage,
-  updateMessageTokens,
+  updateMessage,
   createTimelineEvent,
   listTimelineEvents,
   createToolCall,
@@ -71,7 +71,8 @@ import {
   getSessionTokenTotals,
 } from '@stratuscode/storage';
 import { processDirectly, type AgentResult, type Message, type ToolCall, type ToolRegistry } from '@sage/core';
-import type { TimelineEvent, TokenUsage, ContentPart } from '@stratuscode/shared';
+import { SQLiteErrorStore } from '@stratuscode/storage';
+import type { TimelineEvent, TimelineAttachment, TokenUsage, ContentPart } from '@stratuscode/shared';
 import type { Attachment } from '../components/UnifiedInput';
 
 // ============================================
@@ -178,6 +179,8 @@ export interface UseChatOptions {
   modelOverride?: string;
   /** Override the provider key (e.g. 'opencode-zen') — resolves from config.providers */
   providerOverride?: string;
+  /** Override reasoning effort (e.g. from keybind) — 'off' disables reasoning */
+  reasoningEffortOverride?: 'off' | 'minimal' | 'low' | 'medium' | 'high';
 }
 
 export interface ActionPart {
@@ -218,6 +221,7 @@ export interface UseChatReturn {
 
 const CODEX_ISSUER = 'https://auth.openai.com';
 const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
+const refreshPromises = new Map<string, Promise<void>>();
 
 async function refreshCodexToken(refreshToken: string): Promise<{ access: string; refresh: string; expires: number } | null> {
   try {
@@ -244,43 +248,78 @@ async function refreshCodexToken(refreshToken: string): Promise<{ access: string
 
 /**
  * Ensure Codex access token is fresh. Mutates config in place if refreshed.
+ *
+ * Note: Disk writes are not synchronized across processes. If running multiple
+ * TUI instances, each maintains its own in-memory token cache; the refresh
+ * token flow is inexpensive so this is an acceptable limitation.
  */
 async function ensureCodexToken(config: StratusCodeConfig, providerOverride?: string): Promise<void> {
   const key = providerOverride || 'openai-codex';
-  const p = (config as any).providers?.[key];
-  if (!p?.auth || p.auth.type !== 'oauth') return;
+  const p = config.providers?.[key];
+  const auth = p?.auth;
+  if (!p || !auth || auth.type !== 'oauth') return;
   if (!p.baseUrl?.includes('chatgpt.com/backend-api/codex')) return;
-  if (p.auth.expires > Date.now() + 60_000) return; // still valid (60s margin)
+  if (auth.expires > Date.now() + 60_000) return; // still valid (60s margin)
 
-  const refreshed = await refreshCodexToken(p.auth.refresh);
-  if (!refreshed) return;
+  const existing = refreshPromises.get(key);
+  if (existing) return existing;
 
-  // Update in-memory config
-  p.apiKey = refreshed.access;
-  p.auth.access = refreshed.access;
-  p.auth.refresh = refreshed.refresh;
-  p.auth.expires = refreshed.expires;
+  const promise = (async () => {
+    try {
+      const refreshed = await refreshCodexToken(auth.refresh);
+      if (!refreshed) return;
 
-  // Persist to disk
-  try {
-    const os = await import('os');
-    const configPath = path.join(os.default.homedir(), '.stratuscode', 'config.json');
-    const diskConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    if (diskConfig.providers?.[key]) {
-      diskConfig.providers[key].apiKey = refreshed.access;
-      diskConfig.providers[key].auth.access = refreshed.access;
-      diskConfig.providers[key].auth.refresh = refreshed.refresh;
-      diskConfig.providers[key].auth.expires = refreshed.expires;
-      fs.writeFileSync(configPath, JSON.stringify(diskConfig, null, 2));
+      // Update in-memory config
+      p.apiKey = refreshed.access;
+      auth.access = refreshed.access;
+      auth.refresh = refreshed.refresh;
+      auth.expires = refreshed.expires;
+
+      // Persist to disk
+      try {
+        const os = await import('os');
+        const configPath = path.join(os.default.homedir(), '.stratuscode', 'config.json');
+        const diskConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        if (diskConfig.providers?.[key]) {
+          diskConfig.providers[key].apiKey = refreshed.access;
+          diskConfig.providers[key].auth.access = refreshed.access;
+          diskConfig.providers[key].auth.refresh = refreshed.refresh;
+          diskConfig.providers[key].auth.expires = refreshed.expires;
+          fs.writeFileSync(configPath, JSON.stringify(diskConfig, null, 2));
+        }
+      } catch {
+        // Non-fatal: token is refreshed in memory even if disk write fails
+      }
+    } finally {
+      refreshPromises.delete(key);
     }
-  } catch {
-    // Non-fatal: token is refreshed in memory even if disk write fails
-  }
+  })();
+
+  refreshPromises.set(key, promise);
+  return promise;
 }
 
 // ============================================
 // Config Conversion
 // ============================================
+
+// Model context window lookup (shared between toSageConfig and useChat)
+const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
+  'gpt-5-mini': 128_000,
+  'gpt-4o': 128_000,
+  'o3-mini': 128_000,
+  'gpt-5.2-codex': 272_000,
+  'gpt-5.1-codex': 128_000,
+  'gpt-5.1-codex-max': 128_000,
+  'gpt-5.1-codex-mini': 128_000,
+  'gpt-5-codex': 400_000,
+  'codex-mini': 200_000,
+  'kimi-k2.5-free': 128_000,
+  'minimax-m2.1-free': 128_000,
+  'trinity-large-preview-free': 128_000,
+  'glm-4.7-free': 128_000,
+  'big-pickle': 128_000,
+};
 
 /**
  * Convert StratusCode config to SAGE config format
@@ -290,6 +329,7 @@ function toSageConfig(
   modelOverride?: string,
   providerOverride?: string,
   sessionId?: string,
+  reasoningEffortOverride?: 'off' | 'minimal' | 'low' | 'medium' | 'high',
 ) {
   // Resolve effective provider config from named providers if override is set
   let effectiveProvider: {
@@ -300,12 +340,12 @@ function toSageConfig(
   } = {
     apiKey: config.provider.apiKey,
     baseUrl: config.provider.baseUrl,
-    type: (config.provider as any).type as 'responses-api' | 'chat-completions' | undefined,
-    headers: (config.provider as any).headers as Record<string, string> | undefined,
+    type: config.provider.type as 'responses-api' | 'chat-completions' | undefined,
+    headers: config.provider.headers,
   };
 
-  if (providerOverride && (config as any).providers?.[providerOverride]) {
-    const p = (config as any).providers[providerOverride];
+  if (providerOverride && config.providers?.[providerOverride]) {
+    const p = config.providers[providerOverride]!;
     effectiveProvider = {
       apiKey: p.apiKey,
       baseUrl: p.baseUrl,
@@ -317,7 +357,9 @@ function toSageConfig(
   // Codex: strip trailing /responses from baseUrl (SAGE appends it)
   // and inject required headers matching OpenCode's Codex plugin
   if (effectiveProvider.baseUrl?.includes('chatgpt.com/backend-api/codex')) {
-    effectiveProvider.baseUrl = effectiveProvider.baseUrl.replace(/\/responses\/?$/, '');
+    effectiveProvider.baseUrl = effectiveProvider.baseUrl
+      .replace(/\/responses\/?$/, '')
+      .replace(/\/$/, '');
     effectiveProvider.headers = {
       ...effectiveProvider.headers,
       'originator': 'opencode',
@@ -337,11 +379,22 @@ function toSageConfig(
     };
   }
 
+  // Determine reasoning effort: keybind override > explicit config > auto-detect from model
+  const effectiveModel = modelOverride || config.model;
+  const supportsReasoning = modelSupportsReasoning(effectiveModel);
+  const reasoningEffort = reasoningEffortOverride === 'off'
+    ? undefined
+    : (reasoningEffortOverride ?? config.reasoningEffort ?? (supportsReasoning ? 'medium' : undefined));
+
+  const contextWindow = MODEL_CONTEXT_WINDOWS[effectiveModel] ?? 128_000;
+
   return {
-    model: modelOverride || config.model,
+    model: effectiveModel,
     temperature: config.temperature,
     maxTokens: config.maxTokens,
     parallelToolCalls: config.parallelToolCalls,
+    enableReasoningEffort: !!reasoningEffort,
+    reasoningEffort,
     provider: effectiveProvider,
     agent: {
       name: config.agent.name,
@@ -349,6 +402,21 @@ function toSageConfig(
       toolTimeout: config.agent.toolTimeout,
       maxToolResultSize: config.agent.maxToolResultSize,
     },
+    context: {
+      enabled: true,
+      contextWindow,
+      maxResponseTokens: config.maxTokens ?? 16_384,
+      summary: {
+        enabled: true,
+        model: effectiveModel,
+        targetTokens: 500,
+      },
+      errorMemory: {
+        enabled: true,
+        scope: null, // scope resolved from toolMetadata.projectDir in SAGE
+      },
+    },
+    errorMemoryStore: new SQLiteErrorStore(),
   };
 }
 
@@ -357,7 +425,7 @@ function toSageConfig(
 // ============================================
 
 export function useChat(options: UseChatOptions): UseChatReturn {
-  const { projectDir, config, agent, modelOverride, providerOverride } = options;
+  const { projectDir, config, agent, modelOverride, providerOverride, reasoningEffortOverride } = options;
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -415,22 +483,11 @@ export function useChat(options: UseChatOptions): UseChatReturn {
   // Model-aware context window lookup (prompt_tokens limit, not response tokens)
   const getContextWindow = useCallback(() => {
     const model = modelOverride || config.model;
-    const CONTEXT_WINDOWS: Record<string, number> = {
-      'gpt-5-mini': 128_000,
-      'gpt-4o': 128_000,
-      'o3-mini': 128_000,
-      'gpt-5.2-codex': 192_000,
-      'gpt-5.1-codex': 192_000,
-      'gpt-5.1-codex-max': 192_000,
-      'gpt-5.1-codex-mini': 192_000,
-      'kimi-k2.5-free': 128_000,
-      'minimax-m2.1-free': 128_000,
-      'trinity-large-preview-free': 128_000,
-      'glm-4.7-free': 128_000,
-      'big-pickle': 128_000,
-    };
-    return CONTEXT_WINDOWS[model] ?? 128_000;
+    return MODEL_CONTEXT_WINDOWS[model] ?? 128_000;
   }, [modelOverride, config.model]);
+
+  // SAGE context engine: persist summary state across turns
+  const existingSummaryRef = useRef<any>(undefined);
 
   // Track the last API call's prompt_tokens (= current context window occupancy)
   const lastPromptTokensRef = useRef<number>(0);
@@ -485,10 +542,25 @@ export function useChat(options: UseChatOptions): UseChatReturn {
       messagesRef.current = newMessages;
       setMessages([...newMessages]);
 
+      // Build timeline attachment metadata for display and persistence
+      const timelineAttachments: TimelineAttachment[] | undefined =
+        attachments && attachments.length > 0
+          ? attachments.map(a => ({
+              type: 'image' as const,
+              mime: a.mime,
+              data: a.data,
+            }))
+          : undefined;
+
       // Persist user message
       const sid = getSessionId();
       const userMessageId = createMessage(sid, 'user', content);
-      const userEvent = createTimelineEvent(sid, 'user', content, {}, userMessageId);
+      const assistantMessageId = createMessage(sid, 'assistant', '');
+      const userEvent = createTimelineEvent(
+        sid, 'user', content,
+        { ...(timelineAttachments ? { attachments: timelineAttachments } : {}) },
+        userMessageId
+      );
       timelineEventsRef.current = [...timelineEventsRef.current, userEvent];
       setTimelineEvents([...timelineEventsRef.current]);
       persistSessionUpdate(sid, { status: 'running' });
@@ -508,7 +580,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
             setTimelineEvents([...timelineEventsRef.current]);
           }
         } else {
-          const ev = createTimelineEvent(sid, 'reasoning', pending, { streaming: false }, userMessageId);
+          const ev = createTimelineEvent(sid, 'reasoning', pending, { streaming: false }, assistantMessageId);
           reasoningEventIdRef.current = ev.id;
           pushEvent(ev);
         }
@@ -529,7 +601,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
           }
         } else {
           // Create new streaming text event
-          const ev = createTimelineEvent(sid, 'assistant', pending, { streaming: !final }, userMessageId);
+          const ev = createTimelineEvent(sid, 'assistant', pending, { streaming: !final }, assistantMessageId);
           textEventIdRef.current = ev.id;
           pushEvent(ev);
         }
@@ -627,9 +699,10 @@ export function useChat(options: UseChatOptions): UseChatReturn {
           systemPrompt,
           messages: messagesForLLM,
           tools: registry,
-          config: toSageConfig(config, modelOverride, providerOverride, sid),
+          config: toSageConfig(config, modelOverride, providerOverride, sid, reasoningEffortOverride),
           abort: abortRef.current.signal,
           sessionId: sid,
+          existingSummary: existingSummaryRef.current,
           toolMetadata: {
             projectDir,
             abort: abortRef.current.signal,
@@ -649,7 +722,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
               lastStreamingTypeRef.current = 'reasoning';
               streamingReasoningRef.current += text;
               if (!reasoningEventIdRef.current) {
-                const ev = createTimelineEvent(sid, 'reasoning', streamingReasoningRef.current, { streaming: true }, userMessageId);
+                const ev = createTimelineEvent(sid, 'reasoning', streamingReasoningRef.current, { streaming: true }, assistantMessageId);
                 reasoningEventIdRef.current = ev.id;
                 pushEvent(ev);
               } else {
@@ -670,7 +743,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
               }
               lastStreamingTypeRef.current = null;
 
-              try { createToolCall(userMessageId, sid, tc); } catch { /* ignore DB errors — don't crash the agent loop */ }
+              try { createToolCall(assistantMessageId, sid, tc); } catch { /* ignore DB errors — don't crash the agent loop */ }
               const toolEvent = createTimelineEvent(
                 sid,
                 'tool_call',
@@ -680,7 +753,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
                   toolName: tc.function.name,
                   status: 'running',
                 },
-                userMessageId
+                assistantMessageId
               );
               pushEvent(toolEvent);
             },
@@ -695,7 +768,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
                   toolName: tc.function.name,
                   status: 'completed',
                 },
-                userMessageId
+                assistantMessageId
               );
               pushEvent(resultEvent);
               if (tc.function.name === 'plan_exit') {
@@ -716,13 +789,9 @@ export function useChat(options: UseChatOptions): UseChatReturn {
                 setContextStatus('Summarized');
               } else if (status === 'context_truncated') {
                 setContextStatus('Truncated');
-              } else if (status === 'tool_loop') {
-                setContextStatus('Tool loop...');
-              } else if (status === 'completed') {
-                // Clear context status on completion
-                setContextStatus(null);
               }
-              // Don't clear on 'running' — it would wipe context management status
+              // Don't clear on 'running', 'tool_loop', or 'completed' —
+              // onContextManaged sets a 15s auto-clear timer instead
             },
             onContextManaged: (event: { wasTruncated: boolean; wasSummarized: boolean; messagesRemoved: number; tokensBefore: number; tokensAfter: number }) => {
               if (event.wasSummarized) {
@@ -736,7 +805,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
             onError: (err: Error) => {
               // Show as inline timeline event rather than global error state,
               // since the agentic loop may recover (e.g. subagent 429 retries).
-              pushEvent(createTimelineEvent(sid, 'status', `Error: ${err.message}`, {}, userMessageId));
+              pushEvent(createTimelineEvent(sid, 'status', `Error: ${err.message}`, {}, assistantMessageId));
             },
           },
         });
@@ -762,6 +831,11 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         }
         reasoningEventIdRef.current = null;
 
+        // Capture SAGE context summary for next turn
+        if (result.newSummary) {
+          existingSummaryRef.current = result.newSummary;
+        }
+
         // Persist (no final assistant timeline event; streamed text already captured)
         const tokenUsage: TokenUsage = {
           input: result.inputTokens,
@@ -769,8 +843,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
           context: (result.inputTokens ?? 0) + (result.outputTokens ?? 0),
           model: effectiveModelId,
         };
-        const assistantMessageId = createMessage(sid, 'assistant', result.content, undefined, tokenUsage);
-        updateMessageTokens(assistantMessageId, tokenUsage);
+        updateMessage(assistantMessageId, result.content, tokenUsage);
         persistSessionUpdate(sid, { status: 'completed' });
 
         // Update tokens
@@ -795,8 +868,9 @@ export function useChat(options: UseChatOptions): UseChatReturn {
         };
         messagesRef.current = [...messagesRef.current, errorMsg];
         setMessages([...messagesRef.current]);
+        updateMessage(assistantMessageId, typeof errorMsg.content === 'string' ? errorMsg.content : '');
 
-        pushEvent(createTimelineEvent(sid, 'status', `Error: ${errorMessage}`, {}, userMessageId));
+        pushEvent(createTimelineEvent(sid, 'status', `Error: ${errorMessage}`, {}, assistantMessageId));
         persistSessionUpdate(sid, { status: 'failed', error: errorMessage });
       } finally {
         // Stop streaming flush interval
@@ -847,6 +921,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
     setPlanExitProposed(false);
     setContextUsage({ used: 0, limit: 128000, percent: 0 });
     setContextStatus(null);
+    existingSummaryRef.current = undefined;
   }, []);
 
   const resetPlanExit = useCallback(() => {

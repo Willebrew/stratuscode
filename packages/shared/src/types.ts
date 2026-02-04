@@ -50,6 +50,14 @@ export type TimelineEventKind =
   | 'tool_result'
   | 'status';
 
+export interface TimelineAttachment {
+  type: 'image' | 'text';
+  mime?: string;       // for images
+  lineCount?: number;  // for text pastes
+  text?: string;       // full pasted text content
+  data?: string;       // base64 image data
+}
+
 export interface TimelineEventBase {
   id: string;
   sessionId: string;
@@ -58,6 +66,7 @@ export interface TimelineEventBase {
   content: string;
   tokens?: TokenUsage;
   streaming?: boolean;
+  attachments?: TimelineAttachment[];
 }
 
 export interface TimelineToolEvent extends TimelineEventBase {

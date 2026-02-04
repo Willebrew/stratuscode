@@ -50,8 +50,8 @@ const C_LOGO = `
  ╚██████╗
   ╚═════╝`;
 
-// Purple color: RGB(134, 66, 236)
-const CODE_COLOR = '#8642EC';
+// Use the theme primary purple for "Code"
+const CODE_COLOR = '#7C3AED';
 
 export function SplashScreen({ version, projectDir, model }: SplashScreenProps) {
   const { stdout } = useStdout();

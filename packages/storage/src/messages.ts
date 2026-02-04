@@ -4,7 +4,7 @@
  * CRUD operations for messages and message parts.
  */
 
-import type { Message, MessagePart, ToolCall, TimelineEvent, TokenUsage, TimelineEventKind } from '@stratuscode/shared';
+import type { Message, MessagePart, ToolCall, TimelineEvent, TimelineAttachment, TokenUsage, TimelineEventKind } from '@stratuscode/shared';
 import { generateId } from '@stratuscode/shared';
 import { getDatabase, insert, findAll } from './database';
 
@@ -130,6 +130,17 @@ export function updateMessageContent(id: string, content: string): void {
 }
 
 /**
+ * Update message content and optional token usage in a single helper.
+ */
+export function updateMessage(id: string, content: string, tokenUsage?: TokenUsage): void {
+  const db = getDatabase();
+  db.prepare('UPDATE messages SET content = ? WHERE id = ?').run(content, id);
+  if (tokenUsage) {
+    updateMessageTokens(id, tokenUsage);
+  }
+}
+
+/**
  * Update message reasoning
  */
 export function updateMessageReasoning(id: string, reasoning: string): void {
@@ -214,7 +225,7 @@ export function createToolCall(
 ): void {
   const now = Date.now();
   const db = getDatabase();
-  db.prepare(
+  const result = db.prepare(
     'INSERT OR IGNORE INTO tool_calls (id, message_id, session_id, name, arguments, status, started_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
   ).run(
     toolCall.id,
@@ -225,6 +236,10 @@ export function createToolCall(
     'pending',
     now,
   );
+
+  if (result.changes === 0) {
+    console.warn(`[Storage] Tool call ${toolCall.id} already exists - skipped duplicate`);
+  }
 }
 
 /**
@@ -279,7 +294,7 @@ export function createTimelineEvent(
   sessionId: string,
   kind: TimelineEventKind,
   content: string,
-  data: { toolCallId?: string; toolName?: string; status?: ToolCall['status']; tokens?: TokenUsage; streaming?: boolean } = {},
+  data: { toolCallId?: string; toolName?: string; status?: ToolCall['status']; tokens?: TokenUsage; streaming?: boolean; attachments?: TimelineAttachment[] } = {},
   messageId?: string
 ): TimelineEvent {
   const id = generateId('event');
@@ -292,6 +307,7 @@ export function createTimelineEvent(
     status: data.status,
     tokens: data.tokens,
     streaming: data.streaming,
+    attachments: data.attachments,
     messageId,
   };
 
@@ -312,6 +328,7 @@ export function createTimelineEvent(
     content,
     tokens: data.tokens,
     streaming: data.streaming,
+    ...(data.attachments ? { attachments: data.attachments } : {}),
     ...(data.toolCallId ? { toolCallId: data.toolCallId } : {}),
     ...(data.toolName ? { toolName: data.toolName } : {}),
     ...(data.status ? { status: data.status } : {}),
@@ -335,6 +352,7 @@ export function listTimelineEvents(sessionId: string): TimelineEvent[] {
       content: parsed.content,
       tokens: parsed.tokens,
       streaming: false, // Loaded events are never streaming
+      ...(parsed.attachments ? { attachments: parsed.attachments } : {}),
     };
     if (parsed.toolCallId) {
       return {

@@ -15,3 +15,7 @@ export * from './UnifiedInput';
 export * from './CommandPalette';
 export * from './Collapsible';
 export * from './RichDiff';
+export * from './InlineSheet';
+export * from './ModelPickerInline';
+export * from './SessionHistoryInline';
+export * from './QuestionPromptInline';

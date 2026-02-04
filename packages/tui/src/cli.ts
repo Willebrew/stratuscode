@@ -17,41 +17,15 @@ import * as os from 'os';
 import * as readline from 'readline';
 import crypto from 'crypto';
 import http from 'http';
+import { patchGlobalFetch } from '@stratuscode/shared';
+import { EventEmitter } from 'events';
 
-// Monkey-patch fetch to rewrite Codex responses path to match ChatGPT backend (types kept loose for bun/node)
-const originalFetch = globalThis.fetch as any;
-const patchedFetch = ((input: any, init?: any) => {
-  try {
-    const url = new URL(typeof input === 'string' || input instanceof URL ? input.toString() : input?.url ?? '');
-    if (url.hostname === 'chatgpt.com' && url.pathname.includes('/backend-api/codex')) {
-      // Force the correct Codex endpoint regardless of what SAGE appended
-      url.pathname = '/backend-api/codex/responses';
-      if (typeof input === 'string' || input instanceof URL) {
-        input = url.toString();
-      } else if (input && input.url) {
-        const RequestCtor = (globalThis as any).Request;
-        input = new RequestCtor(url.toString(), input);
-      }
-      // Codex: inject store=false and strip unsupported previous_response_id
-      if (init?.body && typeof init.body === 'string') {
-        try {
-          const body = JSON.parse(init.body);
-          if (body.store === undefined) body.store = false;
-          // Codex backend rejects previous_response_id
-          if ('previous_response_id' in body) {
-            delete (body as any).previous_response_id;
-          }
-          init = { ...init, body: JSON.stringify(body) };
-        } catch {}
-      }
-    }
-  } catch {
-    // ignore parse errors and fall back
-  }
-  return originalFetch(input, init);
-}) as typeof globalThis.fetch;
-(patchedFetch as any).preconnect = (originalFetch as any)?.preconnect;
-globalThis.fetch = patchedFetch;
+// Increase max listeners to prevent warnings from multiple useInput hooks
+// The TUI has multiple components that need to handle input simultaneously
+EventEmitter.defaultMaxListeners = 50;
+
+// Normalize Codex fetch behavior (idempotent)
+patchGlobalFetch();
 
 // ============================================
 // CLI Setup
@@ -205,7 +179,7 @@ async function runCodexBrowserAuth(): Promise<OAuthResult | null> {
   const redirectUri = `http://localhost:${REDIRECT_PORT}/auth/callback`;
 
   try {
-    const pkce = await generatePKCE();
+    const pkce = generatePKCE();
     const state = generateRandomString(32);
     const authUrl = buildAuthorizeUrl(ISSUER, redirectUri, pkce.challenge, state, CLIENT_ID);
 
@@ -251,9 +225,9 @@ async function runCodexBrowserAuth(): Promise<OAuthResult | null> {
 function extractAccountIdFromJwt(token?: string): string | undefined {
   if (!token) return undefined;
   const parts = token.split('.');
-  if (parts.length !== 3) return undefined;
+  if (parts.length !== 3 || !parts[1] || parts[1].length === 0) return undefined;
   try {
-    const claims = JSON.parse(Buffer.from(parts[1]!, 'base64url').toString());
+    const claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
     return claims?.chatgpt_account_id || claims?.['https://api.openai.com/auth']?.chatgpt_account_id || claims?.organizations?.[0]?.id;
   } catch {
     return undefined;
@@ -270,7 +244,7 @@ function generateRandomString(length: number): string {
   return result;
 }
 
-async function generatePKCE(): Promise<{ verifier: string; challenge: string }> {
+function generatePKCE(): { verifier: string; challenge: string } {
   const verifier = generateRandomString(43);
   const hash = crypto.createHash('sha256').update(verifier).digest();
   const challenge = hash.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -316,7 +290,13 @@ function waitForOAuthCode(port: number, expectedState: string): Promise<string |
       res.writeHead(404);
       res.end();
     });
+    const timeout = setTimeout(() => {
+      server.close();
+      resolve(null);
+    }, 5 * 60 * 1000); // 5 minutes
+
     server.listen(port);
+    server.on('close', () => clearTimeout(timeout));
   });
 }
 

@@ -10,7 +10,7 @@ import { Input } from './Input';
 import { colors, getAgentColor } from '../theme/colors';
 import type { Command } from '../commands/registry';
 
-const CODE_COLOR = '#8642EC';
+const CODE_COLOR = '#7C3AED';
 
 export interface InputBarProps {
   agent: string;

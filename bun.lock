@@ -16,6 +16,7 @@
       "dependencies": {
         "@sage/core": "file:../../../../Documents/Stratus-Server/Personal/SAGE/packages/core",
         "@stratuscode/shared": "workspace:*",
+        "@stratuscode/storage": "workspace:*",
         "zod": "^3.23.8",
       },
       "devDependencies": {
@@ -38,6 +39,7 @@
       "name": "@stratuscode/storage",
       "version": "0.1.0",
       "dependencies": {
+        "@sage/core": "file:../../../../Documents/Stratus-Server/Personal/SAGE/packages/core",
         "@stratuscode/shared": "workspace:*",
       },
       "devDependencies": {
@@ -569,6 +571,8 @@
     "zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
 
     "@stratuscode/core/@sage/core": ["@sage/core@file:../../Documents/Stratus-Server/Personal/SAGE/packages/core", { "dependencies": { "ioredis": "^5.4.0", "jose": "^6.1.3", "zod": "^3.24.0" }, "devDependencies": { "@types/node": "^22.0.0", "@vitest/coverage-v8": "^4.0.18", "tsup": "^8.3.0", "typescript": "^5.7.0", "vitest": "^4.0.18" }, "peerDependencies": { "better-auth": "^1.0.0", "convex": "^1.17.0" }, "optionalPeers": ["better-auth", "convex"] }],
+
+    "@stratuscode/storage/@sage/core": ["@sage/core@file:../../Documents/Stratus-Server/Personal/SAGE/packages/core", { "dependencies": { "ioredis": "^5.4.0", "jose": "^6.1.3", "zod": "^3.24.0" }, "devDependencies": { "@types/node": "^22.0.0", "@vitest/coverage-v8": "^4.0.18", "tsup": "^8.3.0", "typescript": "^5.7.0", "vitest": "^4.0.18" }, "peerDependencies": { "better-auth": "^1.0.0", "convex": "^1.17.0" }, "optionalPeers": ["better-auth", "convex"] }],
 
     "@stratuscode/tools/@sage/core": ["@sage/core@file:../../Documents/Stratus-Server/Personal/SAGE/packages/core", { "dependencies": { "ioredis": "^5.4.0", "jose": "^6.1.3", "zod": "^3.24.0" }, "devDependencies": { "@types/node": "^22.0.0", "@vitest/coverage-v8": "^4.0.18", "tsup": "^8.3.0", "typescript": "^5.7.0", "vitest": "^4.0.18" }, "peerDependencies": { "better-auth": "^1.0.0", "convex": "^1.17.0" }, "optionalPeers": ["better-auth", "convex"] }],
 

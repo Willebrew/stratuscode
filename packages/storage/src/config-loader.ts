@@ -87,8 +87,8 @@ export function loadConfig(projectDir: string): LoadedConfig {
 
   // OpenCode Zen provider
   if (process.env.OPENCODE_ZEN_API_KEY || process.env.OPENCODE_API_KEY) {
-    if (!config.providers) (config as any).providers = {};
-    (config as any).providers['opencode-zen'] = {
+    if (!config.providers) config.providers = {};
+    config.providers['opencode-zen'] = {
       apiKey: process.env.OPENCODE_ZEN_API_KEY || process.env.OPENCODE_API_KEY,
       baseUrl: 'https://opencode.ai/zen/v1',
       type: 'chat-completions',
@@ -101,39 +101,39 @@ export function loadConfig(projectDir: string): LoadedConfig {
 
   // OpenAI Codex provider (ChatGPT Pro/Plus OAuth tokens)
   if (process.env.CODEX_REFRESH_TOKEN || process.env.CODEX_ACCESS_TOKEN) {
-    if (!config.providers) (config as any).providers = {};
-    (config as any).providers['openai-codex'] = {
+    if (!config.providers) config.providers = {};
+    config.providers['openai-codex'] = {
       apiKey: process.env.CODEX_ACCESS_TOKEN,
       baseUrl: 'https://chatgpt.com/backend-api/codex',
       type: 'responses-api',
       headers: {
         ...(process.env.CODEX_ACCOUNT_ID ? { 'ChatGPT-Account-Id': process.env.CODEX_ACCOUNT_ID } : {}),
       },
-      auth: process.env.CODEX_REFRESH_TOKEN || process.env.CODEX_ACCESS_TOKEN ? {
+      auth: {
         type: 'oauth',
         refresh: process.env.CODEX_REFRESH_TOKEN || '',
         access: process.env.CODEX_ACCESS_TOKEN || '',
         expires: Date.now() + 55 * 60 * 1000, // assume ~1h default if not provided
         ...(process.env.CODEX_ACCOUNT_ID ? { accountId: process.env.CODEX_ACCOUNT_ID } : {}),
-      } : undefined,
+      },
     };
     sources.push(process.env.CODEX_REFRESH_TOKEN ? 'CODEX_REFRESH_TOKEN' : 'CODEX_ACCESS_TOKEN');
   }
 
   // Apply defaults
   const finalConfig: StratusCodeConfig = {
-    model: (config as any).model || 'gpt-5-mini',
+    model: config.model || 'gpt-5.2-codex',
     provider: {
       apiKey: config.provider?.apiKey,
-      auth: (config.provider as any)?.auth,
+      auth: config.provider?.auth,
       baseUrl: config.provider?.baseUrl || 'https://api.openai.com/v1',
-      type: (config.provider as any)?.type,
-      headers: (config.provider as any)?.headers,
+      type: config.provider?.type,
+      headers: config.provider?.headers,
     },
-    providers: (config as any).providers,
+    providers: config.providers,
     agent: {
       name: config.agent?.name || 'stratuscode',
-      maxDepth: config.agent?.maxDepth || 30,
+      maxDepth: config.agent?.maxDepth || 300,
       toolTimeout: config.agent?.toolTimeout || 60000,
       maxToolResultSize: config.agent?.maxToolResultSize || 100000,
     },
@@ -143,6 +143,7 @@ export function loadConfig(projectDir: string): LoadedConfig {
     temperature: config.temperature,
     maxTokens: config.maxTokens,
     parallelToolCalls: config.parallelToolCalls ?? true,
+    reasoningEffort: config.reasoningEffort ?? 'high',
     hooks: config.hooks,
   };
 

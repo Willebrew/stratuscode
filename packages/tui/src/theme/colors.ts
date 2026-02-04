@@ -1,35 +1,36 @@
 /**
  * Color Palette
  *
- * Clean, modern color scheme for the TUI.
- * No emojis - ASCII-based visual design.
+ * Neo-noir color scheme for the TUI.
+ * Deep charcoal base with electric cyan/magenta accents.
  */
 
 export const colors = {
   // Primary palette
-  primary: '#7C3AED',      // Violet
+  primary: '#7C3AED',      // StratusCode purple
   primaryDim: '#5B21B6',
-  secondary: '#06B6D4',    // Cyan
-  secondaryDim: '#0891B2',
+  secondary: '#A855F7',    // Soft violet accent
+  secondaryDim: '#9333EA',
+  glow: '#C4B5FD',         // Lavender glow for highlights
   
   // Semantic colors
-  success: '#10B981',      // Emerald
-  successDim: '#059669',
-  warning: '#F59E0B',      // Amber
+  success: '#34D399',      // Jade
+  successDim: '#10B981',
+  warning: '#FBBF24',      // Amber
   warningDim: '#D97706',
-  error: '#EF4444',        // Red
+  error: '#F87171',        // Coral red
   errorDim: '#DC2626',
-  info: '#3B82F6',         // Blue
+  info: '#60A5FA',         // Blue
   infoDim: '#2563EB',
   
   // Neutral palette
-  text: '#F9FAFB',         // Gray 50
-  textMuted: '#9CA3AF',    // Gray 400
-  textDim: '#6B7280',      // Gray 500
-  border: '#374151',       // Gray 700
-  borderDim: '#1F2937',    // Gray 800
-  background: '#111827',   // Gray 900
-  backgroundAlt: '#1F2937', // Gray 800
+  text: '#EAF2FF',         // Misty white
+  textMuted: '#9FB3D1',    // Slate 300
+  textDim: '#6F7A8F',      // Slate 500
+  border: '#1B2333',       // Deep navy
+  borderDim: '#121824',    // Darker edge
+  background: '#0A0E14',   // Charcoal night
+  backgroundAlt: '#0F1624', // Slight lift for panels
   
   // Status colors
   pending: '#9CA3AF',

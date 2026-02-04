@@ -9,7 +9,6 @@ import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import type { TimelineEvent, TimelineToolEvent, ToolCall } from '@stratuscode/shared';
 import { ToolCallDisplay } from './ToolCall';
-import { QuestionDialog, type Question } from './QuestionDialog';
 import { ReasoningBlock } from './ReasoningBlock';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { MarkdownText } from './MarkdownText';
@@ -17,7 +16,7 @@ import { colors } from '../theme/colors';
 import type { Command } from '../commands/registry';
 import type { Attachment } from './UnifiedInput';
 
-const CODE_COLOR = '#8642EC';
+const CODE_COLOR = '#7C3AED';
 
 // ============================================
 // Types
@@ -29,11 +28,8 @@ export interface ChatProps {
   error: string | null;
   gutter?: number;
   compactView?: boolean;
-  pendingQuestion?: Question;
   onSubmit: (text: string, attachments?: Attachment[]) => void;
   onCommand?: (command: Command) => void;
-  onQuestionAnswer?: (answers: string[]) => void;
-  onQuestionSkip?: () => void;
 }
 
 // ============================================
@@ -69,9 +65,6 @@ export const Chat = React.memo(function Chat({
   error,
   gutter = 0,
   compactView = false,
-  pendingQuestion,
-  onQuestionAnswer,
-  onQuestionSkip,
 }: ChatProps) {
   // Index tool_result events by toolCallId for fast lookup
   const resultIndex = useMemo(() => {
@@ -106,10 +99,14 @@ export const Chat = React.memo(function Chat({
         if (event.kind === 'user') {
           lastRole = 'user';
           needsAssistantHeader = true;
+          const imageCount = event.attachments?.filter(a => a.type === 'image').length ?? 0;
           return (
             <Box key={event.id} flexDirection="column" marginY={1}>
               <Box marginBottom={0}>
                 <Text bold color={colors.primary}>{'\u203A'} You</Text>
+                {imageCount > 0 && (
+                  <Text color={colors.warning}> [{imageCount === 1 ? 'Image' : `${imageCount} Images`}]</Text>
+                )}
               </Box>
               <Box marginLeft={2}>
                 <Text wrap="wrap">{event.content}</Text>
@@ -230,16 +227,6 @@ export const Chat = React.memo(function Chat({
         </Box>
       )}
 
-      {/* Pending question dialog */}
-      {pendingQuestion && onQuestionAnswer && onQuestionSkip && (
-        <Box marginY={1}>
-          <QuestionDialog
-            question={pendingQuestion}
-            onAnswer={onQuestionAnswer}
-            onSkip={onQuestionSkip}
-          />
-        </Box>
-      )}
     </Box>
   );
 });

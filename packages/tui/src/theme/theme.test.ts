@@ -16,7 +16,7 @@ describe('Colors', () => {
 
   test('getColor returns color value', () => {
     expect(getColor('primary')).toBe('#7C3AED');
-    expect(getColor('success')).toBe('#10B981');
+    expect(getColor('success')).toBe('#34D399');
   });
 
   test('getStatusColor returns correct colors', () => {

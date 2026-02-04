@@ -7,7 +7,7 @@ import type { StratusCodeHooks, PermissionRuleset } from './types';
 
 export const StratusCodeConfigSchema = z.object({
   // Model - any string (unlocked for multi-provider support)
-  model: z.string().default('gpt-5-mini'),
+  model: z.string().default('gpt-5.2-codex'),
 
   // Provider configuration
   provider: z.object({
@@ -42,7 +42,7 @@ export const StratusCodeConfigSchema = z.object({
   // Agent configuration
   agent: z.object({
     name: z.string().default('stratuscode'),
-    maxDepth: z.number().default(30),
+    maxDepth: z.number().default(300),
     toolTimeout: z.number().default(60000),
     maxToolResultSize: z.number().default(100000),
   }).default({}),
@@ -60,6 +60,9 @@ export const StratusCodeConfigSchema = z.object({
 
   // Enable parallel tool calls
   parallelToolCalls: z.boolean().default(true),
+
+  // Reasoning/thinking configuration
+  reasoningEffort: z.enum(['minimal', 'low', 'medium', 'high']).optional(),
 });
 
 export type StratusCodeConfigInput = z.input<typeof StratusCodeConfigSchema>;
@@ -157,41 +160,52 @@ export function defineConfig(config: Partial<StratusCodeConfigInput> & { hooks?:
 // ============================================
 
 export const DEFAULT_CONFIG: StratusCodeConfig = {
-  model: 'gpt-5-mini',
+  model: 'gpt-5.2-codex',
   provider: {
     baseUrl: 'https://api.openai.com/v1',
   },
   agent: {
     name: 'stratuscode',
-    maxDepth: 30,
+    maxDepth: 300,
     toolTimeout: 60000,
     maxToolResultSize: 100000,
   },
   storage: {},
   parallelToolCalls: true,
+  reasoningEffort: 'high',
 };
 
 /**
  * Known model lists for providers
  */
-export const PROVIDER_MODELS: Record<string, { label: string; models: { id: string; name: string; free?: boolean }[] }> = {
+export interface ProviderModelEntry {
+  id: string;
+  name: string;
+  free?: boolean;
+  /** Model supports reasoning/thinking — enables reasoning effort parameter */
+  reasoning?: boolean;
+  /** Supported reasoning effort levels (defaults to ['low','medium','high'] if reasoning=true) */
+  reasoningEfforts?: Array<'minimal' | 'low' | 'medium' | 'high'>;
+}
+
+export const PROVIDER_MODELS: Record<string, { label: string; models: ProviderModelEntry[] }> = {
   openai: {
     label: 'OpenAI',
     models: [
-      { id: 'gpt-5-mini', name: 'GPT-5 Mini' },
+      { id: 'gpt-5-mini', name: 'GPT-5 Mini', reasoning: true, reasoningEfforts: ['minimal', 'low', 'medium', 'high'] },
       { id: 'gpt-4o', name: 'GPT-4o' },
-      { id: 'o3-mini', name: 'o3-mini' },
+      { id: 'o3-mini', name: 'o3-mini', reasoning: true, reasoningEfforts: ['low', 'medium', 'high'] },
     ],
   },
   'openai-codex': {
     label: 'OpenAI Codex',
     models: [
-      { id: 'gpt-5.2-codex', name: 'GPT-5.2 Codex', free: true },
-      { id: 'gpt-5.1-codex', name: 'GPT-5.1 Codex', free: true },
-      { id: 'gpt-5.1-codex-max', name: 'GPT-5.1 Codex Max', free: true },
-      { id: 'gpt-5.1-codex-mini', name: 'GPT-5.1 Codex Mini', free: true },
-      { id: 'gpt-5-codex', name: 'GPT-5 Codex', free: true },
-      { id: 'codex-mini', name: 'Codex Mini', free: true },
+      { id: 'gpt-5.2-codex', name: 'GPT-5.2 Codex', reasoning: true, reasoningEfforts: ['low', 'medium', 'high'] },
+      { id: 'gpt-5.1-codex', name: 'GPT-5.1 Codex', reasoning: true, reasoningEfforts: ['low', 'medium', 'high'] },
+      { id: 'gpt-5.1-codex-max', name: 'GPT-5.1 Codex Max', reasoning: true, reasoningEfforts: ['low', 'medium', 'high'] },
+      { id: 'gpt-5.1-codex-mini', name: 'GPT-5.1 Codex Mini', reasoning: true, reasoningEfforts: ['low', 'medium', 'high'] },
+      { id: 'gpt-5-codex', name: 'GPT-5 Codex', reasoning: true, reasoningEfforts: ['low', 'medium', 'high'] },
+      { id: 'codex-mini', name: 'Codex Mini', reasoning: true, reasoningEfforts: ['low', 'medium', 'high'] },
     ],
   },
   'opencode-zen': {
@@ -205,3 +219,26 @@ export const PROVIDER_MODELS: Record<string, { label: string; models: { id: stri
     ],
   },
 };
+
+/**
+ * Look up model metadata by ID across all providers.
+ */
+export function findModelEntry(modelId: string): ProviderModelEntry | undefined {
+  for (const provider of Object.values(PROVIDER_MODELS)) {
+    const entry = provider.models.find(m => m.id === modelId);
+    if (entry) return entry;
+  }
+  return undefined;
+}
+
+/**
+ * Check if a model supports reasoning based on known model lists.
+ * Falls back to heuristic for unknown models.
+ */
+export function modelSupportsReasoning(modelId: string): boolean {
+  const entry = findModelEntry(modelId);
+  if (entry) return !!entry.reasoning;
+  // Heuristic for unknown models: Codex models and o-series support reasoning
+  const id = modelId.toLowerCase();
+  return id.includes('codex') || id.startsWith('o1') || id.startsWith('o3') || id.startsWith('o4');
+}

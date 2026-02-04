@@ -4,20 +4,38 @@
  * A single input component used on both the splash screen and chat view.
  * Integrates: input field, inline command palette, task strip, and status bar
  * — all within one bordered box.
+ *
+ * Paste regions are tracked inline using marker characters:
+ *   \uFFF0 ... \uFFF1  = pasted text block (displayed as [Pasted ~N lines])
+ *   \uFFFC              = image placeholder  (displayed as [Image])
  */
 
-import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Box, Text, useInput, useStdout } from 'ink';
+import chalk from 'chalk';
 import { CommandPaletteInline, getCommandResultCount, getCommandAtIndex } from './CommandPalette';
 import { FileMentionPalette, getFileResultCount, getFileAtIndex } from './FileMentionPalette';
+import { ModelPickerInline, type ModelEntry } from './ModelPickerInline';
+import { SessionHistoryInline, type SessionInfo } from './SessionHistoryInline';
+import { QuestionPromptInline, type Question } from './QuestionPromptInline';
 import type { Command } from '../commands/registry';
 import type { TokenUsage } from '@stratuscode/shared';
 import type { TodoItem } from '../hooks/useTodos';
 import { colors, getAgentColor, getStatusColor } from '../theme/colors';
 import { icons, getStatusIcon } from '../theme/icons';
-import { usePaste, type PasteEvent } from '../hooks/usePaste';
+import { usePaste, readClipboardImage } from '../hooks/usePaste';
+import { useCallback } from 'react';
 
 const CODE_COLOR = '#8642EC';
+
+// Marker characters embedded in the value string
+const PASTE_START = '\uFFF0';
+const PASTE_END = '\uFFF1';
+const IMAGE_MARKER = '\uFFFC';
+
+// Thresholds for collapsing pasted text
+const PASTE_LINE_THRESHOLD = 3;
+const PASTE_CHAR_THRESHOLD = 150;
 
 // ============================================
 // Types
@@ -26,14 +44,30 @@ const CODE_COLOR = '#8642EC';
 export interface Attachment {
   type: 'image';
   data: string; // base64
-  mime: string;
+  mime?: string;
 }
 
-interface PastedChunk {
-  id: string;
-  display: string; // e.g. "[Pasted ~10 lines]"
-  full: string;    // the actual pasted text
-}
+type InlineOverlay =
+  | {
+      kind: 'model';
+      entries: ModelEntry[];
+      currentModel: string;
+      onSelect: (model: string, providerKey?: string) => void;
+      onClose: () => void;
+    }
+  | {
+      kind: 'history';
+      sessions: SessionInfo[];
+      onSelect: (sessionId: string) => void;
+      onDelete?: (sessionId: string) => void;
+      onClose: () => void;
+    }
+  | {
+      kind: 'question';
+      question: Question;
+      onAnswer: (answers: string[]) => void;
+      onSkip: () => void;
+    };
 
 export interface UnifiedInputProps {
   onSubmit: (text: string, attachments?: Attachment[]) => void;
@@ -58,19 +92,19 @@ export interface UnifiedInputProps {
   projectDir?: string;
   /** Optional fixed width for centering calculations */
   width?: number;
+  /** Inline overlay rendered above the prompt */
+  inlineOverlay?: InlineOverlay | null;
+  /** Current reasoning effort level */
+  reasoningEffort?: 'off' | 'minimal' | 'low' | 'medium' | 'high';
 }
 
 // ============================================
-// Helpers
+// Display helpers
 // ============================================
 
 function formatNumber(num: number): string {
-  if (num >= 1000000) {
-    return (num / 1000000).toFixed(1) + 'M';
-  }
-  if (num >= 1000) {
-    return (num / 1000).toFixed(1) + 'K';
-  }
+  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+  if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
   return num.toString();
 }
 
@@ -79,85 +113,130 @@ function truncate(text: string, maxLen: number): string {
   return text.slice(0, maxLen - 1) + '…';
 }
 
-// ============================================
-// Input Display — renders text with paste tokens highlighted
-// ============================================
+interface DisplayResult {
+  display: string;
+  cursorInDisplay: number;
+  /** Maps display char index → color key */
+  colorRanges: Array<{ start: number; end: number; color: 'paste' | 'image' }>;
+}
 
-function InputDisplay({
-  value,
-  cursorPos,
-  isDisabled,
-  isSlashCommand,
-  pastedChunks,
-}: {
-  value: string;
-  cursorPos: number;
-  isDisabled: boolean;
-  isSlashCommand: boolean;
-  pastedChunks: PastedChunk[];
-}) {
-  const defaultColor = isSlashCommand ? colors.secondary : colors.text;
+/**
+ * Build the display string from the raw value, collapsing paste regions
+ * and replacing image markers. Also maps the value-space cursor to display-space.
+ */
+function computeDisplay(value: string, valueCursor: number): DisplayResult {
+  let display = '';
+  let cursorInDisplay = 0;
+  let cursorSet = false;
+  const colorRanges: DisplayResult['colorRanges'] = [];
+  let i = 0;
 
-  // Build segments: text and paste tokens
-  const segments: Array<{ text: string; isPaste: boolean }> = [];
-  let remaining = value;
-  let offset = 0;
-
-  // Find paste tokens in the value and split around them
-  const pasteTokens = pastedChunks
-    .map(chunk => ({ display: chunk.display, index: value.indexOf(chunk.display) }))
-    .filter(t => t.index !== -1)
-    .sort((a, b) => a.index - b.index);
-
-  if (pasteTokens.length === 0) {
-    segments.push({ text: value, isPaste: false });
-  } else {
-    let pos = 0;
-    for (const token of pasteTokens) {
-      if (token.index > pos) {
-        segments.push({ text: value.slice(pos, token.index), isPaste: false });
-      }
-      segments.push({ text: token.display, isPaste: true });
-      pos = token.index + token.display.length;
+  while (i < value.length) {
+    // Set cursor position when we reach the cursor index in the value
+    if (!cursorSet && i >= valueCursor) {
+      cursorInDisplay = display.length;
+      cursorSet = true;
     }
-    if (pos < value.length) {
-      segments.push({ text: value.slice(pos), isPaste: false });
-    }
-  }
 
-  // Render segments with cursor overlay
-  const parts: React.ReactNode[] = [];
-  let charIndex = 0;
-
-  for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i]!;
-    const segStart = charIndex;
-    const segEnd = charIndex + seg.text.length;
-    const segColor = seg.isPaste ? colors.warning : defaultColor;
-
-    if (!isDisabled && cursorPos >= segStart && cursorPos < segEnd) {
-      // Cursor is within this segment
-      const localPos = cursorPos - segStart;
-      if (localPos > 0) {
-        parts.push(<Text key={`${i}a`} wrap="wrap" color={segColor}>{seg.text.slice(0, localPos)}</Text>);
+    if (value[i] === PASTE_START) {
+      const endIdx = value.indexOf(PASTE_END, i);
+      if (endIdx === -1) { i++; continue; }
+      const pasteText = value.slice(i + 1, endIdx);
+      const lineCount = pasteText.split('\n').length;
+      const isLarge = lineCount >= PASTE_LINE_THRESHOLD || pasteText.length >= PASTE_CHAR_THRESHOLD;
+      const summary = isLarge
+        ? `[Pasted ~${lineCount} lines]`
+        : pasteText.replace(/\n/g, ' ');
+      // Add space before marker if adjacent to non-space text
+      if (display.length > 0 && display[display.length - 1] !== ' ' && isLarge) {
+        display += ' ';
       }
-      parts.push(<Text key={`${i}c`} inverse color={segColor}>{seg.text[localPos]}</Text>);
-      if (localPos + 1 < seg.text.length) {
-        parts.push(<Text key={`${i}b`} wrap="wrap" color={segColor}>{seg.text.slice(localPos + 1)}</Text>);
+      const start = display.length;
+      display += summary;
+      if (isLarge) {
+        colorRanges.push({ start, end: display.length, color: 'paste' });
       }
+      // Add space after marker if next char is non-space
+      const nextChar = endIdx + 1 < value.length ? value[endIdx + 1] : null;
+      if (isLarge && nextChar && nextChar !== ' ' && nextChar !== PASTE_START && nextChar !== IMAGE_MARKER) {
+        display += ' ';
+      }
+      // If cursor is inside this paste region, place it at end of summary
+      if (!cursorSet && valueCursor > i && valueCursor <= endIdx + 1) {
+        cursorInDisplay = display.length;
+        cursorSet = true;
+      }
+      i = endIdx + 1;
+    } else if (value[i] === IMAGE_MARKER) {
+      // Add space before marker if adjacent to non-space text
+      if (display.length > 0 && display[display.length - 1] !== ' ') {
+        display += ' ';
+      }
+      const start = display.length;
+      display += '[Image]';
+      colorRanges.push({ start, end: display.length, color: 'image' });
+      // Add space after marker if next char is non-space
+      const nextChar = i + 1 < value.length ? value[i + 1] : null;
+      if (nextChar && nextChar !== ' ' && nextChar !== PASTE_START && nextChar !== IMAGE_MARKER && nextChar !== PASTE_END) {
+        display += ' ';
+      }
+      i++;
     } else {
-      parts.push(<Text key={`${i}`} wrap="wrap" color={segColor}>{seg.text}</Text>);
+      display += value[i];
+      i++;
     }
-
-    charIndex = segEnd;
   }
 
-  // Cursor at end of value
-  if (!isDisabled && cursorPos >= value.length) {
-    parts.push(<Text key="cursor" color={colors.primary}>▎</Text>);
+  if (!cursorSet) {
+    cursorInDisplay = display.length;
   }
 
-  return <>{parts}</>;
+  return { display, cursorInDisplay, colorRanges };
+}
+
+// ============================================
+// Cursor navigation helpers (skip over markers)
+// ============================================
+
+function cursorLeft(value: string, pos: number): number {
+  if (pos <= 0) return 0;
+  const prev = pos - 1;
+  // If stepping onto PASTE_END, jump to before PASTE_START
+  if (value[prev] === PASTE_END) {
+    const start = value.lastIndexOf(PASTE_START, prev);
+    return start >= 0 ? start : prev;
+  }
+  return prev;
+}
+
+function cursorRight(value: string, pos: number): number {
+  if (pos >= value.length) return value.length;
+  // If stepping onto PASTE_START, jump past PASTE_END
+  if (value[pos] === PASTE_START) {
+    const end = value.indexOf(PASTE_END, pos);
+    return end >= 0 ? end + 1 : pos + 1;
+  }
+  // If stepping onto IMAGE_MARKER, skip it
+  if (value[pos] === IMAGE_MARKER) return pos + 1;
+  return pos + 1;
+}
+
+function handleBackspace(value: string, pos: number): { newValue: string; newPos: number } | null {
+  if (pos <= 0) return null;
+  const prev = pos - 1;
+  // Deleting back into a paste region → remove the whole region
+  if (value[prev] === PASTE_END) {
+    const start = value.lastIndexOf(PASTE_START, prev);
+    if (start >= 0) {
+      return { newValue: value.slice(0, start) + value.slice(pos), newPos: start };
+    }
+  }
+  // Deleting an image marker
+  if (value[prev] === IMAGE_MARKER) {
+    return { newValue: value.slice(0, prev) + value.slice(pos), newPos: prev };
+  }
+  // Normal char
+  return { newValue: value.slice(0, prev) + value.slice(pos), newPos: prev };
 }
 
 // ============================================
@@ -182,61 +261,101 @@ export function UnifiedInput({
   onToggleTasks,
   projectDir,
   width,
+  inlineOverlay,
+  reasoningEffort,
 }: UnifiedInputProps) {
   const { stdout } = useStdout();
   const [value, setValue] = useState('');
   const [cursorPos, setCursorPos] = useState(0);
   const [showCommandMenu, setShowCommandMenu] = useState(false);
   const [commandSelectedIndex, setCommandSelectedIndex] = useState(0);
+  const [commandOffset, setCommandOffset] = useState(0);
   const [showFileMention, setShowFileMention] = useState(false);
   const [fileSelectedIndex, setFileSelectedIndex] = useState(0);
   const [tasksExpanded, setTasksExpanded] = useState(false);
-  const [pastedChunks, setPastedChunks] = useState<PastedChunk[]>([]);
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const pasteIdCounter = useRef(0);
+  const [images, setImages] = useState<Array<{ data: string; mime: string }>>([]);
+
+  // Paste buffer — accumulated text from bracketed paste sequences
+  const pasteBufferRef = useRef('');
+
+  // Refs for current value/cursor (needed inside paste finalization)
+  const valueRef = useRef(value);
+  const cursorRef = useRef(cursorPos);
+  valueRef.current = value;
+  cursorRef.current = cursorPos;
 
   const isSlashCommand = value.startsWith('/');
   const commandQuery = isSlashCommand ? value.slice(1) : '';
   const isDisabled = disabled || isLoading;
+  const COMMAND_PAGE_SIZE = 12;
 
-  // Handle paste events from usePaste hook
-  const handlePaste = useCallback((event: PasteEvent) => {
-    if (isDisabled) return;
+  // Finalize paste callback (used by usePaste onPasteEnd)
+  const finalizePasteFromHook = useCallback(() => {
+    const text = pasteBufferRef.current;
+    pasteBufferRef.current = '';
+    if (!text) return;
 
-    if (event.type === 'image') {
-      setAttachments(prev => [...prev, { type: 'image', data: event.data, mime: event.mime }]);
-      return;
-    }
+    setValue(prev => {
+      const pos = cursorRef.current;
 
-    // Large text paste — insert summary token, store full text
-    // The usePaste hook intercepts stdin.emit so Ink's useInput never sees
-    // the raw paste data — no guard needed.
-    if (event.type === 'text' && event.isLarge) {
-      const id = `paste_${++pasteIdCounter.current}`;
-      const display = `[Pasted ~${event.lineCount} lines]`;
-      setPastedChunks(prev => [...prev, { id, display, full: event.text }]);
-      setValue(prev => {
-        const newVal = prev.slice(0, cursorPos) + display + prev.slice(cursorPos);
-        setCursorPos(cursorPos + display.length);
+      // Merge: if cursor is right after a PASTE_END, append into that region
+      if (pos > 0 && prev[pos - 1] === PASTE_END) {
+        const newVal = prev.slice(0, pos - 1) + text + PASTE_END + prev.slice(pos);
+        setCursorPos(pos - 1 + text.length + 1);
         return newVal;
-      });
+      }
+
+      // Merge: if cursor is right before a PASTE_START, prepend into that region
+      if (pos < prev.length && prev[pos] === PASTE_START) {
+        const newVal = prev.slice(0, pos) + PASTE_START + text + prev.slice(pos + 1);
+        setCursorPos(pos + 1 + text.length);
+        return newVal;
+      }
+
+      // New paste region — always wrap in markers so future chunks can merge
+      const insertion = PASTE_START + text + PASTE_END;
+      const newVal = prev.slice(0, pos) + insertion + prev.slice(pos);
+      setCursorPos(pos + insertion.length);
+      return newVal;
+    });
+  }, []);
+
+  // Enable bracketed paste mode and detect paste sequences at raw stdin level
+  const { pasteActiveRef } = usePaste({
+    active: !isDisabled,
+    onPasteEnd: finalizePasteFromHook,
+  });
+
+  // When an inline overlay is open, hide other palettes
+  useEffect(() => {
+    if (inlineOverlay) {
+      setShowCommandMenu(false);
+      setShowFileMention(false);
     }
-  }, [isDisabled, cursorPos]);
+  }, [inlineOverlay]);
 
-  usePaste({ onPaste: handlePaste, active: !isDisabled });
+  // Compute display from the raw value
+  const { display: displayValue, cursorInDisplay: displayCursorPos, colorRanges } = useMemo(
+    () => computeDisplay(value, cursorPos),
+    [value, cursorPos]
+  );
 
-  // Expand all paste tokens back to full text for submission
-  const expandPasteTokens = useCallback((text: string): string => {
-    let result = text;
-    for (const chunk of pastedChunks) {
-      result = result.replace(chunk.display, chunk.full);
-    }
-    return result;
-  }, [pastedChunks]);
+  // Count images in value (for building attachments on submit)
+  const imageCount = useMemo(() => {
+    let count = 0;
+    for (const ch of value) { if (ch === IMAGE_MARKER) count++; }
+    return count;
+  }, [value]);
 
-  // Extract @ mention query: text after the last '@' in the value
+  // Extract @ mention query
   const atIndex = value.lastIndexOf('@');
   const fileMentionQuery = showFileMention && atIndex >= 0 ? value.slice(atIndex + 1) : '';
+
+  // Reset command palette selection when query changes
+  useEffect(() => {
+    setCommandSelectedIndex(0);
+    setCommandOffset(0);
+  }, [commandQuery]);
 
   // Expose toggle function for /todos command
   useEffect(() => {
@@ -250,80 +369,104 @@ export function UnifiedInput({
     ? (isLoading ? 'Processing...' : 'Type a message... (/ for commands)')
     : 'What would you like to build?';
 
-  // Compute divider width dynamically
-  const terminalWidth = width ?? stdout?.columns ?? 80;
-  const effectiveWidth = Math.min(terminalWidth, width ?? 100);
-  const dividerWidth = Math.max(10, effectiveWidth - 10);
-  const wideLayout = effectiveWidth >= 60;
+  // Layout — derive from actual terminal width; the parent Box constrains us
+  const terminalWidth = stdout?.columns ?? 80;
+  const containerWidth = width ?? terminalWidth;
+  // Reserve space for border (2) + paddingX (2) on each side
+  const innerWidth = Math.max(10, containerWidth - 6);
+  const wideLayout = containerWidth >= 60;
 
   // Task counts
   const completedCount = useMemo(() => todos.filter(t => t.status === 'completed').length, [todos]);
   const hasTodos = todos.length > 0;
-
-  // Collapsed task items — fit on one line
   const collapsedTasks = useMemo(() => {
-    if (!hasTodos) return { visible: [], hidden: 0 };
-    // Rough estimate: each task takes ~25 chars
-    const maxTasks = Math.max(1, Math.floor((dividerWidth - 20) / 25));
+    if (!hasTodos) return { visible: [] as TodoItem[], hidden: 0 };
+    const maxTasks = Math.max(1, Math.floor((innerWidth - 20) / 25));
     const visible = todos.slice(0, maxTasks);
     const hidden = todos.length - visible.length;
     return { visible, hidden };
-  }, [todos, dividerWidth, hasTodos]);
+  }, [todos, innerWidth, hasTodos]);
 
   const totalTokens = sessionTokens ?? tokens;
   const ctxPercent = contextUsage ? contextUsage.percent : undefined;
 
-  // Helper: insert text at cursor position
-  const insertAt = (prev: string, pos: number, text: string): string =>
+  // Flexible divider that fills available width
+  const Divider = () => (
+    <Box marginX={1} borderStyle="single" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false} borderColor={colors.border} />
+  );
+
+  // --- Inline helpers ---
+
+  const insertTextAt = (prev: string, pos: number, text: string) =>
     prev.slice(0, pos) + text + prev.slice(pos);
 
-  // Helper: delete char before cursor
-  const deleteAt = (prev: string, pos: number): string =>
-    pos > 0 ? prev.slice(0, pos - 1) + prev.slice(pos) : prev;
+  const clearAll = () => {
+    setValue('');
+    setCursorPos(0);
+    setShowCommandMenu(false);
+    setShowFileMention(false);
+    setFileSelectedIndex(0);
+    setCommandSelectedIndex(0);
+    setImages([]);
+    pasteBufferRef.current = '';
+  };
+
+  // --- Input handler ---
 
   useInput((input, key) => {
-    // Ctrl+T to toggle tasks — always available, even during loading
+    // Delegate all keys to active inline overlay
+    if (inlineOverlay) {
+      return;
+    }
+
+    // Ctrl+T to toggle tasks — always available
     if (input === 't' && key.ctrl && hasTodos) {
       setTasksExpanded(prev => !prev);
       return;
     }
 
-    // Block text input and command submission when disabled (loading)
+    // Ctrl+V — paste image from clipboard
+    if (input === 'v' && key.ctrl) {
+      if (!isDisabled) {
+        const image = readClipboardImage();
+        if (image) {
+          setImages(prev => [...prev, { data: image.data, mime: image.mime }]);
+          setValue(prev => {
+            const pos = cursorRef.current;
+            const newVal = prev.slice(0, pos) + IMAGE_MARKER + prev.slice(pos);
+            setCursorPos(pos + 1);
+            return newVal;
+          });
+        }
+      }
+      return;
+    }
+
     if (isDisabled) return;
 
-    // Left/right arrow keys — cursor movement (always available when not in palette/mention)
+    // In paste mode, Return is a literal newline — don't submit
+    if (key.return && pasteActiveRef.current) {
+      pasteBufferRef.current += '\n';
+      return;
+    }
+
+    // Arrow keys (outside palette/mention)
     if (key.leftArrow && !showCommandMenu && !showFileMention) {
-      setCursorPos(p => Math.max(0, p - 1));
+      setCursorPos(p => cursorLeft(value, p));
       return;
     }
     if (key.rightArrow && !showCommandMenu && !showFileMention) {
-      setCursorPos(p => Math.min(value.length, p + 1));
+      setCursorPos(p => cursorRight(value, p));
       return;
     }
 
     // Ctrl+A — move to start
-    if (input === 'a' && key.ctrl) {
-      setCursorPos(0);
-      return;
-    }
+    if (input === 'a' && key.ctrl) { setCursorPos(0); return; }
     // Ctrl+E — move to end
-    if (input === 'e' && key.ctrl) {
-      setCursorPos(value.length);
-      return;
-    }
+    if (input === 'e' && key.ctrl) { setCursorPos(value.length); return; }
 
     // Ctrl+U — clear entire input
-    if (input === 'u' && key.ctrl) {
-      setValue('');
-      setCursorPos(0);
-      setShowCommandMenu(false);
-      setShowFileMention(false);
-      setFileSelectedIndex(0);
-      setCommandSelectedIndex(0);
-      setPastedChunks([]);
-      setAttachments([]);
-      return;
-    }
+    if (input === 'u' && key.ctrl) { clearAll(); return; }
 
     // Ctrl+W — delete last word
     if (input === 'w' && key.ctrl) {
@@ -342,16 +485,10 @@ export function UnifiedInput({
       return;
     }
 
-    // File mention navigation
+    // --- File mention navigation ---
     if (showFileMention && projectDir) {
-      if (key.escape) {
-        setShowFileMention(false);
-        return;
-      }
-      if (key.upArrow) {
-        setFileSelectedIndex(i => Math.max(0, i - 1));
-        return;
-      }
+      if (key.escape) { setShowFileMention(false); return; }
+      if (key.upArrow) { setFileSelectedIndex(i => Math.max(0, i - 1)); return; }
       if (key.downArrow) {
         const max = getFileResultCount(projectDir, fileMentionQuery) - 1;
         setFileSelectedIndex(i => Math.min(Math.max(0, max), i + 1));
@@ -370,20 +507,18 @@ export function UnifiedInput({
         return;
       }
       if (key.backspace || key.delete) {
-        setValue(prev => {
-          const newVal = deleteAt(prev, cursorPos);
-          setCursorPos(p => Math.max(0, p - 1));
-          if (newVal.lastIndexOf('@') < 0) {
-            setShowFileMention(false);
-          }
+        const result = handleBackspace(value, cursorPos);
+        if (result) {
+          setValue(result.newValue);
+          setCursorPos(result.newPos);
+          if (result.newValue.lastIndexOf('@') < 0) setShowFileMention(false);
           setFileSelectedIndex(0);
-          return newVal;
-        });
+        }
         return;
       }
       if (input && !key.ctrl && !key.meta) {
         setValue(prev => {
-          const newVal = insertAt(prev, cursorPos, input);
+          const newVal = insertTextAt(prev, cursorPos, input);
           setCursorPos(p => p + input.length);
           return newVal;
         });
@@ -393,21 +528,27 @@ export function UnifiedInput({
       return;
     }
 
-    // Command palette navigation
+    // --- Command palette navigation ---
     if (showCommandMenu && isSlashCommand) {
-      if (key.escape) {
-        setShowCommandMenu(false);
-        setValue('');
-        setCursorPos(0);
-        return;
-      }
+      const total = getCommandResultCount(commandQuery);
+      if (key.escape) { setShowCommandMenu(false); setValue(''); setCursorPos(0); setCommandOffset(0); return; }
       if (key.upArrow) {
-        setCommandSelectedIndex(i => Math.max(0, i - 1));
+        setCommandSelectedIndex(i => {
+          const next = Math.max(0, i - 1);
+          if (next < commandOffset) setCommandOffset(Math.max(0, next));
+          return next;
+        });
         return;
       }
       if (key.downArrow) {
-        const max = getCommandResultCount(commandQuery) - 1;
-        setCommandSelectedIndex(i => Math.min(max, i + 1));
+        setCommandSelectedIndex(i => {
+          const max = Math.max(0, total - 1);
+          const next = Math.min(max, i + 1);
+          if (next >= commandOffset + COMMAND_PAGE_SIZE) {
+            setCommandOffset(Math.max(0, next - COMMAND_PAGE_SIZE + 1));
+          }
+          return next;
+        });
         return;
       }
       if (key.return) {
@@ -417,72 +558,103 @@ export function UnifiedInput({
       }
       const num = parseInt(input, 10);
       if (num >= 1 && num <= 9) {
-        const cmd = getCommandAtIndex(commandQuery, num - 1);
+        const target = commandOffset + (num - 1);
+        const cmd = getCommandAtIndex(commandQuery, target);
         if (cmd) handleCommandSelect(cmd);
         return;
       }
       if (key.backspace || key.delete) {
-        setValue(prev => {
-          const newVal = deleteAt(prev, cursorPos);
-          setCursorPos(p => Math.max(0, p - 1));
-          if (!newVal.startsWith('/')) {
-            setShowCommandMenu(false);
-          }
+        const result = handleBackspace(value, cursorPos);
+        if (result) {
+          setValue(result.newValue);
+          setCursorPos(result.newPos);
+          if (!result.newValue.startsWith('/')) setShowCommandMenu(false);
           setCommandSelectedIndex(0);
-          return newVal;
-        });
+          setCommandOffset(0);
+        }
         return;
       }
       if (input && !key.ctrl && !key.meta && !key.return) {
         setValue(prev => {
-          const newVal = insertAt(prev, cursorPos, input);
+          const newVal = insertTextAt(prev, cursorPos, input);
           setCursorPos(p => p + input.length);
           return newVal;
         });
         setCommandSelectedIndex(0);
+        setCommandOffset(0);
         return;
       }
       return;
     }
 
+    // --- Return → submit ---
     if (key.return) {
       if (value === '/') return;
-      if (value.trim() && !isSlashCommand) {
-        const expandedText = expandPasteTokens(value);
-        const currentAttachments = attachments.length > 0 ? [...attachments] : undefined;
-        onSubmit(expandedText, currentAttachments);
-        setValue('');
-        setCursorPos(0);
-        setShowCommandMenu(false);
-        setShowFileMention(false);
-        setPastedChunks([]);
-        setAttachments([]);
+      // Build the submit text: remove paste markers (keep paste content), remove image markers
+      const textContent = value
+        .replace(/\uFFF0/g, '')
+        .replace(/\uFFF1/g, '')
+        .replace(/\uFFFC/g, '');
+      const hasImages = images.length > 0;
+      const hasText = textContent.trim().length > 0;
+
+      if ((hasText || hasImages) && !isSlashCommand) {
+        const imageAttachments: Attachment[] | undefined = hasImages
+          ? images.map(img => ({ type: 'image' as const, data: img.data, mime: img.mime }))
+          : undefined;
+        onSubmit(textContent, imageAttachments);
+        clearAll();
       }
       return;
     }
 
+    // --- Backspace ---
     if (key.backspace || key.delete) {
-      setValue(prev => {
-        const newVal = deleteAt(prev, cursorPos);
-        setCursorPos(p => Math.max(0, p - 1));
-        setShowCommandMenu(newVal.startsWith('/'));
-        if (!newVal.includes('@')) {
-          setShowFileMention(false);
+      const result = handleBackspace(value, cursorPos);
+      if (result) {
+        // If an image marker was deleted, remove the corresponding image from the array
+        if (value[cursorPos - 1] === IMAGE_MARKER) {
+          // Count how many IMAGE_MARKERs are before cursorPos to find the index
+          let idx = 0;
+          for (let j = 0; j < cursorPos - 1; j++) {
+            if (value[j] === IMAGE_MARKER) idx++;
+          }
+          setImages(prev => prev.filter((_, k) => k !== idx));
         }
-        return newVal;
-      });
+        setValue(result.newValue);
+        setCursorPos(result.newPos);
+        setShowCommandMenu(result.newValue.startsWith('/'));
+        if (!result.newValue.includes('@')) setShowFileMention(false);
+      }
       return;
     }
 
+    // --- Character input (including paste content) ---
     if (input && !key.ctrl && !key.meta) {
+      // Strip any leftover escape sequence fragments that Ink didn't fully consume
+      // (e.g., "200~" or "201~" from bracketed paste markers)
+      const clean = input.replace(/\d*~$/g, (match) => {
+        // Only strip if it looks like a CSI parameter suffix (digits + ~)
+        return /^\d+~$/.test(match) ? '' : match;
+      });
+
+      // In paste mode — buffer everything for finalizePaste (called by usePaste onPasteEnd)
+      if (pasteActiveRef.current) {
+        if (clean) pasteBufferRef.current += clean;
+        return;
+      }
+
+      if (!clean) return;
+
+      // Normal typing
       setValue(prev => {
-        const newVal = insertAt(prev, cursorPos, input);
-        setCursorPos(p => p + input.length);
+        const newVal = insertTextAt(prev, cursorPos, clean);
+        setCursorPos(p => p + clean.length);
         if (newVal === '/' || newVal.startsWith('/')) {
           setShowCommandMenu(true);
           setCommandSelectedIndex(0);
         }
-        if (input === '@' && projectDir && !newVal.startsWith('/')) {
+        if (clean === '@' && projectDir && !newVal.startsWith('/')) {
           setShowFileMention(true);
           setFileSelectedIndex(0);
         }
@@ -494,15 +666,10 @@ export function UnifiedInput({
   // Handle command selection from inline palette
   const handleCommandSelect = (cmd: Command) => {
     if (onCommand) {
-      // Extract args from the typed text (e.g., "/search my query" → args = ["my query"])
-      const inputText = value.slice(1); // Remove leading /
+      const inputText = value.slice(1);
       const cmdName = cmd.name;
-      const argText = inputText.startsWith(cmdName)
-        ? inputText.slice(cmdName.length).trim()
-        : '';
-      const enrichedCmd = argText
-        ? { ...cmd, args: [argText] }
-        : cmd;
+      const argText = inputText.startsWith(cmdName) ? inputText.slice(cmdName.length).trim() : '';
+      const enrichedCmd = argText ? { ...cmd, args: [argText] } : cmd;
       onCommand(enrichedCmd);
     }
     setValue('');
@@ -510,6 +677,61 @@ export function UnifiedInput({
     setShowCommandMenu(false);
     setCommandSelectedIndex(0);
   };
+
+  // --- Render ---
+
+  // Build a single ANSI-colored string for the entire input display.
+  // Using one string prevents Ink from wrapping each <Text> node independently,
+  // which eliminates layout shifting on multi-line wraps.
+  const renderedInput = useMemo(() => {
+    if (!displayValue) return '';
+
+    const chalkColor = (c: 'paste' | 'image' | 'normal' | 'slash') => {
+      if (c === 'paste') return chalk.hex(colors.secondary);
+      if (c === 'image') return chalk.hex(colors.warning);
+      if (c === 'slash') return chalk.hex(colors.secondary);
+      return chalk.hex(colors.text);
+    };
+
+    const baseColor: 'normal' | 'slash' = isSlashCommand ? 'slash' : 'normal';
+
+    // Build a per-character color map
+    const charColor = new Array<'paste' | 'image' | 'normal' | 'slash'>(displayValue.length).fill(baseColor);
+    for (const r of colorRanges) {
+      for (let j = r.start; j < r.end && j < displayValue.length; j++) {
+        charColor[j] = r.color;
+      }
+    }
+
+    // Build the string, inserting cursor and batching same-color runs
+    let result = '';
+    let i = 0;
+    while (i < displayValue.length) {
+      // Insert cursor character (inverse video)
+      if (i === displayCursorPos && !isDisabled) {
+        const cursorCh = displayValue[i]!;
+        result += chalk.inverse(chalkColor(charColor[i]!)(cursorCh));
+        i++;
+        continue;
+      }
+
+      // Batch consecutive chars of the same color
+      const color = charColor[i]!;
+      let end = i + 1;
+      while (end < displayValue.length && charColor[end] === color && end !== displayCursorPos) {
+        end++;
+      }
+      result += chalkColor(color)(displayValue.slice(i, end));
+      i = end;
+    }
+
+    // Cursor at end of string
+    if (displayCursorPos >= displayValue.length && !isDisabled) {
+      result += chalk.hex(colors.primary)('▎');
+    }
+
+    return result;
+  }, [displayValue, displayCursorPos, colorRanges, isSlashCommand, isDisabled]);
 
   return (
     <Box flexDirection="column" width="100%">
@@ -543,9 +765,39 @@ export function UnifiedInput({
                 </Box>
               ))}
             </Box>
-            <Box paddingX={1}>
-              <Text color={colors.border}>{'─'.repeat(dividerWidth)}</Text>
+            <Divider />
+          </>
+        )}
+
+        {/* Inline overlays (model picker, history, questions) */}
+        {inlineOverlay && (
+          <>
+            <Box paddingX={1} paddingTop={1} paddingBottom={0}>
+              {inlineOverlay.kind === 'model' && (
+                <ModelPickerInline
+                  entries={inlineOverlay.entries}
+                  currentModel={inlineOverlay.currentModel}
+                  onSelect={inlineOverlay.onSelect}
+                  onClose={inlineOverlay.onClose}
+                />
+              )}
+              {inlineOverlay.kind === 'history' && (
+                <SessionHistoryInline
+                  sessions={inlineOverlay.sessions}
+                  onSelect={inlineOverlay.onSelect}
+                  onDelete={inlineOverlay.onDelete}
+                  onClose={inlineOverlay.onClose}
+                />
+              )}
+              {inlineOverlay.kind === 'question' && (
+                <QuestionPromptInline
+                  question={inlineOverlay.question}
+                  onAnswer={inlineOverlay.onAnswer}
+                  onSkip={inlineOverlay.onSkip}
+                />
+              )}
             </Box>
+            <Divider />
           </>
         )}
 
@@ -556,10 +808,11 @@ export function UnifiedInput({
               query={commandQuery}
               selectedIndex={commandSelectedIndex}
               onSelect={handleCommandSelect}
+              offset={commandOffset}
+              onOffsetChange={setCommandOffset}
+              pageSize={COMMAND_PAGE_SIZE}
             />
-            <Box paddingX={1}>
-              <Text color={colors.border}>{'─'.repeat(dividerWidth)}</Text>
-            </Box>
+            <Divider />
           </>
         )}
 
@@ -571,9 +824,7 @@ export function UnifiedInput({
               selectedIndex={fileSelectedIndex}
               projectDir={projectDir}
             />
-            <Box paddingX={1}>
-              <Text color={colors.border}>{'─'.repeat(dividerWidth)}</Text>
-            </Box>
+            <Divider />
           </>
         )}
 
@@ -600,32 +851,15 @@ export function UnifiedInput({
                 <Text color={colors.textDim}>+{collapsedTasks.hidden} more</Text>
               )}
             </Box>
-            <Box paddingX={1}>
-              <Text color={colors.border}>{'─'.repeat(dividerWidth)}</Text>
-            </Box>
+            <Divider />
           </>
         )}
 
-        {/* Attachment indicators */}
-        {attachments.length > 0 && (
-          <Box paddingX={1} paddingY={0}>
-            {attachments.map((att, i) => (
-              <Text key={i} color={colors.warning}>[Image] </Text>
-            ))}
-          </Box>
-        )}
-
         {/* Input row */}
-        <Box paddingX={1} paddingY={0}>
+        <Box paddingX={1} paddingY={1} minHeight={3}>
           <Text color={colors.primary} bold>{'› '}</Text>
-          {value ? (
-            <InputDisplay
-              value={value}
-              cursorPos={cursorPos}
-              isDisabled={isDisabled}
-              isSlashCommand={isSlashCommand}
-              pastedChunks={pastedChunks}
-            />
+          {displayValue ? (
+            <Text wrap="wrap">{renderedInput}</Text>
           ) : (
             <>
               {!isDisabled && <Text color={colors.primary}>▎</Text>}
@@ -635,50 +869,66 @@ export function UnifiedInput({
         </Box>
 
         {/* Status bar (optional) */}
-        {showStatus && (
-          <>
-            <Box paddingX={1}>
-              <Text color={colors.border}>{'─'.repeat(dividerWidth)}</Text>
-            </Box>
-            <Box paddingX={1} paddingBottom={1} flexDirection={wideLayout ? 'row' : 'column'} justifyContent={wideLayout ? 'space-between' : 'flex-start'} alignItems={wideLayout ? 'center' : 'flex-start'} gap={1}>
-              <Box>
-                <Text color="white" bold>Stratus</Text>
-                <Text color={CODE_COLOR} bold>Code</Text>
-                <Text color={colors.textDim}> • </Text>
-                <Text color={getAgentColor(agent)} bold>{agent.toUpperCase()}</Text>
-                {model && (
-                  <>
-                    <Text color={colors.textDim}> • </Text>
-                    <Text color={colors.textMuted}>{model}</Text>
-                  </>
-                )}
-                {isLoading && (
-                  <>
-                    <Text color={colors.textDim}> • </Text>
-                    <Text color={colors.secondary}>Working...</Text>
-                  </>
-                )}
+        {showStatus && (() => {
+          // Context bar visual
+          const barWidth = Math.max(8, Math.min(20, Math.floor(innerWidth / 5)));
+          const pct = ctxPercent ?? 0;
+          const filled = Math.round((pct / 100) * barWidth);
+          const empty = barWidth - filled;
+          const barColor = pct > 90 ? colors.error : pct > 70 ? colors.warning : colors.primaryDim;
+          const emptyColor = '#1E293B'; // Slate 800 — visible but subtle
+
+          // Mode badge
+          const modeColor = getAgentColor(agent);
+          const modeName = agent.toUpperCase();
+
+          // Thinking label
+          const thinkingLabel = reasoningEffort && reasoningEffort !== 'off'
+            ? `Thinking ${reasoningEffort.toUpperCase()}`
+            : '';
+
+          return (
+            <Box paddingX={1} paddingBottom={0} paddingTop={0} flexDirection="column">
+              {/* Row 1: Mode + model + thinking */}
+              <Box justifyContent="space-between">
+                <Box>
+                  <Text backgroundColor={modeColor} color="#000000" bold>{` ${modeName} `}</Text>
+                  {isLoading && <Text color={colors.secondary}> ●</Text>}
+                  <Text color={colors.textDim}> │ </Text>
+                  <Text color={colors.textMuted}>{model || 'default'}</Text>
+                  {thinkingLabel ? (
+                    <>
+                      <Text color={colors.textDim}> │ </Text>
+                      <Text color={colors.secondary}>{thinkingLabel}</Text>
+                    </>
+                  ) : null}
+                </Box>
+                <Box>
+                  <Text color={colors.textDim}>↑</Text>
+                  <Text color={colors.textMuted}>{formatNumber(totalTokens.input)}</Text>
+                  <Text color={colors.textDim}> ↓</Text>
+                  <Text color={colors.textMuted}>{formatNumber(totalTokens.output)}</Text>
+                </Box>
               </Box>
-              <Box flexDirection={showTelemetryDetails ? 'column' : 'row'} flexWrap="wrap" gap={1} marginTop={wideLayout ? 0 : 1}>
-                <Text color={colors.secondary}>IN {formatNumber(totalTokens.input)}</Text>
-                <Text color={colors.secondary}>OUT {formatNumber(totalTokens.output)}</Text>
-                {ctxPercent !== undefined && (
-                  <Text color={ctxPercent > 90 ? colors.error : colors.textDim}>
-                    CTX {ctxPercent}%{contextStatus ? ` · ${contextStatus}` : ''}
-                  </Text>
-                )}
+
+              {/* Row 2: Context memory bar */}
+              <Box justifyContent="space-between">
+                <Box>
+                  <Text color={colors.textDim}>Context </Text>
+                  <Text color={barColor}>{'▇'.repeat(filled)}</Text>
+                  <Text color={emptyColor}>{'▇'.repeat(empty)}</Text>
+                  <Text color={colors.textDim}> {pct}%</Text>
+                  {contextStatus && <Text color={colors.textDim}> {contextStatus}</Text>}
+                </Box>
                 {contextUsage && showTelemetryDetails && (
                   <Text color={colors.textDim}>
-                    {formatNumber(contextUsage.used)}/{formatNumber(contextUsage.limit)} tokens used
+                    {formatNumber(contextUsage.used)}/{formatNumber(contextUsage.limit)}
                   </Text>
-                )}
-                {showTelemetryDetails && (
-                  <Text color={colors.textDim}>Model {model || 'default'}</Text>
                 )}
               </Box>
             </Box>
-          </>
-        )}
+          );
+        })()}
       </Box>
     </Box>
   );

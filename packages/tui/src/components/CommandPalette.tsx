@@ -168,12 +168,42 @@ interface CommandPaletteInlineProps {
   query: string;
   selectedIndex: number;
   onSelect: (command: Command) => void;
-  maxVisible?: number;
+  offset: number;
+  onOffsetChange: (next: number) => void;
+  pageSize?: number;
 }
 
-export function CommandPaletteInline({ query, selectedIndex, onSelect, maxVisible = 10 }: CommandPaletteInlineProps) {
+export function getCommandWindow(query: string, offset: number, pageSize = 12): Command[] {
+  const results = searchCommandsFuzzy(query).map(r => r.command);
+  const clampedOffset = Math.max(0, Math.min(offset, Math.max(0, results.length - pageSize)));
+  return results.slice(clampedOffset, clampedOffset + pageSize);
+}
+
+export function getCommandResultCount(query: string): number {
+  return searchCommandsFuzzy(query).length;
+}
+
+export function getCommandAtIndex(query: string, index: number): Command | null {
+  const results = searchCommandsFuzzy(query);
+  if (index < 0 || index >= results.length) return null;
+  return results[index]!.command;
+}
+
+export function CommandPaletteInline({
+  query,
+  selectedIndex,
+  onSelect,
+  offset,
+  onOffsetChange,
+  pageSize = 12,
+}: CommandPaletteInlineProps) {
   const results = useMemo(() => searchCommandsFuzzy(query), [query]);
-  const visibleResults = results.slice(0, maxVisible);
+  const total = results.length;
+  const clampedOffset = Math.max(0, Math.min(offset, Math.max(0, total - pageSize)));
+  if (clampedOffset !== offset) {
+    onOffsetChange(clampedOffset);
+  }
+  const visibleResults = results.slice(clampedOffset, clampedOffset + pageSize);
 
   // Group results by category (must be before any early return to satisfy hooks rules)
   const groupedResults = useMemo(() => {
@@ -194,7 +224,7 @@ export function CommandPaletteInline({ query, selectedIndex, onSelect, maxVisibl
     );
   }
 
-  let globalIndex = 0;
+  let globalIndex = clampedOffset;
 
   return (
     <Box flexDirection="column">
@@ -206,7 +236,7 @@ export function CommandPaletteInline({ query, selectedIndex, onSelect, maxVisibl
             </Text>
           </Box>
           {categoryResults.map((result) => {
-            const isSelected = globalIndex === selectedIndex;
+            const isSelected = selectedIndex === globalIndex;
             const cmd = result.command;
             const icon = COMMAND_ICONS[cmd.name] || '•';
             globalIndex++;
@@ -235,29 +265,18 @@ export function CommandPaletteInline({ query, selectedIndex, onSelect, maxVisibl
           })}
         </Box>
       ))}
-      <Box paddingX={1}>
-        <Text color={colors.textDim}>↑↓ navigate  Enter select  Esc close</Text>
+      <Box paddingX={1} justifyContent="space-between">
+        <Text color={colors.textDim}>↑↓ navigate • Enter select • Esc close</Text>
         <Text color={colors.textMuted}>
-          {' '}{Math.min(selectedIndex + 1, visibleResults.length)}/{visibleResults.length}
+          {selectedIndex + 1}/{total}
         </Text>
+      </Box>
+      <Box paddingX={1} justifyContent="space-between">
+        <Text color={colors.textDim}>{clampedOffset > 0 ? `↑ ${clampedOffset} above` : ' '}</Text>
+        <Text color={colors.textDim}>{total > clampedOffset + visibleResults.length ? `${total - (clampedOffset + visibleResults.length)} below ↓` : ' '}</Text>
       </Box>
     </Box>
   );
-}
-
-/** Get the number of visible results for a query (used by parent to clamp selectedIndex) */
-export function getCommandResultCount(query: string, maxVisible = 10): number {
-  return Math.min(searchCommandsFuzzy(query).length, maxVisible);
-}
-
-/** Get the command at a specific index for a query */
-export function getCommandAtIndex(query: string, index: number, maxVisible = 10): Command | null {
-  const results = searchCommandsFuzzy(query).slice(0, maxVisible);
-  if (index < 0 || index >= results.length) {
-    return null;
-  }
-  const result = results[index];
-  return result ? result.command : null;
 }
 
 // ============================================

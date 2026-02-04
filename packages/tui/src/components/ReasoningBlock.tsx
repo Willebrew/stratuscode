@@ -30,9 +30,17 @@ export interface ReasoningBlockProps {
   isActive?: boolean;
   /** Start expanded (for completed blocks that should be visible) */
   defaultExpanded?: boolean;
+  /** Whether to collapse automatically when streaming finishes */
+  autoCollapseOnFinish?: boolean;
 }
 
-export function ReasoningBlock({ reasoning, isStreaming, isActive = false, defaultExpanded = false }: ReasoningBlockProps) {
+export function ReasoningBlock({
+  reasoning,
+  isStreaming,
+  isActive = false,
+  defaultExpanded = false,
+  autoCollapseOnFinish = true,
+}: ReasoningBlockProps) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
   // Auto-expand while streaming, auto-collapse when done
@@ -41,12 +49,11 @@ export function ReasoningBlock({ reasoning, isStreaming, isActive = false, defau
     if (isStreaming) {
       setIsExpanded(true);
       wasStreamingRef.current = true;
-    } else if (wasStreamingRef.current) {
-      // Streaming just ended — collapse
+    } else if (wasStreamingRef.current && autoCollapseOnFinish) {
       setIsExpanded(false);
       wasStreamingRef.current = false;
     }
-  }, [isStreaming]);
+  }, [isStreaming, autoCollapseOnFinish]);
 
   // Only register input listener when this block is the active one
   // (prevents MaxListenersExceeded when many blocks exist in history)
