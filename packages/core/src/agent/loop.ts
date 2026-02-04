@@ -23,7 +23,7 @@ import type {
   Tool,
   ToolContext,
 } from '@stratuscode/shared';
-import { MaxDepthError, AbortError, generateId } from '@stratuscode/shared';
+import { MaxDepthError, AbortError, generateId, patchGlobalFetch, modelSupportsReasoning } from '@stratuscode/shared';
 import { createProviderFromConfig } from '@sage/core/providers';
 import type { Provider, NormalizedStreamEvent, ProviderRequest, ProviderConfig } from '@sage/core/providers';
 import { handleNormalizedEvent, createAccumulator, type StreamAccumulator } from '../streaming/handler';
@@ -35,49 +35,8 @@ import type { ContextConfig, SummaryState } from '@sage/core/context';
 import { verifyEdit, formatVerification, detectProjectLinters } from '@sage/core/verification';
 import type { LinterConfig } from '@sage/core/verification';
 
-// --- Network shims to mirror OpenCode provider rewrites (Codex) ---
-(() => {
-  const g: any = globalThis as any;
-  if (g.__stratus_fetch_patched) return;
-  const originalFetch: any = g.fetch;
-  const RequestCtor: any = g.Request;
-
-  g.fetch = (input: any, init?: any) => {
-    try {
-      const req = input instanceof RequestCtor ? input : new RequestCtor(input, init);
-      const url = new URL(req.url);
-
-      // Codex: force ChatGPT codex responses endpoint + inject store=false
-      if (url.hostname === 'chatgpt.com' && url.pathname.includes('/backend-api/codex')) {
-        url.pathname = '/backend-api/codex/responses';
-        const rewritten = new RequestCtor(url.toString(), req);
-        // Inject store=false into request body (Codex requirement)
-        if (init?.body && typeof init.body === 'string') {
-          try {
-            const body = JSON.parse(init.body);
-            if (body.store === undefined) {
-              body.store = false;
-            }
-            // Codex backend rejects previous_response_id — strip it defensively
-            if ('previous_response_id' in body) {
-              delete (body as any).previous_response_id;
-            }
-            init = { ...init, body: JSON.stringify(body) };
-          } catch {}
-        }
-        return originalFetch(rewritten, init);
-      }
-
-    } catch {
-      // fall back to normal fetch
-    }
-    return originalFetch(input, init);
-  };
-
-  // Preserve optional preconnect (bun)
-  (g.fetch as any).preconnect = (originalFetch as any)?.preconnect;
-  g.__stratus_fetch_patched = true;
-})();
+// Ensure Codex fetch patch is applied once in this process
+patchGlobalFetch();
 
 // ============================================
 // Types
@@ -136,6 +95,9 @@ function isResponsesAPIProvider(config: StratusCodeConfig): boolean {
   if (url.includes('groq')) return false;
   if (url.includes('ollama') || url.includes('11434')) return false;
   if (url.includes('lm-studio') || url.includes('1234')) return false;
+
+  // Codex uses the Responses endpoint but requires custom handling elsewhere
+  if (url.includes('chatgpt.com/backend-api/codex')) return true;
   return true;
 }
 
@@ -164,6 +126,9 @@ function supportsPreviousResponseContinuation(config: StratusCodeConfig): boolea
  * Build SAGE ProviderConfig from StratusCode config
  */
 function buildProviderConfig(config: StratusCodeConfig): ProviderConfig {
+  const supportsReasoning = modelSupportsReasoning(config.model);
+  const reasoningEffort = config.reasoningEffort ?? (supportsReasoning ? 'medium' : undefined);
+
   return {
     apiKey: config.provider.apiKey || (config as any).provider?.auth?.access || '',
     baseUrl: config.provider.baseUrl,
@@ -173,6 +138,8 @@ function buildProviderConfig(config: StratusCodeConfig): ProviderConfig {
     parallelToolCalls: config.parallelToolCalls,
     type: config.provider.type as ProviderConfig['type'],
     headers: config.provider.headers,
+    enableReasoningEffort: !!reasoningEffort,
+    reasoningEffort,
   };
 }
 
@@ -204,7 +171,7 @@ export async function processWithToolLoop(
   const hooks = context.config.hooks;
 
   // Safety check: prevent infinite loops
-  if (depth > maxDepth) {
+  if (depth >= maxDepth) {
     throw new MaxDepthError(depth, maxDepth);
   }
 
@@ -275,6 +242,7 @@ export async function processWithToolLoop(
     tools: toolsToAPIFormat(context.tools) as unknown as ProviderRequest['tools'],
     config: providerConfig,
     previousResponseId: context._previousResponseId,
+    promptCacheKey: context.sessionId,
   };
 
   // Stream response using SAGE's provider
