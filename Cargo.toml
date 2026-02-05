@@ -1,0 +1,5 @@
+[workspace]
+members = [
+  "crates/stratuscode-cli"
+]
+resolver = "2"

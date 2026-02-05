@@ -186,6 +186,8 @@ export interface ProviderModelEntry {
   reasoning?: boolean;
   /** Supported reasoning effort levels (defaults to ['low','medium','high'] if reasoning=true) */
   reasoningEfforts?: Array<'minimal' | 'low' | 'medium' | 'high'>;
+  /** Context window size in tokens (used for Ollama/local models) */
+  contextWindow?: number;
 }
 
 export const PROVIDER_MODELS: Record<string, { label: string; models: ProviderModelEntry[] }> = {
@@ -218,7 +220,80 @@ export const PROVIDER_MODELS: Record<string, { label: string; models: ProviderMo
       { id: 'big-pickle', name: 'Big Pickle', free: true },
     ],
   },
+  ollama: {
+    label: 'Ollama (Local)',
+    models: [], // Filled dynamically at runtime via discoverOllamaModels()
+  },
 };
+
+/** Default context window for Ollama models when /api/show doesn't report one */
+const OLLAMA_DEFAULT_CONTEXT_WINDOW = 2048;
+
+/**
+ * Discover locally installed Ollama models by querying the Ollama API.
+ * Also fetches each model's context window size via /api/show.
+ * Returns null if Ollama is not running or unreachable.
+ */
+export async function discoverOllamaModels(
+  baseUrl = 'http://localhost:11434'
+): Promise<ProviderModelEntry[] | null> {
+  try {
+    const res = await fetch(`${baseUrl}/api/tags`, {
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { models?: Array<{ name: string }> };
+    const modelList = data.models || [];
+
+    // Fetch context window for each model in parallel
+    const entries = await Promise.all(
+      modelList.map(async (m: any): Promise<ProviderModelEntry> => {
+        let contextWindow = OLLAMA_DEFAULT_CONTEXT_WINDOW;
+        try {
+          const showRes = await fetch(`${baseUrl}/api/show`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: m.name }),
+            signal: AbortSignal.timeout(2000),
+          });
+          if (showRes.ok) {
+            const showData = (await showRes.json()) as {
+              model_info?: Record<string, unknown>;
+              parameters?: string;
+            };
+            // Check model_info for context length keys
+            if (showData.model_info) {
+              for (const [key, value] of Object.entries(showData.model_info)) {
+                if (key.includes('context_length') && typeof value === 'number') {
+                  contextWindow = value;
+                  break;
+                }
+              }
+            }
+            // Also check parameters string for num_ctx override
+            if (showData.parameters) {
+              const match = showData.parameters.match(/num_ctx\s+(\d+)/);
+              if (match) {
+                contextWindow = parseInt(match[1]!, 10);
+              }
+            }
+          }
+        } catch {
+          // Failed to get model info — use default
+        }
+        return {
+          id: m.name,
+          name: m.name.replace(/:latest$/, ''),
+          contextWindow,
+        };
+      })
+    );
+
+    return entries;
+  } catch {
+    return null; // Ollama not running — silent fail
+  }
+}
 
 /**
  * Look up model metadata by ID across all providers.

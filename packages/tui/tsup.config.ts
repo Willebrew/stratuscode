@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/cli.ts'],
+  entry: ['src/backend/server.ts', 'src/auth.ts'],
   format: ['esm'],
   dts: {
     compilerOptions: {
@@ -16,7 +16,5 @@ export default defineConfig({
     '@stratuscode/tools',
     '@stratuscode/storage',
     '@sage/core',
-    'react',
-    'ink',
   ],
 });
