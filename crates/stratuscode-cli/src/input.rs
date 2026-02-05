@@ -6,7 +6,7 @@ use serde_json::json;
 
 use crate::app::{
     collect_answers, ensure_file_index, file_query_from_input, insert_file_mention, select_option,
-    selected_index, App, UiMode,
+    App, UiMode,
 };
 use crate::backend::BackendClient;
 use crate::commands::{commands_list, execute_command, filter_commands, filter_models, parse_command, sort_models_by_provider};
@@ -29,6 +29,19 @@ pub fn handle_paste(app: &mut App, text: String) {
 }
 
 pub fn handle_key(app: &mut App, key: KeyEvent, client: &Arc<Mutex<BackendClient>>) {
+    if matches!(key.code, KeyCode::Esc) {
+        if app.state.is_loading {
+            let client = client.clone();
+            std::thread::spawn(move || {
+                let _ = client.lock().unwrap().call("abort", json!({}));
+            });
+        }
+        if !matches!(app.mode, UiMode::Normal) {
+            app.mode = UiMode::Normal;
+        }
+        app.mark_dirty();
+        return;
+    }
     if handle_overlay_keys(app, key, client) {
         return;
     }
@@ -197,48 +210,63 @@ pub fn handle_key(app: &mut App, key: KeyEvent, client: &Arc<Mutex<BackendClient
         }
         KeyCode::Backspace => {
             if app.cursor > 0 {
-                let removed = app.input.chars().nth(app.cursor - 1);
-                app.input.remove(app.cursor - 1);
-                app.cursor -= 1;
-                if removed == Some(IMAGE_MARKER) {
-                    let mut idx = 0usize;
-                    for ch in app.input.chars().take(app.cursor) {
-                        if ch == IMAGE_MARKER {
-                            idx += 1;
+                let before = &app.input[..app.cursor];
+                if let Some(ch) = before.chars().last() {
+                    let byte_len = ch.len_utf8();
+                    app.input.remove(app.cursor - byte_len);
+                    app.cursor -= byte_len;
+                    if ch == IMAGE_MARKER {
+                        let idx = app.input[..app.cursor]
+                            .chars()
+                            .filter(|&c| c == IMAGE_MARKER)
+                            .count();
+                        if idx < app.attachments.len() {
+                            app.attachments.remove(idx);
                         }
                     }
-                    if idx < app.attachments.len() {
-                        app.attachments.remove(idx);
-                    }
+                    app.mark_dirty();
                 }
-                app.mark_dirty();
             }
         }
         KeyCode::Left => {
             if app.cursor > 0 {
-                app.cursor -= 1;
+                let before = &app.input[..app.cursor];
+                let prev_char = before.chars().last().unwrap();
+                app.cursor -= prev_char.len_utf8();
                 app.mark_dirty();
             }
         }
         KeyCode::Right => {
             if app.cursor < app.input.len() {
-                app.cursor += 1;
+                let next_char = app.input[app.cursor..].chars().next().unwrap();
+                app.cursor += next_char.len_utf8();
                 app.mark_dirty();
             }
         }
         KeyCode::Char('v') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            if let Some(data) = read_clipboard_image_base64() {
-                app.input.insert(app.cursor, IMAGE_MARKER);
-                app.cursor += 1;
-                app.attachments.push(crate::app::AttachmentUpload { data, mime: "image/png".to_string() });
-                app.set_toast("Image attached".to_string());
-                app.mark_dirty();
+            match read_clipboard_image() {
+                ClipboardImageResult::Image(data) => {
+                    app.input.insert(app.cursor, IMAGE_MARKER);
+                    app.cursor += IMAGE_MARKER.len_utf8();
+                    app.attachments.push(crate::app::AttachmentUpload { data, mime: "image/png".to_string() });
+                    app.set_toast("Image attached".to_string());
+                    app.mark_dirty();
+                }
+                ClipboardImageResult::TooLarge => {
+                    app.set_toast("Image too large (max 50MB)".to_string());
+                    app.mark_dirty();
+                }
+                ClipboardImageResult::ConversionError => {
+                    app.set_toast("Failed to process clipboard image".to_string());
+                    app.mark_dirty();
+                }
+                ClipboardImageResult::NotAvailable => {}
             }
         }
         KeyCode::Char(ch) => {
             if !key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT) {
                 app.input.insert(app.cursor, ch);
-                app.cursor += 1;
+                app.cursor += ch.len_utf8();
                 app.mark_dirty();
                 if ch == '@' && !app.input.starts_with('/') {
                     app.mode = UiMode::FileMention;
@@ -341,8 +369,12 @@ pub fn handle_overlay_keys(app: &mut App, key: KeyEvent, client: &Arc<Mutex<Back
                 }
                 KeyCode::Backspace => {
                     if app.cursor > 0 {
-                        app.input.remove(app.cursor - 1);
-                        app.cursor -= 1;
+                        let before = &app.input[..app.cursor];
+                        if let Some(ch) = before.chars().last() {
+                            let byte_len = ch.len_utf8();
+                            app.input.remove(app.cursor - byte_len);
+                            app.cursor -= byte_len;
+                        }
                     }
                     if !app.input.contains('@') {
                         app.mode = UiMode::Normal;
@@ -351,7 +383,7 @@ pub fn handle_overlay_keys(app: &mut App, key: KeyEvent, client: &Arc<Mutex<Back
                 KeyCode::Char(ch) => {
                     if !key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT) {
                         app.input.insert(app.cursor, ch);
-                        app.cursor += 1;
+                        app.cursor += ch.len_utf8();
                     }
                 }
                 _ => {}
@@ -438,6 +470,36 @@ pub fn handle_overlay_keys(app: &mut App, key: KeyEvent, client: &Arc<Mutex<Back
             return true;
         }
         UiMode::SessionHistory => {
+            if app.session_rename_active {
+                match key.code {
+                    KeyCode::Esc => {
+                        app.session_rename_active = false;
+                        app.session_rename_input.clear();
+                    }
+                    KeyCode::Backspace => {
+                        app.session_rename_input.pop();
+                    }
+                    KeyCode::Enter => {
+                        if let Some(sess) = app.session_list.get_mut(app.session_selected) {
+                            let name = app.session_rename_input.trim().to_string();
+                            if !name.is_empty() {
+                                let _ = client.lock().unwrap().call("rename_session", json!({ "sessionId": sess.id, "title": name }));
+                                sess.title = app.session_rename_input.trim().to_string();
+                            }
+                        }
+                        app.session_rename_active = false;
+                        app.session_rename_input.clear();
+                    }
+                    KeyCode::Char(ch) => {
+                        if !key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT) {
+                            app.session_rename_input.push(ch);
+                        }
+                    }
+                    _ => {}
+                }
+                app.mark_dirty();
+                return true;
+            }
             match key.code {
                 KeyCode::Esc => app.mode = UiMode::Normal,
                 KeyCode::Up => app.session_selected = app.session_selected.saturating_sub(1),
@@ -445,6 +507,12 @@ pub fn handle_overlay_keys(app: &mut App, key: KeyEvent, client: &Arc<Mutex<Back
                     if app.session_selected + 1 < app.session_list.len() {
                         app.session_selected += 1;
                     }
+                }
+                KeyCode::PageUp => {
+                    app.session_selected = app.session_selected.saturating_sub(10);
+                }
+                KeyCode::PageDown => {
+                    app.session_selected = (app.session_selected + 10).min(app.session_list.len().saturating_sub(1));
                 }
                 KeyCode::Char('d') => {
                     if let Some(sess) = app.session_list.get(app.session_selected) {
@@ -456,6 +524,12 @@ pub fn handle_overlay_keys(app: &mut App, key: KeyEvent, client: &Arc<Mutex<Back
                         app.history_needs_refresh = true;
                     }
                 }
+                KeyCode::Char('r') => {
+                    if let Some(sess) = app.session_list.get(app.session_selected) {
+                        app.session_rename_active = true;
+                        app.session_rename_input = sess.title.clone();
+                    }
+                }
                 KeyCode::Enter => {
                     if let Some(sess) = app.session_list.get(app.session_selected) {
                         let _ = client.lock().unwrap().call("load_session", json!({ "sessionId": sess.id }));
@@ -463,6 +537,20 @@ pub fn handle_overlay_keys(app: &mut App, key: KeyEvent, client: &Arc<Mutex<Back
                     app.mode = UiMode::Normal;
                 }
                 _ => {}
+            }
+            if app.session_list.is_empty() {
+                app.session_selected = 0;
+                app.session_offset = 0;
+            } else {
+                if app.session_selected >= app.session_list.len() {
+                    app.session_selected = app.session_list.len() - 1;
+                }
+                let page_size = 10usize;
+                if app.session_selected < app.session_offset {
+                    app.session_offset = app.session_selected;
+                } else if app.session_selected >= app.session_offset + page_size {
+                    app.session_offset = app.session_selected + 1 - page_size;
+                }
             }
             app.mark_dirty();
             return true;
@@ -583,9 +671,323 @@ pub fn handle_overlay_keys(app: &mut App, key: KeyEvent, client: &Arc<Mutex<Back
     false
 }
 
-fn read_clipboard_image_base64() -> Option<String> {
-    let mut clipboard = arboard::Clipboard::new().ok()?;
-    let image = clipboard.get_image().ok()?;
-    let bytes = image.bytes.into_owned();
-    Some(base64::engine::general_purpose::STANDARD.encode(bytes))
+const MAX_CLIPBOARD_IMAGE_BYTES: usize = 50 * 1024 * 1024; // 50MB
+
+enum ClipboardImageResult {
+    Image(String),
+    TooLarge,
+    NotAvailable,
+    ConversionError,
+}
+
+fn read_clipboard_image() -> ClipboardImageResult {
+    let mut clipboard = match arboard::Clipboard::new() {
+        Ok(c) => c,
+        Err(_) => return ClipboardImageResult::NotAvailable,
+    };
+    let img_data = match clipboard.get_image() {
+        Ok(i) => i,
+        Err(_) => return ClipboardImageResult::NotAvailable,
+    };
+
+    if img_data.bytes.len() > MAX_CLIPBOARD_IMAGE_BYTES {
+        return ClipboardImageResult::TooLarge;
+    }
+
+    let rgba_img = match image::RgbaImage::from_raw(
+        img_data.width as u32,
+        img_data.height as u32,
+        img_data.bytes.into_owned(),
+    ) {
+        Some(img) => img,
+        None => return ClipboardImageResult::ConversionError,
+    };
+
+    let dynamic = image::DynamicImage::ImageRgba8(rgba_img);
+    let mut buf = std::io::Cursor::new(Vec::new());
+    if dynamic.write_to(&mut buf, image::ImageFormat::Png).is_err() {
+        return ClipboardImageResult::ConversionError;
+    }
+
+    ClipboardImageResult::Image(base64::engine::general_purpose::STANDARD.encode(buf.into_inner()))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::constants::IMAGE_MARKER;
+
+    /// Simulate character insertion (mirrors fixed handle_key Char logic)
+    fn insert_char(input: &mut String, cursor: &mut usize, ch: char) {
+        input.insert(*cursor, ch);
+        *cursor += ch.len_utf8();
+    }
+
+    /// Simulate backspace (mirrors fixed handle_key Backspace logic)
+    fn backspace(input: &mut String, cursor: &mut usize) -> Option<char> {
+        if *cursor == 0 {
+            return None;
+        }
+        let before = &input[..*cursor];
+        let ch = before.chars().last()?;
+        let byte_len = ch.len_utf8();
+        input.remove(*cursor - byte_len);
+        *cursor -= byte_len;
+        Some(ch)
+    }
+
+    /// Simulate left arrow (mirrors fixed handle_key Left logic)
+    fn move_left(input: &str, cursor: &mut usize) {
+        if *cursor > 0 {
+            let before = &input[..*cursor];
+            let prev_char = before.chars().last().unwrap();
+            *cursor -= prev_char.len_utf8();
+        }
+    }
+
+    /// Simulate right arrow (mirrors fixed handle_key Right logic)
+    fn move_right(input: &str, cursor: &mut usize) {
+        if *cursor < input.len() {
+            let next_char = input[*cursor..].chars().next().unwrap();
+            *cursor += next_char.len_utf8();
+        }
+    }
+
+    // ── ASCII ───────────────────────────────────────────────
+
+    #[test]
+    fn test_cursor_ascii() {
+        let mut input = String::new();
+        let mut cursor = 0usize;
+
+        insert_char(&mut input, &mut cursor, 'H');
+        insert_char(&mut input, &mut cursor, 'i');
+
+        assert_eq!(input, "Hi");
+        assert_eq!(cursor, 2);
+        assert!(input.is_char_boundary(cursor));
+    }
+
+    #[test]
+    fn test_backspace_ascii() {
+        let mut input = String::from("Hello");
+        let mut cursor = 5;
+
+        let removed = backspace(&mut input, &mut cursor);
+        assert_eq!(removed, Some('o'));
+        assert_eq!(input, "Hell");
+        assert_eq!(cursor, 4);
+        assert!(input.is_char_boundary(cursor));
+    }
+
+    // ── Emoji (4-byte UTF-8) ────────────────────────────────
+
+    #[test]
+    fn test_cursor_emoji() {
+        let mut input = String::new();
+        let mut cursor = 0usize;
+
+        insert_char(&mut input, &mut cursor, '🎉');
+        assert_eq!(cursor, 4);
+        assert!(input.is_char_boundary(cursor));
+
+        insert_char(&mut input, &mut cursor, '!');
+        assert_eq!(input, "🎉!");
+        assert_eq!(cursor, 5);
+        assert!(input.is_char_boundary(cursor));
+    }
+
+    #[test]
+    fn test_backspace_emoji() {
+        let mut input = String::new();
+        let mut cursor = 0usize;
+
+        insert_char(&mut input, &mut cursor, 'T');
+        insert_char(&mut input, &mut cursor, 'e');
+        insert_char(&mut input, &mut cursor, 's');
+        insert_char(&mut input, &mut cursor, 't');
+        insert_char(&mut input, &mut cursor, '🎉');
+
+        assert_eq!(input, "Test🎉");
+        assert_eq!(cursor, 8);
+
+        let removed = backspace(&mut input, &mut cursor);
+        assert_eq!(removed, Some('🎉'));
+        assert_eq!(input, "Test");
+        assert_eq!(cursor, 4);
+        assert!(input.is_char_boundary(cursor));
+    }
+
+    // ── CJK (3-byte UTF-8) ─────────────────────────────────
+
+    #[test]
+    fn test_cursor_cjk() {
+        let mut input = String::new();
+        let mut cursor = 0usize;
+
+        insert_char(&mut input, &mut cursor, '世');
+        assert_eq!(cursor, 3);
+        assert!(input.is_char_boundary(cursor));
+
+        insert_char(&mut input, &mut cursor, '界');
+        assert_eq!(input, "世界");
+        assert_eq!(cursor, 6);
+        assert!(input.is_char_boundary(cursor));
+    }
+
+    #[test]
+    fn test_backspace_cjk() {
+        let mut input = String::new();
+        let mut cursor = 0usize;
+
+        insert_char(&mut input, &mut cursor, '世');
+        insert_char(&mut input, &mut cursor, '界');
+
+        let removed = backspace(&mut input, &mut cursor);
+        assert_eq!(removed, Some('界'));
+        assert_eq!(input, "世");
+        assert_eq!(cursor, 3);
+        assert!(input.is_char_boundary(cursor));
+    }
+
+    // ── Mixed content ───────────────────────────────────────
+
+    #[test]
+    fn test_cursor_mixed_ascii_emoji_cjk() {
+        let mut input = String::new();
+        let mut cursor = 0usize;
+
+        insert_char(&mut input, &mut cursor, 'H');  // 1 byte
+        insert_char(&mut input, &mut cursor, '🎉'); // 4 bytes
+        insert_char(&mut input, &mut cursor, '世');  // 3 bytes
+        insert_char(&mut input, &mut cursor, '!');   // 1 byte
+
+        assert_eq!(input, "H🎉世!");
+        assert_eq!(cursor, 9); // 1 + 4 + 3 + 1
+        assert!(input.is_char_boundary(cursor));
+    }
+
+    #[test]
+    fn test_backspace_mixed_content() {
+        let mut input = String::new();
+        let mut cursor = 0usize;
+
+        insert_char(&mut input, &mut cursor, 'a');
+        insert_char(&mut input, &mut cursor, '🎉');
+        insert_char(&mut input, &mut cursor, 'b');
+
+        // Delete 'b'
+        backspace(&mut input, &mut cursor);
+        assert_eq!(input, "a🎉");
+        assert!(input.is_char_boundary(cursor));
+
+        // Delete '🎉'
+        backspace(&mut input, &mut cursor);
+        assert_eq!(input, "a");
+        assert_eq!(cursor, 1);
+        assert!(input.is_char_boundary(cursor));
+
+        // Delete 'a'
+        backspace(&mut input, &mut cursor);
+        assert_eq!(input, "");
+        assert_eq!(cursor, 0);
+    }
+
+    // ── Arrow key navigation ────────────────────────────────
+
+    #[test]
+    fn test_left_right_with_unicode() {
+        let mut input = String::new();
+        let mut cursor = 0usize;
+
+        insert_char(&mut input, &mut cursor, 'a');   // 1 byte
+        insert_char(&mut input, &mut cursor, '🎉');  // 4 bytes
+        insert_char(&mut input, &mut cursor, '世');   // 3 bytes
+        // cursor at end = 8
+
+        move_left(&input, &mut cursor);  // back over '世'
+        assert_eq!(cursor, 5);
+        assert!(input.is_char_boundary(cursor));
+
+        move_left(&input, &mut cursor);  // back over '🎉'
+        assert_eq!(cursor, 1);
+        assert!(input.is_char_boundary(cursor));
+
+        move_right(&input, &mut cursor); // forward over '🎉'
+        assert_eq!(cursor, 5);
+        assert!(input.is_char_boundary(cursor));
+    }
+
+    // ── Edge cases ──────────────────────────────────────────
+
+    #[test]
+    fn test_backspace_empty() {
+        let mut input = String::new();
+        let mut cursor = 0usize;
+
+        let removed = backspace(&mut input, &mut cursor);
+        assert_eq!(removed, None);
+        assert_eq!(cursor, 0);
+    }
+
+    #[test]
+    fn test_insert_delete_reinsert() {
+        let mut input = String::new();
+        let mut cursor = 0usize;
+
+        insert_char(&mut input, &mut cursor, '🎉');
+        backspace(&mut input, &mut cursor);
+        insert_char(&mut input, &mut cursor, 'a');
+
+        assert_eq!(input, "a");
+        assert_eq!(cursor, 1);
+        assert!(input.is_char_boundary(cursor));
+    }
+
+    #[test]
+    fn test_image_marker_cursor() {
+        let mut input = String::new();
+        let mut cursor = 0usize;
+
+        insert_char(&mut input, &mut cursor, IMAGE_MARKER);
+        assert_eq!(cursor, IMAGE_MARKER.len_utf8()); // 3 bytes
+        assert!(input.is_char_boundary(cursor));
+
+        // Backspace should cleanly remove the marker
+        let removed = backspace(&mut input, &mut cursor);
+        assert_eq!(removed, Some(IMAGE_MARKER));
+        assert_eq!(cursor, 0);
+        assert!(input.is_empty());
+    }
+
+    #[test]
+    fn test_paste_unicode_cursor() {
+        let mut input = String::new();
+        let mut cursor = 0usize;
+
+        // Simulate paste (uses insert_str + text.len(), already correct)
+        let text = "Hello 🌍!";
+        input.insert_str(cursor, text);
+        cursor += text.len();
+
+        assert_eq!(cursor, 11); // "Hello " (6) + 🌍 (4) + "!" (1)
+        assert!(input.is_char_boundary(cursor));
+    }
+
+    #[test]
+    fn test_left_at_boundary_zero() {
+        let input = String::from("abc");
+        let mut cursor = 0usize;
+
+        move_left(&input, &mut cursor);
+        assert_eq!(cursor, 0); // stays at 0
+    }
+
+    #[test]
+    fn test_right_at_end() {
+        let input = String::from("abc");
+        let mut cursor = 3usize;
+
+        move_right(&input, &mut cursor);
+        assert_eq!(cursor, 3); // stays at end
+    }
 }

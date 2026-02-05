@@ -94,7 +94,6 @@ pub fn render_ui(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app
         } else {
             let title = Line::from(vec![
                 Span::styled("Stratus", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-                Span::raw(" "),
                 Span::styled("Code", Style::default().fg(COLOR_CODE).add_modifier(Modifier::BOLD)),
             ]);
             let timeline = Paragraph::new(timeline_text)
@@ -154,46 +153,54 @@ pub fn build_timeline_lines(state: &crate::backend::ChatState, compact: bool, wi
     let content_width = width.saturating_sub(2).max(10);
 
     let is_blank = |line: &Line<'static>| line.spans.iter().all(|s| s.content.is_empty());
-    let push_gap = |lines: &mut Vec<Line<'static>>| {
-        if let Some(last) = lines.last() {
-            if !is_blank(last) {
-                lines.push(Line::from(""));
+    let push_gap = |lines: &mut Vec<Line<'static>>, count: usize| {
+        for _ in 0..count {
+            if let Some(last) = lines.last() {
+                if !is_blank(last) {
+                    lines.push(Line::from(""));
+                }
             }
         }
     };
 
+    let mut in_assistant_block = false;
     for event in &state.timeline_events {
-        let is_block = matches!(event.kind.as_str(), "user" | "assistant");
-        if is_block {
-            push_gap(&mut lines);
-        }
-        match event.kind.as_str() {
-            "user" => {
-                lines.push(Line::from(vec![
-                    Span::styled("> ", Style::default().fg(COLOR_CODE).add_modifier(Modifier::BOLD)),
-                    Span::styled("You", Style::default().fg(COLOR_CODE).add_modifier(Modifier::BOLD)),
-                ]));
-                let mut body: Vec<Line> = wrap_plain_lines(&event.content, content_width)
-                    .into_iter()
-                    .map(|l| Line::from(l))
-                    .collect();
-                if let Some(atts) = &event.attachments {
-                    if !atts.is_empty() {
-                        body.push(Line::from(format!(
-                            "[{} attachment{}]",
-                            atts.len(),
-                            if atts.len() == 1 { "" } else { "s" }
-                        )));
-                    }
+        if event.kind == "user" {
+            in_assistant_block = false;
+            push_gap(&mut lines, 3);
+            lines.push(Line::from(vec![
+                Span::styled("> ", Style::default().fg(COLOR_CODE).add_modifier(Modifier::BOLD)),
+                Span::styled("You", Style::default().fg(COLOR_CODE).add_modifier(Modifier::BOLD)),
+            ]));
+            let mut body: Vec<Line> = wrap_plain_lines(&event.content, content_width)
+                .into_iter()
+                .map(|l| Line::from(l))
+                .collect();
+            if let Some(atts) = &event.attachments {
+                if !atts.is_empty() {
+                    body.push(Line::from(format!(
+                        "[{} attachment{}]",
+                        atts.len(),
+                        if atts.len() == 1 { "" } else { "s" }
+                    )));
                 }
-                lines.extend(indent_lines(body, 2));
             }
+            lines.extend(indent_lines(body, 2));
+            continue;
+        }
+
+        if !in_assistant_block {
+            push_gap(&mut lines, 3);
+            lines.push(Line::from(vec![
+                Span::styled("> ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                Span::styled("Stratus", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                Span::styled("Code", Style::default().fg(COLOR_CODE).add_modifier(Modifier::BOLD)),
+            ]));
+            in_assistant_block = true;
+        }
+
+        match event.kind.as_str() {
             "assistant" => {
-                lines.push(Line::from(vec![
-                    Span::styled("> ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-                    Span::styled("Stratus", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-                    Span::styled("Code", Style::default().fg(COLOR_CODE).add_modifier(Modifier::BOLD)),
-                ]));
                 let markdown_lines = if event.streaming.unwrap_or(false) {
                     wrap_plain_lines(&event.content, content_width)
                         .into_iter()
@@ -239,6 +246,13 @@ pub fn build_timeline_lines(state: &crate::backend::ChatState, compact: bool, wi
                 lines.push(Line::from(spans));
             }
             "tool_result" => {
+                if !in_assistant_block {
+                    lines.push(Line::from(vec![
+                        Span::styled("> ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                        Span::styled("Stratus", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                    ]));
+                    in_assistant_block = true;
+                }
                 if let Some((summary, diff_lines)) = extract_diff_summary(&event.content, content_width) {
                     lines.push(Line::from(vec![
                         Span::styled("[ok]", Style::default().fg(COLOR_SUCCESS)),
@@ -268,7 +282,7 @@ pub fn build_timeline_lines(state: &crate::backend::ChatState, compact: bool, wi
     }
 
     if state.is_loading {
-        push_gap(&mut lines);
+        push_gap(&mut lines, 1);
         let spinner = SPINNER_FRAMES[spinner_index % SPINNER_FRAMES.len()];
         lines.push(Line::from(vec![
             Span::styled(spinner, Style::default().fg(COLOR_CODE)),
@@ -463,7 +477,6 @@ pub fn render_splash(frame: &mut Frame, rect: Rect, app: &App) {
         .border_style(Style::default().fg(COLOR_BORDER))
         .title(Line::from(vec![
             Span::styled("Stratus", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-            Span::raw(" "),
             Span::styled("Code", Style::default().fg(COLOR_CODE).add_modifier(Modifier::BOLD)),
         ]))
         .style(Style::default().bg(COLOR_BG_ALT));
@@ -692,7 +705,9 @@ fn build_inline_overlay(app: &App, _width: usize) -> Option<InlineOverlay> {
                     Span::styled("No sessions yet.", Style::default().fg(COLOR_TEXT_DIM)),
                 ]));
             } else {
-                for (i, sess) in app.session_list.iter().enumerate().take(10) {
+                let offset = app.session_offset.min(app.session_list.len());
+                let end = (offset + 10).min(app.session_list.len());
+                for (i, sess) in app.session_list.iter().enumerate().skip(offset).take(end - offset) {
                     let selected = i == app.session_selected;
                     let style = if selected {
                         Style::default().fg(Color::Black).bg(COLOR_CODE).add_modifier(Modifier::BOLD)
@@ -704,6 +719,21 @@ fn build_inline_overlay(app: &App, _width: usize) -> Option<InlineOverlay> {
                         Span::styled(sess.title.clone(), style),
                     ]));
                 }
+                if end < app.session_list.len() {
+                    lines.push(Line::from(vec![
+                        Span::styled("...", Style::default().fg(COLOR_TEXT_DIM)),
+                    ]));
+                }
+            }
+            if app.session_rename_active {
+                lines.push(Line::from(vec![
+                    Span::styled("Rename: ", Style::default().fg(COLOR_TEXT_DIM)),
+                    Span::styled(app.session_rename_input.clone(), Style::default().fg(COLOR_TEXT)),
+                ]));
+            } else {
+                lines.push(Line::from(vec![
+                    Span::styled("r rename  d delete  Enter open  Esc close", Style::default().fg(COLOR_TEXT_DIM)),
+                ]));
             }
             Some(InlineOverlay { title: "Session History".to_string(), lines })
         }
@@ -1200,6 +1230,7 @@ struct MarkdownRenderer {
     lines: Vec<Line<'static>>,
     current_spans: Vec<Span<'static>>,
     current_width: usize,
+    pending_space: bool,
     line_prefix: Option<(String, Style)>,
     pending_item_prefix: Option<(String, Style)>,
     style_stack: Vec<Style>,
@@ -1214,6 +1245,7 @@ impl MarkdownRenderer {
             lines: Vec::new(),
             current_spans: Vec::new(),
             current_width: 0,
+            pending_space: false,
             line_prefix: None,
             pending_item_prefix: None,
             style_stack: vec![Style::default().fg(COLOR_TEXT)],
@@ -1370,6 +1402,7 @@ impl MarkdownRenderer {
     }
 
     fn new_line(&mut self) {
+        self.pending_space = false;
         self.flush_line();
     }
 
@@ -1400,23 +1433,17 @@ impl MarkdownRenderer {
     }
 
     fn push_space(&mut self) {
-        if self.current_width == 0 {
-            return;
-        }
-        if self.current_width + 1 > self.width {
-            self.new_line();
-            return;
-        }
-        self.push_span(" ", Style::default().fg(COLOR_TEXT));
+        self.pending_space = true;
     }
 
     fn push_word(&mut self, word: &str, style: Style) {
         let word_width = UnicodeWidthStr::width(word);
-        if self.current_width > 0 && self.current_width + 1 + word_width > self.width {
+        if self.current_width > 0 && self.pending_space && self.current_width + 1 + word_width > self.width {
             self.new_line();
-        } else if self.current_width > 0 {
+        } else if self.current_width > 0 && self.pending_space {
             self.push_span(" ", Style::default().fg(COLOR_TEXT));
         }
+        self.pending_space = false;
 
         if word_width <= self.width {
             self.push_span(word, style);

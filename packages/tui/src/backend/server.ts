@@ -9,7 +9,7 @@ import * as readline from 'readline';
 import * as path from 'path';
 import { ChatSession } from './chat-session';
 import { loadConfig, hasApiKey, initDatabase } from '@stratuscode/storage';
-import { listSessions, deleteSession, getMessages } from '@stratuscode/storage';
+import { listSessions, deleteSession, getMessages, updateSession } from '@stratuscode/storage';
 import { Question, Todo } from '@stratuscode/tools';
 import { discoverOllamaModels } from '@stratuscode/shared';
 import { buildModelEntries } from './model_entries';
@@ -110,7 +110,11 @@ async function handleRequest(req: RpcRequest): Promise<void> {
           respond(id, undefined, { code: 400, message: 'Not initialized' });
           return;
         }
-        await session.sendMessage(params.content || '', params.agentOverride, params.options, params.attachments);
+        session
+          .sendMessage(params.content || '', params.agentOverride, params.options, params.attachments)
+          .catch((err: Error) => {
+            notify('error', err.message || 'Failed to send message');
+          });
         respond(id, { ok: true });
         return;
       }
@@ -226,6 +230,15 @@ async function handleRequest(req: RpcRequest): Promise<void> {
           session.ensureSessionId();
         }
         deleteSession(params.sessionId);
+        respond(id, { ok: true });
+        return;
+      }
+      case 'rename_session': {
+        if (!params.sessionId || !params.title) {
+          respond(id, undefined, { code: 400, message: 'Missing sessionId or title' });
+          return;
+        }
+        updateSession(params.sessionId, { title: params.title });
         respond(id, { ok: true });
         return;
       }

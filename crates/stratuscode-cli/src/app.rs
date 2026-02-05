@@ -145,6 +145,9 @@ pub struct App {
     pub custom_model_input: String,
     pub session_list: Vec<SessionInfo>,
     pub session_selected: usize,
+    pub session_offset: usize,
+    pub session_rename_active: bool,
+    pub session_rename_input: String,
     pub history_needs_refresh: bool,
     pub question: Option<QuestionState>,
     pub todos: Vec<TodoItem>,
@@ -202,6 +205,9 @@ impl App {
             custom_model_input: String::new(),
             session_list: Vec::new(),
             session_selected: 0,
+            session_offset: 0,
+            session_rename_active: false,
+            session_rename_input: String::new(),
             history_needs_refresh: false,
             question: None,
             todos: Vec::new(),
@@ -441,10 +447,6 @@ pub fn insert_file_mention(app: &mut App, path: &str) {
         app.input = format!("{}{} {}", before, path, after);
         app.cursor = before.len() + path.len() + 1;
     }
-}
-
-pub fn selected_index(selected: Vec<bool>) -> usize {
-    selected.iter().position(|v| *v).unwrap_or(0)
 }
 
 pub fn select_option(q: &mut QuestionState, idx: usize) {

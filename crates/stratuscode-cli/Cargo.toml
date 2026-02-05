@@ -14,5 +14,6 @@ textwrap = "0.16"
 walkdir = "2.5"
 base64 = "0.22"
 arboard = "3.4"
+image = { version = "0.25", default-features = false, features = ["png"] }
 pulldown-cmark = "0.9"
 unicode-width = "0.1"

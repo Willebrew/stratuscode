@@ -202,6 +202,7 @@ export const PROVIDER_MODELS: Record<string, { label: string; models: ProviderMo
   'openai-codex': {
     label: 'OpenAI Codex',
     models: [
+      { id: 'gpt-5.3-codex', name: 'GPT-5.3 Codex', reasoning: true, reasoningEfforts: ['low', 'medium', 'high'] },
       { id: 'gpt-5.2-codex', name: 'GPT-5.2 Codex', reasoning: true, reasoningEfforts: ['low', 'medium', 'high'] },
       { id: 'gpt-5.1-codex', name: 'GPT-5.1 Codex', reasoning: true, reasoningEfforts: ['low', 'medium', 'high'] },
       { id: 'gpt-5.1-codex-max', name: 'GPT-5.1 Codex Max', reasoning: true, reasoningEfforts: ['low', 'medium', 'high'] },

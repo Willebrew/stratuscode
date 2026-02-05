@@ -184,7 +184,11 @@ fn run_interactive(root: &PathBuf, cli: &Cli) -> Result<()> {
                     app.mark_dirty();
                 }
                 UiUpdate::Question(question) => {
-                    if app.question.is_none() {
+                    let replace = match &app.question {
+                        None => true,
+                        Some(existing) => existing.id != question.id,
+                    };
+                    if replace {
                         app.question = Some(question);
                         app.mode = UiMode::QuestionPrompt;
                         app.mark_dirty();
