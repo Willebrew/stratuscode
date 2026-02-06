@@ -103,6 +103,38 @@ no hunk headers here`;
     const result = parsePatch(patch);
     expect(result[0].path).toBe('file.txt');
   });
+
+  test('skips malformed @@ hunk header when parseHunk returns null', () => {
+    // The @@ prefix triggers the parseHunk call in parsePatch,
+    // but the regex inside parseHunk fails on this malformed header,
+    // returning null. This exercises the else branch (line 159) where
+    // parsePatch increments i and continues.
+    const patch = `--- a/file.txt
++++ b/file.txt
+@@ invalid hunk header @@`;
+
+    const result = parsePatch(patch);
+    // No valid hunks were parsed, so no file entry is produced
+    expect(result).toEqual([]);
+  });
+
+  test('skips malformed @@ header but parses valid hunk that follows', () => {
+    // First hunk header is malformed (no valid range), second is valid.
+    // parsePatch should skip the bad one and still parse the good one.
+    const patch = `--- a/file.txt
++++ b/file.txt
+@@ bogus
+@@ -1,2 +1,3 @@
+ line 1
++inserted
+ line 2`;
+
+    const result = parsePatch(patch);
+    expect(result).toHaveLength(1);
+    expect(result[0].path).toBe('file.txt');
+    expect(result[0].hunks).toHaveLength(1);
+    expect(result[0].hunks[0].lines).toHaveLength(3);
+  });
 });
 
 // ============================================
