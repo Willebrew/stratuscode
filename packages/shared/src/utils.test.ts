@@ -340,4 +340,11 @@ describe('withRetry', () => {
     );
     expect(retries).toEqual([1, 2]);
   });
+
+  test('throws when maxAttempts is 0 (post-loop safeguard)', async () => {
+    await expect(withRetry(
+      async () => 'should never run',
+      { maxAttempts: 0, baseDelay: 10, maxDelay: 100 }
+    )).rejects.toThrow();
+  });
 });
