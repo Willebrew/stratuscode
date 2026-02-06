@@ -355,6 +355,16 @@ impl App {
                 if let Some(s) = notif.params.as_str() {
                     self.set_toast(s.to_string());
                 }
+                // Clear loading state on error
+                self.state.is_loading = false;
+                // Mark any running tool calls as failed
+                for event in &mut self.state.timeline_events {
+                    if event.kind == "tool_call" && event.status.as_deref() == Some("running") {
+                        event.status = Some("failed".to_string());
+                    }
+                }
+                self.timeline_revision = self.timeline_revision.saturating_add(1);
+                self.mark_dirty();
             }
             _ => {}
         }
@@ -440,6 +450,7 @@ pub fn file_query_from_input(input: &str, cursor: usize) -> String {
 }
 
 pub fn insert_file_mention(app: &mut App, path: &str) {
+    app.cursor = crate::input::clamp_cursor(&app.input, app.cursor);
     let upto = &app.input[..app.cursor];
     if let Some(idx) = upto.rfind('@') {
         let before = app.input[..idx + 1].to_string();

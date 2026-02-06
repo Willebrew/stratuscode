@@ -114,12 +114,12 @@ Example patch format:
 // Patch Parsing
 // ============================================
 
-interface FilePatch {
+export interface FilePatch {
   path: string;
   hunks: Hunk[];
 }
 
-interface Hunk {
+export interface Hunk {
   oldStart: number;
   oldCount: number;
   newStart: number;
@@ -127,12 +127,12 @@ interface Hunk {
   lines: HunkLine[];
 }
 
-interface HunkLine {
+export interface HunkLine {
   type: 'context' | 'add' | 'remove';
   content: string;
 }
 
-function parsePatch(patch: string): FilePatch[] {
+export function parsePatch(patch: string): FilePatch[] {
   const files: FilePatch[] = [];
   const lines = patch.split('\n');
   let i = 0;
@@ -175,7 +175,7 @@ function parsePatch(patch: string): FilePatch[] {
   return files;
 }
 
-function parseHunk(lines: string[], startIndex: number): { hunk: Hunk; nextIndex: number } | null {
+export function parseHunk(lines: string[], startIndex: number): { hunk: Hunk; nextIndex: number } | null {
   const headerLine = lines[startIndex];
   if (!headerLine) return null;
 
@@ -218,7 +218,7 @@ function parseHunk(lines: string[], startIndex: number): { hunk: Hunk; nextIndex
 // Patch Application
 // ============================================
 
-function applyHunks(content: string, hunks: Hunk[]): string {
+export function applyHunks(content: string, hunks: Hunk[]): string {
   const lines = content.split('\n');
   let offset = 0;
 

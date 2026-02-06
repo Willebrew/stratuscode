@@ -1,0 +1,342 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUN_VERSION: "1.1.38"
+  RUST_TOOLCHAIN: "stable"
+  CARGO_TERM_COLOR: always
+  # SAGE repo — update this to your GitHub repo URL
+  SAGE_REPO: ${{ vars.SAGE_REPO || '' }}
+
+jobs:
+  # ──────────────────────────────────────────────
+  # TypeScript: Install & Cache
+  # ──────────────────────────────────────────────
+  ts-install:
+    name: TS Install Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout SAGE
+        if: env.SAGE_REPO != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SAGE_REPO }}
+          path: sage
+          token: ${{ secrets.SAGE_TOKEN || github.token }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      # If SAGE was checked out, build it and fix file: references
+      - name: Build SAGE dependency
+        if: env.SAGE_REPO != ''
+        run: |
+          cd sage
+          bun install --frozen-lockfile
+          bun run build
+          cd ..
+          SAGE_CORE="$GITHUB_WORKSPACE/sage/packages/core"
+          # Update file: references in all package.json files
+          find packages -name "package.json" -not -path "*/node_modules/*" -exec \
+            sed -i "s|file:[^ \"]*SAGE/packages/core|file:${SAGE_CORE}|g" {} \;
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        id: bun-cache
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lockb', 'package.json', 'packages/*/package.json') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
+      - name: Install dependencies
+        if: steps.bun-cache.outputs.cache-hit != 'true'
+        run: bun install --frozen-lockfile || bun install
+
+  # ──────────────────────────────────────────────
+  # TypeScript: Type Check
+  # ──────────────────────────────────────────────
+  ts-typecheck:
+    name: TypeScript Type Check
+    needs: ts-install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout SAGE
+        if: env.SAGE_REPO != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SAGE_REPO }}
+          path: sage
+          token: ${{ secrets.SAGE_TOKEN || github.token }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Build SAGE dependency
+        if: env.SAGE_REPO != ''
+        run: |
+          cd sage && bun install --frozen-lockfile && bun run build && cd ..
+          SAGE_CORE="$GITHUB_WORKSPACE/sage/packages/core"
+          find packages -name "package.json" -not -path "*/node_modules/*" -exec \
+            sed -i "s|file:[^ \"]*SAGE/packages/core|file:${SAGE_CORE}|g" {} \;
+
+      - name: Restore dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lockb', 'package.json', 'packages/*/package.json') }}
+
+      - name: Install dependencies (fallback)
+        run: bun install --frozen-lockfile || bun install
+
+      - name: Build TS packages
+        run: npx turbo build --force
+
+      - name: Type check
+        run: npx turbo typecheck
+
+  # ──────────────────────────────────────────────
+  # TypeScript: Tests with Coverage
+  # ──────────────────────────────────────────────
+  ts-test:
+    name: TS Tests (${{ matrix.os }})
+    needs: ts-install
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout SAGE
+        if: env.SAGE_REPO != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SAGE_REPO }}
+          path: sage
+          token: ${{ secrets.SAGE_TOKEN || github.token }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Build SAGE dependency
+        if: env.SAGE_REPO != ''
+        run: |
+          cd sage && bun install --frozen-lockfile && bun run build && cd ..
+          SAGE_CORE="$GITHUB_WORKSPACE/sage/packages/core"
+          find packages -name "package.json" -not -path "*/node_modules/*" -exec \
+            sed -i'' -e "s|file:[^ \"]*SAGE/packages/core|file:${SAGE_CORE}|g" {} \;
+
+      - name: Restore dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lockb', 'package.json', 'packages/*/package.json') }}
+
+      - name: Install dependencies (fallback)
+        run: bun install --frozen-lockfile || bun install
+
+      - name: Build TS packages
+        run: npx turbo build --force
+
+      - name: Run tests with coverage
+        run: bun test --coverage
+
+      - name: Upload coverage report
+        if: matrix.os == 'ubuntu-latest' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ts-coverage-report
+          path: coverage/
+          retention-days: 14
+
+  # ──────────────────────────────────────────────
+  # Rust: Build & Test
+  # ──────────────────────────────────────────────
+  rust-check:
+    name: Rust Check & Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/*/Cargo.toml') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Cargo check
+        run: cargo check --all-targets
+
+      - name: Cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Cargo fmt check
+        run: cargo fmt --all -- --check
+
+  rust-test:
+    name: Rust Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/*/Cargo.toml') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Run Rust tests
+        run: cargo test --all
+
+  # ──────────────────────────────────────────────
+  # Rust: Build Release Binary
+  # ──────────────────────────────────────────────
+  rust-build:
+    name: Rust Build (${{ matrix.target }})
+    needs: [rust-check]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cargo-release-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-release-${{ runner.os }}-${{ matrix.target }}-
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stratuscode-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/stratuscode
+          retention-days: 30
+
+  # ──────────────────────────────────────────────
+  # Security Audit
+  # ──────────────────────────────────────────────
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: JS dependency audit
+        run: bun install && bun audit || true
+        continue-on-error: true
+
+      - name: Rust dependency audit
+        run: |
+          cargo install cargo-audit 2>/dev/null || true
+          cargo audit || true
+        continue-on-error: true
+
+  # ──────────────────────────────────────────────
+  # CI Status Gate
+  # ──────────────────────────────────────────────
+  ci-ok:
+    name: CI Complete
+    if: always()
+    needs: [ts-typecheck, ts-test, rust-check, rust-test, rust-build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all jobs
+        run: |
+          FAILED=0
+          for result in \
+            "${{ needs.ts-typecheck.result }}" \
+            "${{ needs.ts-test.result }}" \
+            "${{ needs.rust-check.result }}" \
+            "${{ needs.rust-test.result }}" \
+            "${{ needs.rust-build.result }}"; do
+            if [[ "$result" == "failure" ]]; then
+              FAILED=1
+            fi
+          done
+          if [[ "$FAILED" == "1" ]]; then
+            echo "::error::One or more required jobs failed"
+            exit 1
+          fi
+          echo "All required CI checks passed"

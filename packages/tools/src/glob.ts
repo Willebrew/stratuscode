@@ -154,7 +154,7 @@ Tips:
 /**
  * Simple glob pattern matching
  */
-function matchGlob(filepath: string, pattern: string): boolean {
+export function matchGlob(filepath: string, pattern: string): boolean {
   // Convert glob to regex
   let regex = pattern
     .replace(/\./g, '\\.')

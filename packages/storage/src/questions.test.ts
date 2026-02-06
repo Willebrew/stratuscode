@@ -4,7 +4,7 @@
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { initDatabase, closeDatabase } from './database';
-import { createPendingQuestion, getPendingQuestions, answerQuestion, skipQuestion } from './questions';
+import { createPendingQuestion, getPendingQuestions, answerQuestion, skipQuestion, getPendingQuestion, getFirstPendingQuestion } from './questions';
 
 describe('Questions Storage', () => {
   const testSessionId = 'test-session-questions';
@@ -64,5 +64,39 @@ describe('Questions Storage', () => {
 
     expect(skipped).toBeDefined();
     expect(skipped?.status).toBe('skipped');
+  });
+
+  test('getPendingQuestion returns a question by ID', () => {
+    const created = createPendingQuestion('test-gpq', [
+      { id: 'q-gpq', question: 'Test?', options: [{ label: 'Yes' }] },
+    ]);
+    const result = getPendingQuestion(created.id);
+    expect(result).toBeDefined();
+    expect(result!.id).toBe(created.id);
+    expect(result!.status).toBe('pending');
+  });
+
+  test('getPendingQuestion returns undefined for non-existent ID', () => {
+    const result = getPendingQuestion('question_nonexistent');
+    expect(result).toBeUndefined();
+  });
+
+  test('getFirstPendingQuestion returns first pending question for session', () => {
+    const sid = `first-pending-${Date.now()}`;
+    const q1 = createPendingQuestion(sid, [
+      { id: 'fp1', question: 'First?', options: [{ label: 'A' }] },
+    ]);
+    createPendingQuestion(sid, [
+      { id: 'fp2', question: 'Second?', options: [{ label: 'B' }] },
+    ]);
+
+    const first = getFirstPendingQuestion(sid);
+    expect(first).toBeDefined();
+    expect(first!.id).toBe(q1.id);
+  });
+
+  test('getFirstPendingQuestion returns undefined when no pending questions', () => {
+    const result = getFirstPendingQuestion('session-no-questions');
+    expect(result).toBeUndefined();
   });
 });

@@ -265,9 +265,11 @@ pub fn build_timeline_lines(state: &crate::backend::ChatState, compact: bool, wi
                 }
             }
             "status" => {
+                let is_error = event.content.to_lowercase().contains("error");
+                let color = if is_error { COLOR_ERROR } else { COLOR_WARNING };
                 lines.push(Line::from(vec![Span::styled(
                     format!("! {}", event.content),
-                    Style::default().fg(COLOR_WARNING),
+                    Style::default().fg(color),
                 )]));
             }
             _ => {
@@ -902,36 +904,104 @@ fn truncate_text(text: &str, max_len: usize) -> String {
 }
 
 fn compute_display_input_with_cursor(value: &str, cursor: usize) -> (String, usize) {
-    let mut display = String::new();
-    let mut i = 0usize;
-    let chars: Vec<char> = value.chars().collect();
     let cursor = clamp_cursor(value, cursor);
-    let cursor_char_index = value[..cursor].chars().count();
-    let mut display_index = 0usize;
+    let mut display = String::new();
     let mut cursor_display_index = 0usize;
+    let mut cursor_set = false;
+    let mut i = 0usize;
 
-    while i < chars.len() {
-        let ch = chars[i];
+    while i < value.len() {
+        if !cursor_set && i >= cursor {
+            cursor_display_index = display.chars().count();
+            cursor_set = true;
+        }
+
+        let Some(ch) = value[i..].chars().next() else {
+            break;
+        };
+
         if ch == PASTE_START {
-            display.push_str("[paste]");
-            display_index += 7;
-        } else if ch == PASTE_END {
-            // skip marker
-        } else if ch == IMAGE_MARKER {
-            display.push_str("[image]");
-            display_index += 7;
-        } else {
-            display.push(ch);
-            display_index += 1;
+            let start_next = i + PASTE_START.len_utf8();
+            if let Some(rel_end) = value[start_next..].find(PASTE_END) {
+                let end_idx = start_next + rel_end;
+                let after_end = end_idx + PASTE_END.len_utf8();
+                let paste_text = &value[start_next..end_idx];
+                let line_count = paste_text.lines().count().max(1);
+                let is_large = line_count >= PASTE_LINE_THRESHOLD || paste_text.len() >= PASTE_CHAR_THRESHOLD;
+                let mut summary = if is_large {
+                    format!("[Pasted ~{} lines]", line_count)
+                } else {
+                    paste_text.replace('\n', " ")
+                };
+
+                let next_char = if after_end < value.len() {
+                    value[after_end..].chars().next()
+                } else {
+                    None
+                };
+                let last_display = display.chars().last();
+                if is_large && last_display.is_some() && last_display != Some(' ') {
+                    summary = format!(" {}", summary);
+                }
+                display.push_str(&summary);
+                if is_large
+                    && next_char.is_some()
+                    && next_char != Some(' ')
+                    && next_char != Some(PASTE_START)
+                    && next_char != Some(IMAGE_MARKER)
+                {
+                    display.push(' ');
+                }
+
+                if !cursor_set && cursor > i && cursor <= after_end {
+                    cursor_display_index = display.chars().count();
+                    cursor_set = true;
+                }
+
+                i = after_end;
+                continue;
+            }
+            i += ch.len_utf8();
+            continue;
         }
-        if i + 1 == cursor_char_index {
-            cursor_display_index = display_index;
+
+        if ch == PASTE_END {
+            i += PASTE_END.len_utf8();
+            continue;
         }
-        i += 1;
+
+        if ch == IMAGE_MARKER {
+            let mut image_marker = String::new();
+            let next_char = if i + IMAGE_MARKER.len_utf8() < value.len() {
+                value[i + IMAGE_MARKER.len_utf8()..].chars().next()
+            } else {
+                None
+            };
+            if display.chars().last().is_some() && display.chars().last() != Some(' ') {
+                image_marker.push(' ');
+            }
+            image_marker.push_str("[Image]");
+            if next_char.is_some()
+                && next_char != Some(' ')
+                && next_char != Some(PASTE_START)
+                && next_char != Some(IMAGE_MARKER)
+                && next_char != Some(PASTE_END)
+            {
+                image_marker.push(' ');
+            }
+            display.push_str(&image_marker);
+            i += IMAGE_MARKER.len_utf8();
+            continue;
+        }
+
+        display.push(ch);
+        i += ch.len_utf8();
     }
-    if cursor_char_index == chars.len() {
-        cursor_display_index = display_index;
+
+    if !cursor_set {
+        cursor_display_index = display.chars().count();
     }
+
     (display, cursor_display_index)
 }
 

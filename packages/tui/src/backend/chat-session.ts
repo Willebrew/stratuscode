@@ -146,7 +146,7 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'big-pickle': 128_000,
 };
 
-function toSageConfig(
+export function toSageConfig(
   config: StratusCodeConfig,
   modelOverride?: string,
   providerOverride?: string,
@@ -271,7 +271,7 @@ function BUILD_SWITCH_REMINDER(planFilePath: string): string {
   return `<system-reminder>\nYour operational mode has changed from plan to build.\nYou are no longer in read-only mode.\nYou are permitted to make file changes, run shell commands, and utilize your full arsenal of tools.\n\nA plan file exists at: ${planFilePath}\nYou should execute on the plan defined within it and in the todo list.\nRead the plan file first, then work through each task, updating status as you go.\n</system-reminder>`;
 }
 
-function expandMentions(content: string, projectDir: string): string {
+export function expandMentions(content: string, projectDir: string): string {
   const mentionRegex = /@([\w./-]+\.\w+)/g;
   const mentions: string[] = [];
   let match: RegExpExecArray | null;

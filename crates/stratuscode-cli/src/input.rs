@@ -10,25 +10,115 @@ use crate::app::{
 };
 use crate::backend::BackendClient;
 use crate::commands::{commands_list, execute_command, filter_commands, filter_models, parse_command, sort_models_by_provider};
-use crate::constants::{IMAGE_MARKER, PASTE_CHAR_THRESHOLD, PASTE_LINE_THRESHOLD, PASTE_END, PASTE_START};
+use crate::constants::{IMAGE_MARKER, PASTE_END, PASTE_START};
+
+pub fn clamp_cursor(value: &str, cursor: usize) -> usize {
+    let mut idx = cursor.min(value.len());
+    while idx > 0 && !value.is_char_boundary(idx) {
+        idx -= 1;
+    }
+    idx
+}
+
+fn prev_char_start(value: &str, cursor: usize) -> Option<usize> {
+    let cursor = clamp_cursor(value, cursor);
+    if cursor == 0 {
+        return None;
+    }
+    value[..cursor].char_indices().last().map(|(i, _)| i)
+}
+
+fn char_at(value: &str, cursor: usize) -> Option<char> {
+    let cursor = clamp_cursor(value, cursor);
+    if cursor >= value.len() {
+        return None;
+    }
+    value[cursor..].chars().next()
+}
+
+fn cursor_left(value: &str, cursor: usize) -> usize {
+    let cursor = clamp_cursor(value, cursor);
+    let Some(prev) = prev_char_start(value, cursor) else {
+        return 0;
+    };
+    if value[prev..].chars().next() == Some(PASTE_END) {
+        if let Some(start) = value[..prev].rfind(PASTE_START) {
+            return start;
+        }
+    }
+    prev
+}
+
+fn cursor_right(value: &str, cursor: usize) -> usize {
+    let cursor = clamp_cursor(value, cursor);
+    let Some(ch) = char_at(value, cursor) else {
+        return value.len();
+    };
+    if ch == PASTE_START {
+        let start_next = cursor + ch.len_utf8();
+        if let Some(rel_end) = value[start_next..].find(PASTE_END) {
+            return start_next + rel_end + PASTE_END.len_utf8();
+        }
+    }
+    if ch == IMAGE_MARKER {
+        return cursor + IMAGE_MARKER.len_utf8();
+    }
+    cursor + ch.len_utf8()
+}
+
+fn handle_backspace(value: &str, cursor: usize) -> Option<(String, usize)> {
+    let cursor = clamp_cursor(value, cursor);
+    let prev = prev_char_start(value, cursor)?;
+    let prev_ch = value[prev..].chars().next()?;
+
+    if prev_ch == PASTE_END {
+        if let Some(start) = value[..prev].rfind(PASTE_START) {
+            let new_value = format!("{}{}", &value[..start], &value[cursor..]);
+            return Some((new_value, start));
+        }
+    }
+
+    if prev_ch == IMAGE_MARKER {
+        let new_value = format!("{}{}", &value[..prev], &value[cursor..]);
+        return Some((new_value, prev));
+    }
+
+    let new_value = format!("{}{}", &value[..prev], &value[cursor..]);
+    Some((new_value, prev))
+}
 
 pub fn handle_paste(app: &mut App, text: String) {
     if matches!(app.mode, UiMode::Normal) {
-        let line_count = text.lines().count();
-        let is_large = line_count >= PASTE_LINE_THRESHOLD || text.len() >= PASTE_CHAR_THRESHOLD;
-        if is_large {
-            let insertion = format!("{}{}{}", PASTE_START, text, PASTE_END);
-            app.input.insert_str(app.cursor, &insertion);
-            app.cursor += insertion.len();
+        if text.is_empty() {
+            return;
+        }
+        let cursor = clamp_cursor(&app.input, app.cursor);
+        let insertion = format!("{}{}{}", PASTE_START, text, PASTE_END);
+        let prev = prev_char_start(&app.input, cursor).and_then(|i| app.input[i..].chars().next());
+        let next = char_at(&app.input, cursor);
+
+        if prev == Some(PASTE_END) {
+            let before_end = cursor.saturating_sub(PASTE_END.len_utf8());
+            app.input.insert_str(before_end, &text);
+            app.cursor = before_end + text.len() + PASTE_END.len_utf8();
+        } else if next == Some(PASTE_START) {
+            let start_len = PASTE_START.len_utf8();
+            let insert_at = cursor + start_len;
+            app.input.insert_str(insert_at, &text);
+            app.cursor = insert_at + text.len();
         } else {
-            app.input.insert_str(app.cursor, &text);
-            app.cursor += text.len();
+            app.input.insert_str(cursor, &insertion);
+            app.cursor = cursor + insertion.len();
         }
         app.mark_dirty();
     }
 }
 
 pub fn handle_key(app: &mut App, key: KeyEvent, client: &Arc<Mutex<BackendClient>>) {
+    // Ensure cursor is always on a valid char boundary before any operation.
+    // This guards against corruption from paste events or other edge cases.
+    app.cursor = clamp_cursor(&app.input, app.cursor);
+
     if matches!(key.code, KeyCode::Esc) {
         if app.state.is_loading {
             let client = client.clone();
@@ -209,37 +299,30 @@ pub fn handle_key(app: &mut App, key: KeyEvent, client: &Arc<Mutex<BackendClient
             }
         }
         KeyCode::Backspace => {
-            if app.cursor > 0 {
-                let before = &app.input[..app.cursor];
-                if let Some(ch) = before.chars().last() {
-                    let byte_len = ch.len_utf8();
-                    app.input.remove(app.cursor - byte_len);
-                    app.cursor -= byte_len;
-                    if ch == IMAGE_MARKER {
-                        let idx = app.input[..app.cursor]
-                            .chars()
-                            .filter(|&c| c == IMAGE_MARKER)
-                            .count();
-                        if idx < app.attachments.len() {
-                            app.attachments.remove(idx);
+            if let Some((new_value, new_cursor)) = handle_backspace(&app.input, app.cursor) {
+                let removed_images = app.input.chars().filter(|&c| c == IMAGE_MARKER).count()
+                    .saturating_sub(new_value.chars().filter(|&c| c == IMAGE_MARKER).count());
+                app.input = new_value;
+                app.cursor = new_cursor;
+                if removed_images > 0 && !app.attachments.is_empty() {
+                    for _ in 0..removed_images {
+                        if !app.attachments.is_empty() {
+                            app.attachments.pop();
                         }
                     }
-                    app.mark_dirty();
                 }
+                app.mark_dirty();
             }
         }
         KeyCode::Left => {
             if app.cursor > 0 {
-                let before = &app.input[..app.cursor];
-                let prev_char = before.chars().last().unwrap();
-                app.cursor -= prev_char.len_utf8();
+                app.cursor = cursor_left(&app.input, app.cursor);
                 app.mark_dirty();
             }
         }
         KeyCode::Right => {
             if app.cursor < app.input.len() {
-                let next_char = app.input[app.cursor..].chars().next().unwrap();
-                app.cursor += next_char.len_utf8();
+                app.cursor = cursor_right(&app.input, app.cursor);
                 app.mark_dirty();
             }
         }
@@ -286,6 +369,8 @@ pub fn handle_key(app: &mut App, key: KeyEvent, client: &Arc<Mutex<BackendClient
 }
 
 pub fn handle_overlay_keys(app: &mut App, key: KeyEvent, client: &Arc<Mutex<BackendClient>>) -> bool {
+    app.cursor = clamp_cursor(&app.input, app.cursor);
+
     match app.mode {
         UiMode::CommandPalette => {
             let commands = filter_commands(&commands_list(), &app.command_query);

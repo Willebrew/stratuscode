@@ -139,7 +139,7 @@ export namespace Todo {
 // Markdown Formatting
 // ============================================
 
-function formatTodosAsMarkdown(todos: TodoInfo[]): string {
+export function formatTodosAsMarkdown(todos: TodoInfo[]): string {
   const lines: string[] = [
     '# Plan',
     '',
