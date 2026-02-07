@@ -97,21 +97,25 @@ export function ChatInput({
           </div>
           <div className="flex items-center justify-between mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-white/10">
             <div className="flex items-center gap-2 relative" ref={menuRef}>
-              {/* Options button - expands when alpha mode is on */}
-              <motion.div
-                layout
-                transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
+              {/* Options button - expands into pill when alpha mode is on */}
+              <div
                 className={clsx(
-                  'relative h-8 rounded-full flex items-center transition-colors',
-                  alphaMode && !menuOpen ? 'bg-white/10' : ''
+                  'h-8 rounded-full flex items-center transition-all duration-150',
+                  alphaMode && !menuOpen
+                    ? 'bg-white/10 border border-dashed border-amber-500/50 pl-1 pr-1 gap-0.5'
+                    : ''
                 )}
               >
                 <button
                   type="button"
                   onClick={() => setMenuOpen(!menuOpen)}
                   className={clsx(
-                    'h-8 rounded-full flex items-center justify-center transition-colors',
-                    menuOpen ? 'bg-white/20 w-8' : alphaMode ? 'w-8 hover:bg-white/10' : 'w-8 bg-white/10 hover:bg-white/20'
+                    'rounded-full flex items-center justify-center transition-colors',
+                    menuOpen
+                      ? 'w-8 h-8 bg-white/20'
+                      : alphaMode
+                        ? 'w-6 h-6 hover:bg-white/10'
+                        : 'w-8 h-8 bg-white/10 hover:bg-white/20'
                   )}
                 >
                   {menuOpen ? (
@@ -120,33 +124,21 @@ export function ChatInput({
                     <Plus className="w-4 h-4 text-white/60" />
                   )}
                 </button>
-                <AnimatePresence>
-                  {alphaMode && !menuOpen && (
-                    <>
-                      <motion.span
-                        initial={{ opacity: 0, width: 0 }}
-                        animate={{ opacity: 1, width: 'auto' }}
-                        exit={{ opacity: 0, width: 0 }}
-                        transition={{ duration: 0.15 }}
-                        className="text-[11px] font-medium text-white/50 overflow-hidden whitespace-nowrap"
-                      >
-                        Alpha
-                      </motion.span>
-                      <motion.button
-                        type="button"
-                        initial={{ opacity: 0, width: 0 }}
-                        animate={{ opacity: 1, width: 'auto' }}
-                        exit={{ opacity: 0, width: 0 }}
-                        transition={{ duration: 0.15 }}
-                        onClick={() => onAlphaModeChange(false)}
-                        className="h-8 w-8 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors"
-                      >
-                        <X className="w-3.5 h-3.5 text-white/40" />
-                      </motion.button>
-                    </>
-                  )}
-                </AnimatePresence>
-              </motion.div>
+                {alphaMode && !menuOpen && (
+                  <>
+                    <span className="text-[11px] font-medium text-amber-400/80 px-1">
+                      Alpha
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onAlphaModeChange(false)}
+                      className="h-6 w-6 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors"
+                    >
+                      <X className="w-3 h-3 text-white/40" />
+                    </button>
+                  </>
+                )}
+              </div>
 
               {/* Dropdown menu */}
               <AnimatePresence>
