@@ -98,55 +98,6 @@ export function ChatInput({
           <div className="flex items-center justify-between mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-white/10">
             <div className="flex items-center gap-2 relative" ref={menuRef}>
               {/* Options button - expands when alpha mode is on */}
-<<<<<<< /Users/willkillebrew/Desktop/stratuscode/packages/cloud/components/chat-input.tsx
-              <motion.button
-                type="button"
-                onClick={() => setMenuOpen(!menuOpen)}
-                layout
-                transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
-                className={clsx(
-                  'relative h-8 rounded-full flex items-center justify-center transition-colors',
-                  menuOpen ? 'bg-white/20' : 'bg-white/10 hover:bg-white/20',
-                  alphaMode && !menuOpen ? 'px-1.5 gap-1.5' : 'w-8'
-                )}
-              >
-                {menuOpen ? (
-                  <X className="w-4 h-4 text-white/60" />
-                ) : (
-                  <Plus className="w-4 h-4 text-white/60" />
-                )}
-                <AnimatePresence>
-                  {alphaMode && !menuOpen && (
-                    <motion.span
-                      initial={{ opacity: 0, width: 0 }}
-                      animate={{ opacity: 1, width: 'auto' }}
-                      exit={{ opacity: 0, width: 0 }}
-                      transition={{ duration: 0.15 }}
-                      className="text-[10px] font-medium text-white/60 pr-1.5 overflow-hidden whitespace-nowrap"
-                    >
-                      Auto
-                    </motion.span>
-                  )}
-                </AnimatePresence>
-              </motion.button>
-
-              {/* Alpha mode dismiss button - appears next to expanded button */}
-              <AnimatePresence>
-                {alphaMode && !menuOpen && (
-                  <motion.button
-                    type="button"
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.8 }}
-                    transition={{ duration: 0.1 }}
-                    onClick={() => onAlphaModeChange(false)}
-                    className="w-6 h-6 rounded-full bg-white/10 hover:bg-white/15 flex items-center justify-center transition-colors"
-                  >
-                    <X className="w-3 h-3 text-white/40" />
-                  </motion.button>
-                )}
-              </AnimatePresence>
-=======
               <motion.div
                 layout
                 transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
@@ -196,7 +147,6 @@ export function ChatInput({
                   )}
                 </AnimatePresence>
               </motion.div>
->>>>>>> /Users/willkillebrew/.windsurf/worktrees/stratuscode/stratuscode-fe218c76/packages/cloud/components/chat-input.tsx
 
               {/* Dropdown menu */}
               <AnimatePresence>
