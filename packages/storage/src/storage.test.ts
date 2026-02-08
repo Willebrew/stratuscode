@@ -65,10 +65,10 @@ describe('Session CRUD', () => {
 
   test('updates session fields', () => {
     const session = createSession('/project', 'Before');
-    updateSession(session.id, { title: 'After', status: 'active' });
+    updateSession(session.id, { title: 'After', status: 'running' });
     const updated = getSession(session.id);
     expect(updated!.title).toBe('After');
-    expect(updated!.status).toBe('active');
+    expect(updated!.status).toBe('running');
   });
 
   test('lists sessions for a project', () => {
@@ -291,7 +291,7 @@ describe('Message Parts', () => {
 describe('Timeline Events', () => {
   test('creates and lists timeline events', () => {
     const session = createSession('/project', 'Timeline');
-    createTimelineEvent(session.id, 'text', 'User said hello');
+    createTimelineEvent(session.id, 'user', 'User said hello');
     createTimelineEvent(session.id, 'tool_call', 'Running bash', {
       toolCallId: 'call_1',
       toolName: 'bash',
@@ -300,7 +300,7 @@ describe('Timeline Events', () => {
 
     const events = listTimelineEvents(session.id);
     expect(events.length).toBeGreaterThanOrEqual(2);
-    expect(events[0]!.kind).toBe('text');
+    expect(events[0]!.kind).toBe('user');
     expect(events[0]!.content).toBe('User said hello');
   });
 

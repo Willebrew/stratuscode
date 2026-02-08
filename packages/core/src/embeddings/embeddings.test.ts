@@ -8,9 +8,10 @@ import { describe, test, expect, beforeAll } from 'bun:test';
 import { OllamaEmbeddings, cosineSimilarity } from './ollama';
 import { QdrantClient } from './qdrant';
 
-describe('Ollama Embeddings', () => {
-  const ollama = new OllamaEmbeddings();
+const ollama = new OllamaEmbeddings();
+const ollamaAvailable = await ollama.isAvailable();
 
+describe.if(ollamaAvailable)('Ollama Embeddings', () => {
   test('isAvailable returns true when Ollama is running', async () => {
     const available = await ollama.isAvailable();
     expect(available).toBe(true);
@@ -46,9 +47,10 @@ describe('Ollama Embeddings', () => {
   });
 });
 
-describe('Qdrant Client', () => {
-  const qdrant = new QdrantClient({ collectionName: 'test_stratuscode' });
+const qdrant = new QdrantClient({ collectionName: 'test_stratuscode' });
+const qdrantAvailable = await qdrant.isAvailable();
 
+describe.if(qdrantAvailable)('Qdrant Client', () => {
   test('isAvailable returns true when Qdrant is running', async () => {
     const available = await qdrant.isAvailable();
     expect(available).toBe(true);
