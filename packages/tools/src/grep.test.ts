@@ -72,4 +72,13 @@ describe('grep tool', () => {
       }
     }
   });
+
+  test('throws for invalid regex pattern (non-path error)', async () => {
+    expect(
+      grepTool.execute(
+        { query: '[invalid(regex', search_path: __dirname },
+        ctx as any
+      )
+    ).rejects.toThrow('grep failed');
+  });
 });

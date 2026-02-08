@@ -66,10 +66,6 @@ async function isGitRepo(projectDir: string): Promise<boolean> {
   return result.exitCode === 0 && result.stdout === 'true';
 }
 
-async function getGitRoot(projectDir: string): Promise<string | null> {
-  const result = await execGit(['rev-parse', '--show-toplevel'], projectDir);
-  return result.exitCode === 0 ? result.stdout : null;
-}
 
 // ============================================
 // Snapshot Functions
