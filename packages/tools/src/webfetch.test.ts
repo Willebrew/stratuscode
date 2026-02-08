@@ -125,3 +125,48 @@ describe('webfetch tool', () => {
     globalThis.fetch = originalFetch;
   });
 });
+
+describe('webfetch tool: edge cases', () => {
+  test('handles invalid JSON with application/json content type', async () => {
+    globalThis.fetch = mock(() =>
+      Promise.resolve({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: () => Promise.resolve('this is not json {{{'),
+      } as Response)
+    ) as unknown as typeof fetch;
+
+    const result = await webfetchTool.execute({ url: 'https://api.example.com/data' }, ctx as any);
+    const parsed = JSON.parse(result as string);
+    expect(parsed.success).toBe(true);
+    // Falls back to raw text when JSON parse fails
+    expect(parsed.content).toBe('this is not json {{{');
+
+    globalThis.fetch = originalFetch;
+  });
+
+  test('decodes numeric HTML entities', async () => {
+    globalThis.fetch = mock(() =>
+      Promise.resolve({
+        ok: true,
+        headers: new Headers({ 'content-type': 'text/html' }),
+        text: () =>
+          Promise.resolve('<html><body><p>A &#38; B &#60; C &#x3e; D</p></body></html>'),
+      } as Response)
+    ) as unknown as typeof fetch;
+
+    const result = await webfetchTool.execute({ url: 'https://example.com' }, ctx as any);
+    const parsed = JSON.parse(result as string);
+    expect(parsed.success).toBe(true);
+    // &#38; = &, &#60; = <, &#x3e; = >
+    expect(parsed.content).toContain('A & B < C > D');
+
+    globalThis.fetch = originalFetch;
+  });
+
+  test('handles file not found', async () => {
+    expect(
+      webfetchTool.execute({ url: 'https://example.com/missing' }, ctx as any)
+    ).rejects.toThrow();
+  });
+});
