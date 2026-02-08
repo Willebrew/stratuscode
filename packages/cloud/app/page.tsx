@@ -76,7 +76,7 @@ export default function LandingPage() {
 
             {/* Subtext */}
             <p className="text-muted-foreground text-lg md:text-xl max-w-lg mx-auto mb-12 leading-relaxed animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
-              AI agents that plan, execute, and ship features
+              An agent that plans, executes, and ships features
               — from idea to pull request — in one prompt.
             </p>
 
@@ -90,7 +90,7 @@ export default function LandingPage() {
                 <ArrowRight className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-0.5" />
               </Link>
               <Link
-                href="https://github.com/stratuscode/stratuscode"
+                href="https://github.com/Willebrew/stratuscode"
                 className="group inline-flex items-center gap-2 px-6 py-3.5 rounded-full border border-border/60 text-sm font-medium text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-secondary/40 transition-all duration-200"
               >
                 View on GitHub
@@ -332,7 +332,7 @@ export default function LandingPage() {
             <Link href="#" className="hover:text-foreground transition-colors duration-200">Privacy</Link>
             <Link href="#" className="hover:text-foreground transition-colors duration-200">Terms</Link>
             <Link href="https://github.com/stratuscode/stratuscode" className="hover:text-foreground transition-colors duration-200">GitHub</Link>
-            <span className="opacity-40">© 2024 SAGE</span>
+            <span className="opacity-40">© 2026 Killebrew Technologies LLC. All rights reserved.</span>
           </div>
         </div>
       </footer>
