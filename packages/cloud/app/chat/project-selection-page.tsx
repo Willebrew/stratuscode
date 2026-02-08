@@ -2,7 +2,6 @@
 
 import { useRouter } from 'next/navigation';
 import { ArrowRight, Plus, Github } from 'lucide-react';
-import { motion } from 'framer-motion';
 
 export default function ProjectSelectionPage() {
   const router = useRouter();
@@ -28,12 +27,10 @@ export default function ProjectSelectionPage() {
 
       <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
         {/* Existing Repo Card */}
-        <motion.button
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+        <button
           onClick={handleSelectExisting}
-          className="group relative flex flex-col items-start p-10 rounded-2xl border border-border/50 bg-background text-left transition-all duration-300 hover:border-border hover:shadow-lg hover:shadow-black/[0.03] hover:-translate-y-0.5"
+          className="group relative flex flex-col items-start p-10 rounded-2xl border border-border/50 bg-background text-left transition-all duration-300 hover:border-border hover:shadow-lg hover:shadow-black/[0.03] hover:-translate-y-0.5 opacity-0 animate-fade-in-up"
+          style={{ animationDelay: '0.1s' }}
         >
           <div className="w-12 h-12 rounded-xl bg-secondary flex items-center justify-center mb-8 group-hover:scale-105 transition-transform duration-300">
             <Github className="w-6 h-6 text-foreground" />
@@ -47,15 +44,13 @@ export default function ProjectSelectionPage() {
           <div className="mt-auto flex items-center gap-2 text-sm font-medium text-muted-foreground group-hover:text-foreground transition-colors duration-200">
             Choose repository <ArrowRight className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-0.5" />
           </div>
-        </motion.button>
+        </button>
 
         {/* New Project Card */}
-        <motion.button
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+        <button
           onClick={handleCreateNew}
-          className="group relative flex flex-col items-start p-10 rounded-2xl border border-border/50 bg-background text-left transition-all duration-300 hover:border-border hover:shadow-lg hover:shadow-black/[0.03] hover:-translate-y-0.5"
+          className="group relative flex flex-col items-start p-10 rounded-2xl border border-border/50 bg-background text-left transition-all duration-300 hover:border-border hover:shadow-lg hover:shadow-black/[0.03] hover:-translate-y-0.5 opacity-0 animate-fade-in-up"
+          style={{ animationDelay: '0.2s' }}
         >
           <div className="w-12 h-12 rounded-xl bg-foreground flex items-center justify-center mb-8 group-hover:scale-105 transition-transform duration-300">
             <Plus className="w-6 h-6 text-background" />
@@ -69,7 +64,7 @@ export default function ProjectSelectionPage() {
           <div className="mt-auto flex items-center gap-2 text-sm font-medium text-muted-foreground group-hover:text-foreground transition-colors duration-200">
             Start building <ArrowRight className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-0.5" />
           </div>
-        </motion.button>
+        </button>
       </div>
     </div>
   );

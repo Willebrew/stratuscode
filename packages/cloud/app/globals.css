@@ -396,13 +396,7 @@ code {
   }
 }
 
-/* Fade-in animation for scroll reveals */
-.fade-in-up {
+/* Elements using animate-fade-in-up need to start invisible before the animation fires */
+.animate-fade-in-up {
   opacity: 0;
-  transform: translateY(20px);
-  transition: opacity 0.6s ease, transform 0.6s ease;
-}
-.fade-in-up.visible {
-  opacity: 1;
-  transform: translateY(0);
 }
