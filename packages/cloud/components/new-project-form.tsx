@@ -79,7 +79,7 @@ export function NewProjectForm() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g., my-awesome-app"
-                className="w-full px-5 py-3.5 rounded-2xl border border-border/50 bg-background transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-foreground/10 focus:border-foreground/20 placeholder:text-muted-foreground/50"
+                className="w-full px-5 py-3.5 rounded-2xl border border-border/50 bg-background transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-foreground/10 focus:border-foreground/20 placeholder:text-muted-foreground/50 text-base"
                 required
                 autoFocus
               />
@@ -99,7 +99,7 @@ export function NewProjectForm() {
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="What are you building?"
-                className="w-full px-5 py-3.5 rounded-2xl border border-border/50 bg-background transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-foreground/10 focus:border-foreground/20 placeholder:text-muted-foreground/50 min-h-[100px] resize-none"
+                className="w-full px-5 py-3.5 rounded-2xl border border-border/50 bg-background transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-foreground/10 focus:border-foreground/20 placeholder:text-muted-foreground/50 min-h-[100px] resize-none text-base"
               />
             </div>
           </div>

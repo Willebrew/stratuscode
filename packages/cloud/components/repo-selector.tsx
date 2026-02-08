@@ -90,7 +90,7 @@ export function RepoSelector({ onSelect }: RepoSelectorProps) {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search repositories..."
-          className="w-full pl-11 pr-4 py-3.5 rounded-2xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-foreground/10 focus:border-foreground/20 text-sm transition-all duration-200"
+          className="w-full pl-11 pr-4 py-3.5 rounded-2xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-foreground/10 focus:border-foreground/20 text-base transition-all duration-200"
         />
       </div>
 

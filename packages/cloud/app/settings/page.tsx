@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ChevronLeft, Zap, LogOut, Moon, Sun, Monitor, Link2, Loader2 } from 'lucide-react';
+import { ChevronLeft, LogOut, Moon, Sun, Monitor, Link2, Loader2 } from 'lucide-react';
+import { StratusLogo } from '@/components/stratus-logo';
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -23,7 +24,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col relative noise-texture">
+    <div className="min-h-dvh flex flex-col relative noise-texture">
       <div className="absolute inset-0 grid-pattern opacity-[0.3]" />
       <div className="absolute inset-0 hero-glow" />
 
@@ -41,7 +42,7 @@ export default function SettingsPage() {
         <div className="max-w-md w-full mx-6">
           <div className="flex items-center gap-3 mb-8">
             <div className="w-10 h-10 rounded-xl bg-foreground flex items-center justify-center shadow-sm">
-              <Zap className="w-5 h-5 text-background" />
+              <StratusLogo className="w-5 h-5 text-background" />
             </div>
             <h1 className="font-serif text-3xl font-normal">Settings</h1>
           </div>

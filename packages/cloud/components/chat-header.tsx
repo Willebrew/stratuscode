@@ -2,7 +2,8 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import { GitBranch, GitPullRequest, GitCommitHorizontal, Zap, ChevronLeft, ChevronDown, Settings } from 'lucide-react';
+import { GitBranch, GitPullRequest, GitCommitHorizontal, ChevronLeft, ChevronDown, Settings } from 'lucide-react';
+import { StratusLogo } from './stratus-logo';
 
 interface ChatHeaderProps {
   owner: string;
@@ -44,7 +45,7 @@ export function ChatHeader({
           >
             <ChevronLeft className="w-4 h-4" />
             <div className="w-7 h-7 rounded-lg bg-foreground flex items-center justify-center">
-              <Zap className="w-3.5 h-3.5 text-background" />
+              <StratusLogo className="w-3.5 h-3.5 text-background" />
             </div>
           </Link>
           <div className="h-4 w-px bg-border/50 hidden sm:block" />

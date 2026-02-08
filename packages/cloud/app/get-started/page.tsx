@@ -1,9 +1,10 @@
 import Link from 'next/link';
-import { Zap, ArrowLeft, Mail } from 'lucide-react';
+import { ArrowLeft, Mail } from 'lucide-react';
+import { StratusLogo } from '@/components/stratus-logo';
 
 export default function GetStartedPage() {
   return (
-    <div className="min-h-screen flex flex-col relative noise-texture">
+    <div className="min-h-dvh flex flex-col relative noise-texture">
       <div className="absolute inset-0 grid-pattern opacity-[0.3]" />
       <div className="absolute inset-0 hero-glow" />
       <div className="absolute top-20 -left-32 w-[400px] h-[400px] rounded-full bg-accent/[0.07] blur-[120px]" />
@@ -19,7 +20,7 @@ export default function GetStartedPage() {
       <div className="relative z-10 flex-1 flex items-center justify-center">
         <div className="max-w-md w-full mx-6 text-center animate-fade-in-up">
           <div className="w-14 h-14 rounded-2xl bg-foreground flex items-center justify-center mx-auto mb-8 shadow-lg shadow-foreground/10">
-            <Zap className="w-7 h-7 text-background" />
+            <StratusLogo className="w-7 h-7 text-background" />
           </div>
 
           <h1 className="font-serif text-4xl font-normal mb-3">Get Early Access</h1>

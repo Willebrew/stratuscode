@@ -2,7 +2,8 @@
 
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Zap, LogOut } from 'lucide-react';
+import { LogOut } from 'lucide-react';
+import { StratusLogo } from '@/components/stratus-logo';
 import ProjectSelectionPage from './project-selection-page';
 import { RepoSelector } from '@/components/repo-selector';
 import { NewProjectForm } from '@/components/new-project-form';
@@ -32,13 +33,13 @@ export function ChatPageRouter({ mode }: ChatPageRouterProps) {
   // Project selection screen (default)
   if (mode === 'select') {
     return (
-      <div className="min-h-screen flex flex-col relative">
+      <div className="min-h-dvh flex flex-col relative">
         <div className="absolute inset-0 grid-pattern opacity-30" />
         <nav className="relative z-10 border-b border-border/50 glass sticky top-0">
           <div className="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between">
             <Link href="/" className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-foreground flex items-center justify-center">
-                <Zap className="w-4 h-4 text-background" />
+                <StratusLogo className="w-4 h-4 text-background" />
               </div>
               <span className="font-semibold tracking-tight text-sm">StratusCode</span>
             </Link>
@@ -61,13 +62,13 @@ export function ChatPageRouter({ mode }: ChatPageRouterProps) {
   // Existing repo selector
   if (mode === 'select-repo') {
     return (
-      <div className="min-h-screen flex flex-col relative">
+      <div className="min-h-dvh flex flex-col relative">
         <div className="absolute inset-0 grid-pattern opacity-30" />
         <nav className="relative z-10 border-b border-border/50 glass sticky top-0">
           <div className="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between">
             <Link href="/" className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-foreground flex items-center justify-center">
-                <Zap className="w-4 h-4 text-background" />
+                <StratusLogo className="w-4 h-4 text-background" />
               </div>
               <span className="font-semibold tracking-tight text-sm">StratusCode</span>
             </Link>
@@ -90,13 +91,13 @@ export function ChatPageRouter({ mode }: ChatPageRouterProps) {
   // New project form
   if (mode === 'new-project') {
     return (
-      <div className="min-h-screen flex flex-col relative">
+      <div className="min-h-dvh flex flex-col relative">
         <div className="absolute inset-0 grid-pattern opacity-30" />
         <nav className="relative z-10 border-b border-border/50 glass sticky top-0">
           <div className="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between">
             <Link href="/" className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-foreground flex items-center justify-center">
-                <Zap className="w-4 h-4 text-background" />
+                <StratusLogo className="w-4 h-4 text-background" />
               </div>
               <span className="font-semibold tracking-tight text-sm">StratusCode</span>
             </Link>
@@ -118,7 +119,7 @@ export function ChatPageRouter({ mode }: ChatPageRouterProps) {
 
   // Fallback to selection
   return (
-    <div className="min-h-screen flex items-center justify-center">
+    <div className="min-h-dvh flex items-center justify-center">
       <p className="text-muted-foreground">Unknown mode. Redirecting...</p>
     </div>
   );

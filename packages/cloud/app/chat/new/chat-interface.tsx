@@ -76,7 +76,7 @@ export function ChatInterface({ owner, repo, branch }: ChatInterfaceProps) {
   );
 
   return (
-    <div className="h-screen flex flex-col">
+    <div className="h-dvh flex flex-col">
       <ChatHeader
         owner={owner}
         repo={repo}

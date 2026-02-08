@@ -389,6 +389,13 @@ code {
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
 }
 
+/* Disable hover lift on touch devices (dark input area) */
+@media (hover: none) {
+  .dark-input-area:hover {
+    transform: none;
+  }
+}
+
 /* Fade-in animation for scroll reveals */
 .fade-in-up {
   opacity: 0;

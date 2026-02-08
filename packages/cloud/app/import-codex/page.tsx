@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Zap, Upload, CheckCircle, AlertCircle } from 'lucide-react';
+import { Upload, CheckCircle, AlertCircle } from 'lucide-react';
+import { StratusLogo } from '@/components/stratus-logo';
 
 export default function ImportCodexPage() {
   const router = useRouter();
@@ -70,12 +71,12 @@ export default function ImportCodexPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col grid-pattern">
+    <div className="min-h-dvh flex flex-col grid-pattern">
       {/* Nav */}
       <nav className="p-4 border-b border-border bg-background/90 backdrop-blur-sm">
         <Link href="/" className="inline-flex items-center gap-2">
           <div className="w-7 h-7 rounded-full bg-foreground flex items-center justify-center">
-            <Zap className="w-4 h-4 text-background" />
+            <StratusLogo className="w-4 h-4 text-background" />
           </div>
           <span className="font-medium">StratusCode</span>
         </Link>

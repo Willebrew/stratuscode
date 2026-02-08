@@ -1,16 +1,17 @@
 import Link from 'next/link';
-import { ArrowRight, Zap, FileCode, GitPullRequest, Terminal, Bot, Layers, Sparkles, Check, ArrowUpRight } from 'lucide-react';
+import { ArrowRight, FileCode, GitPullRequest, Terminal, Bot, Sparkles, Check, ArrowUpRight } from 'lucide-react';
+import { StratusLogo } from '@/components/stratus-logo';
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen flex flex-col bg-background relative noise-texture">
+    <div className="min-h-dvh flex flex-col bg-background relative noise-texture">
       {/* Navigation — floating pill */}
       <nav className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-4xl">
         <div className="nav-premium rounded-2xl px-4 py-2.5 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Link href="/" className="flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-foreground/[0.04] transition-colors duration-200">
               <div className="w-7 h-7 rounded-lg bg-foreground flex items-center justify-center shadow-sm">
-                <Zap className="w-3.5 h-3.5 text-background" />
+                <StratusLogo className="w-3.5 h-3.5 text-background" />
               </div>
               <span className="font-semibold tracking-tight text-[13px]">StratusCode</span>
             </Link>
@@ -323,7 +324,7 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto px-6 py-10 flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 rounded-lg bg-foreground text-background flex items-center justify-center">
-              <Zap className="w-3.5 h-3.5" />
+              <StratusLogo className="w-3.5 h-3.5" />
             </div>
             <span className="font-medium text-sm">StratusCode</span>
           </div>

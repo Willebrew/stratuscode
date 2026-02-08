@@ -154,7 +154,7 @@ export function ChatInput({
               disabled={isLoading}
               rows={1}
               className={clsx(
-                'flex-1 bg-transparent border-0 resize-none focus:outline-none focus:ring-0 text-sm sm:text-base disabled:opacity-50 max-h-[200px] leading-relaxed',
+                'flex-1 bg-transparent border-0 resize-none focus:outline-none focus:ring-0 text-base disabled:opacity-50 max-h-[200px] leading-relaxed',
                 agentMode === 'plan' ? 'text-white/90 placeholder:text-blue-400/30' : 'text-white/90 placeholder:text-white/40'
               )}
             />

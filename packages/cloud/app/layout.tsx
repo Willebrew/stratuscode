@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { DM_Sans } from 'next/font/google';
 import { Providers } from '@/components/providers';
 import './globals.css';
@@ -8,6 +8,12 @@ const dmSans = DM_Sans({
   variable: '--font-sans',
   display: 'swap',
 });
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+};
 
 export const metadata: Metadata = {
   title: 'StratusCode Cloud',
@@ -33,7 +39,7 @@ export default function RootLayout({
           crossOrigin="anonymous"
         />
       </head>
-      <body className="min-h-screen bg-background text-foreground antialiased font-sans">
+      <body className="min-h-dvh bg-background text-foreground antialiased font-sans">
         <Providers>{children}</Providers>
       </body>
     </html>
