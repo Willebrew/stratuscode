@@ -9,7 +9,14 @@
  * - Custom OpenAI-compatible endpoints
  */
 
-import { getCodexTokens } from './codex-auth';
+async function getCodexTokensSafe(): Promise<import('./codex-auth').CodexTokens | null> {
+  try {
+    const mod = await import('./codex-auth');
+    return await mod.getCodexTokens();
+  } catch {
+    return null;
+  }
+}
 
 export interface ProviderConfig {
   id: string;
@@ -111,16 +118,12 @@ export async function getAvailableProviders(): Promise<ProviderConfig[]> {
   // Check Codex OAuth tokens from cookie
   let codexOAuthKey: string | null = null;
   let codexOAuthHeaders: Record<string, string> | undefined;
-  try {
-    const tokens = await getCodexTokens();
-    if (tokens) {
-      codexOAuthKey = tokens.accessToken;
-      if (tokens.accountId) {
-        codexOAuthHeaders = { 'ChatGPT-Account-Id': tokens.accountId };
-      }
+  const tokens = await getCodexTokensSafe();
+  if (tokens) {
+    codexOAuthKey = tokens.accessToken;
+    if (tokens.accountId) {
+      codexOAuthHeaders = { 'ChatGPT-Account-Id': tokens.accountId };
     }
-  } catch {
-    // cookies() not available (e.g. during build) — ignore
   }
 
   // Add Codex if OAuth tokens are available
@@ -171,24 +174,20 @@ export async function getProvider(providerId: string): Promise<ProviderConfig | 
 
   // For openai-codex, check OAuth tokens first
   if (providerId === 'openai-codex') {
-    try {
-      const tokens = await getCodexTokens();
-      if (tokens) {
-        return {
-          id: providerId,
-          label: config.label,
-          apiKey: tokens.accessToken,
-          baseUrl: config.baseUrl,
-          type: config.type,
-          headers: {
-            ...config.headers,
-            ...(tokens.accountId ? { 'ChatGPT-Account-Id': tokens.accountId } : {}),
-          },
-          models: config.models,
-        };
-      }
-    } catch {
-      // cookies() not available — fall through to env var
+    const tokens = await getCodexTokensSafe();
+    if (tokens) {
+      return {
+        id: providerId,
+        label: config.label,
+        apiKey: tokens.accessToken,
+        baseUrl: config.baseUrl,
+        type: config.type,
+        headers: {
+          ...config.headers,
+          ...(tokens.accountId ? { 'ChatGPT-Account-Id': tokens.accountId } : {}),
+        },
+        models: config.models,
+      };
     }
   }
 
