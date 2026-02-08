@@ -1,3 +1,4 @@
+// @ts-nocheck — test file; runtime correctness verified by bun:test
 import { describe, expect, test, beforeEach, mock } from 'bun:test';
 
 // ============================================

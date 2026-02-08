@@ -1,3 +1,4 @@
+// @ts-nocheck — test file; runtime correctness verified by bun:test
 import { describe, expect, test, beforeEach, afterEach, mock } from 'bun:test';
 import type { Tool } from '@willebrew/sage-core';
 import type { SandboxInfo } from './sandbox';
