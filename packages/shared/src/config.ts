@@ -220,6 +220,21 @@ export const PROVIDER_MODELS: Record<string, { label: string; models: ProviderMo
       { id: 'big-pickle', name: 'Big Pickle', free: true },
     ],
   },
+  openrouter: {
+    label: 'OpenRouter',
+    models: [
+      { id: 'anthropic/claude-sonnet-4', name: 'Claude Sonnet 4', contextWindow: 200_000 },
+      { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', contextWindow: 200_000 },
+      { id: 'google/gemini-2.5-pro-preview', name: 'Gemini 2.5 Pro', contextWindow: 1_000_000 },
+      { id: 'google/gemini-2.5-flash-preview', name: 'Gemini 2.5 Flash', contextWindow: 1_000_000 },
+      { id: 'deepseek/deepseek-r1', name: 'DeepSeek R1', reasoning: true, reasoningEfforts: ['low', 'medium', 'high'], contextWindow: 128_000 },
+      { id: 'deepseek/deepseek-chat-v3', name: 'DeepSeek V3', contextWindow: 128_000 },
+      { id: 'openai/gpt-4o', name: 'GPT-4o', contextWindow: 128_000 },
+      { id: 'openai/o3-mini', name: 'o3-mini', reasoning: true, reasoningEfforts: ['low', 'medium', 'high'], contextWindow: 128_000 },
+      { id: 'meta-llama/llama-4-maverick', name: 'Llama 4 Maverick', contextWindow: 128_000 },
+      { id: 'moonshotai/kimi-k2', name: 'Kimi K2', contextWindow: 128_000 },
+    ],
+  },
   ollama: {
     label: 'Ollama (Local)',
     models: [], // Filled dynamically at runtime via discoverOllamaModels()
@@ -313,7 +328,9 @@ export function findModelEntry(modelId: string): ProviderModelEntry | undefined 
 export function modelSupportsReasoning(modelId: string): boolean {
   const entry = findModelEntry(modelId);
   if (entry) return !!entry.reasoning;
-  // Heuristic for unknown models: Codex models and o-series support reasoning
+  // Heuristic for unknown models: Codex models, o-series, and deepseek-r* support reasoning
   const id = modelId.toLowerCase();
-  return id.includes('codex') || id.startsWith('o1') || id.startsWith('o3') || id.startsWith('o4');
+  // Strip vendor prefix for OpenRouter-style IDs (e.g. "openai/o3-mini" → "o3-mini")
+  const bare = id.includes('/') ? id.split('/').pop()! : id;
+  return bare.includes('codex') || bare.startsWith('o1') || bare.startsWith('o3') || bare.startsWith('o4') || bare.startsWith('deepseek-r');
 }

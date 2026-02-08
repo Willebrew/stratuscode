@@ -75,7 +75,7 @@ export async function createSandbox(options: CreateSandboxOptions): Promise<Sand
     projectId: vercelProjectId,
     teamId: vercelTeamId,
     runtime: 'node22',
-    timeout: 300_000, // 5 minutes
+    timeout: 800_000, // ~13 minutes (matches Vercel Pro + Fluid Compute max)
   });
   console.log(`[sandbox] Created: id=${sandbox.sandboxId}, status=${sandbox.status}, timeout=${sandbox.timeout}ms`);
 

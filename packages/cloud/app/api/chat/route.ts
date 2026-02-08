@@ -9,6 +9,9 @@ import { findModelConfig, getDefaultProvider } from '@/lib/providers';
 import { resolveAnswer } from '@/lib/sandbox-tools';
 import { startSandboxKeepalive } from '@/lib/sandbox';
 
+// Allow the agent to run for up to ~13 minutes (Vercel Pro + Fluid Compute max)
+export const maxDuration = 800;
+
 const MAX_SESSIONS_PER_USER = 5;
 
 /**

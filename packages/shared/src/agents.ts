@@ -19,15 +19,17 @@ export type PromptVariant = 'openai' | 'gemini' | 'zen' | 'default';
  */
 export function getPromptVariant(modelId: string): PromptVariant {
   const id = modelId.toLowerCase();
+  // Strip vendor prefix for OpenRouter-style IDs (e.g. "openai/gpt-4o" → "gpt-4o")
+  const bare = id.includes('/') ? id.split('/').pop()! : id;
 
-  if (id.startsWith('gpt') || id.startsWith('o1') || id.startsWith('o3') || id.startsWith('o4')) return 'openai';
-  if (id.startsWith('gemini')) return 'gemini';
+  if (bare.startsWith('gpt') || bare.startsWith('o1') || bare.startsWith('o3') || bare.startsWith('o4')) return 'openai';
+  if (bare.startsWith('gemini')) return 'gemini';
   if (
-    id.startsWith('kimi') ||
-    id.startsWith('glm') ||
-    id.startsWith('qwen') ||
-    id.startsWith('minimax') ||
-    id.endsWith('-free')
+    bare.startsWith('kimi') ||
+    bare.startsWith('glm') ||
+    bare.startsWith('qwen') ||
+    bare.startsWith('minimax') ||
+    bare.endsWith('-free')
   ) {
     return 'zen';
   }

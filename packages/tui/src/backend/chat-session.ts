@@ -143,6 +143,17 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'trinity-large-preview-free': 128_000,
   'glm-4.7-free': 128_000,
   'big-pickle': 128_000,
+  // OpenRouter models
+  'anthropic/claude-sonnet-4': 200_000,
+  'anthropic/claude-3.5-sonnet': 200_000,
+  'google/gemini-2.5-pro-preview': 1_000_000,
+  'google/gemini-2.5-flash-preview': 1_000_000,
+  'deepseek/deepseek-r1': 128_000,
+  'deepseek/deepseek-chat-v3': 128_000,
+  'openai/gpt-4o': 128_000,
+  'openai/o3-mini': 128_000,
+  'meta-llama/llama-4-maverick': 128_000,
+  'moonshotai/kimi-k2': 128_000,
 };
 
 export function toSageConfig(
@@ -200,6 +211,14 @@ export function toSageConfig(
       'x-opencode-session': sessionId || `sc-${Date.now()}`,
       'x-opencode-request': `req-${Date.now()}`,
       'x-opencode-project': 'stratuscode',
+    };
+  }
+
+  if (effectiveProvider.baseUrl?.includes('openrouter.ai')) {
+    effectiveProvider.headers = {
+      ...effectiveProvider.headers,
+      'HTTP-Referer': 'https://stratuscode.dev/',
+      'X-Title': 'StratusCode',
     };
   }
 

@@ -193,4 +193,66 @@ describe('toSageConfig', () => {
     expect(result.context.errorMemory.enabled).toBe(true);
     expect(result.errorMemoryStore).toBeDefined();
   });
+
+  test('injects OpenRouter headers for openrouter.ai URLs', () => {
+    const config = {
+      ...createBaseConfig(),
+      provider: {
+        apiKey: 'sk-or-test',
+        baseUrl: 'https://openrouter.ai/api/v1',
+      },
+    };
+
+    const result = toSageConfig(config as any);
+
+    expect(result.provider.headers?.['HTTP-Referer']).toBe('https://stratuscode.dev/');
+    expect(result.provider.headers?.['X-Title']).toBe('StratusCode');
+  });
+
+  test('OpenRouter headers merge with existing provider headers', () => {
+    const config = {
+      ...createBaseConfig(),
+      providers: {
+        'my-openrouter': {
+          apiKey: 'sk-or-test',
+          baseUrl: 'https://openrouter.ai/api/v1',
+          headers: { 'X-Custom': 'custom-value' },
+        },
+      },
+    };
+
+    const result = toSageConfig(config as any, undefined, 'my-openrouter');
+
+    expect(result.provider.headers?.['HTTP-Referer']).toBe('https://stratuscode.dev/');
+    expect(result.provider.headers?.['X-Title']).toBe('StratusCode');
+    expect(result.provider.headers?.['X-Custom']).toBe('custom-value');
+  });
+
+  test('looks up OpenRouter model context window', () => {
+    const config = {
+      ...createBaseConfig(),
+      model: 'anthropic/claude-sonnet-4',
+      provider: {
+        apiKey: 'sk-or-test',
+        baseUrl: 'https://openrouter.ai/api/v1',
+      },
+    };
+
+    const result = toSageConfig(config as any);
+    expect(result.context.contextWindow).toBe(200_000);
+  });
+
+  test('looks up Gemini via OpenRouter context window (1M)', () => {
+    const config = {
+      ...createBaseConfig(),
+      model: 'google/gemini-2.5-pro-preview',
+      provider: {
+        apiKey: 'sk-or-test',
+        baseUrl: 'https://openrouter.ai/api/v1',
+      },
+    };
+
+    const result = toSageConfig(config as any);
+    expect(result.context.contextWindow).toBe(1_000_000);
+  });
 });

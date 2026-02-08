@@ -52,6 +52,7 @@ describe('cloud/providers', () => {
     expect(PROVIDER_CONFIGS['openai-codex']!.id).toBe('openai-codex');
     expect(PROVIDER_CONFIGS['opencode-zen']!.id).toBe('opencode-zen');
     expect(PROVIDER_CONFIGS.anthropic!.id).toBe('anthropic');
+    expect(PROVIDER_CONFIGS.openrouter!.id).toBe('openrouter');
   });
 
   test('getDefaultProvider returns the first available provider', async () => {
@@ -199,6 +200,119 @@ describe('cloud/providers: codex OAuth', () => {
 
       const provider = await getProvider('openai-codex');
       expect(provider).toBeNull();
+    } finally {
+      process.env = originalEnv;
+    }
+  });
+});
+
+describe('cloud/providers: OpenRouter', () => {
+  test('PROVIDER_CONFIGS openrouter has correct settings', () => {
+    const config = PROVIDER_CONFIGS.openrouter;
+    expect(config).toBeDefined();
+    expect(config!.envKey).toBe('OPENROUTER_API_KEY');
+    expect(config!.baseUrl).toBe('https://openrouter.ai/api/v1');
+    expect(config!.type).toBe('chat-completions');
+    expect(config!.headers!['HTTP-Referer']).toBe('https://stratuscode.dev/');
+    expect(config!.headers!['X-Title']).toBe('StratusCode');
+  });
+
+  test('openrouter models include expected entries', () => {
+    const models = PROVIDER_CONFIGS.openrouter!.models;
+    expect(models.length).toBeGreaterThan(0);
+
+    const claude = models.find(m => m.id === 'anthropic/claude-sonnet-4');
+    expect(claude).toBeDefined();
+    expect(claude!.contextWindow).toBe(200_000);
+
+    const deepseekR1 = models.find(m => m.id === 'deepseek/deepseek-r1');
+    expect(deepseekR1).toBeDefined();
+    expect(deepseekR1!.reasoning).toBe(true);
+  });
+
+  test('getAvailableProviders includes openrouter when env key set', async () => {
+    const originalEnv = { ...process.env };
+    try {
+      process.env.OPENROUTER_API_KEY = 'sk-or-test-key';
+      delete process.env.OPENAI_API_KEY;
+      delete process.env.CODEX_ACCESS_TOKEN;
+      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.CUSTOM_API_KEY;
+
+      mock.module('./codex-auth', () => ({
+        getCodexTokens: () => Promise.resolve(null),
+      }));
+
+      const providers = await getAvailableProviders();
+      const openrouter = providers.find(p => p.id === 'openrouter');
+      expect(openrouter).toBeDefined();
+      expect(openrouter!.apiKey).toBe('sk-or-test-key');
+      expect(openrouter!.baseUrl).toBe('https://openrouter.ai/api/v1');
+      expect(openrouter!.headers!['HTTP-Referer']).toBe('https://stratuscode.dev/');
+      expect(openrouter!.headers!['X-Title']).toBe('StratusCode');
+    } finally {
+      process.env = originalEnv;
+    }
+  });
+
+  test('getProvider returns openrouter config', async () => {
+    const originalEnv = { ...process.env };
+    try {
+      process.env.OPENROUTER_API_KEY = 'sk-or-provider-test';
+
+      const provider = await getProvider('openrouter');
+      expect(provider).toBeDefined();
+      expect(provider!.apiKey).toBe('sk-or-provider-test');
+      expect(provider!.type).toBe('chat-completions');
+    } finally {
+      process.env = originalEnv;
+    }
+  });
+
+  test('getProvider returns null for openrouter when no env key', async () => {
+    const originalEnv = { ...process.env };
+    try {
+      delete process.env.OPENROUTER_API_KEY;
+
+      const provider = await getProvider('openrouter');
+      expect(provider).toBeNull();
+    } finally {
+      process.env = originalEnv;
+    }
+  });
+
+  test('buildSageProviderConfig includes openrouter headers', () => {
+    const provider: import('./providers').ProviderConfig = {
+      id: 'openrouter',
+      label: 'OpenRouter',
+      apiKey: 'sk-or-test',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      type: 'chat-completions',
+      headers: {
+        'HTTP-Referer': 'https://stratuscode.dev/',
+        'X-Title': 'StratusCode',
+      },
+      models: [
+        { id: 'anthropic/claude-sonnet-4', name: 'Claude Sonnet 4', contextWindow: 200_000 },
+      ],
+    };
+    const config = buildSageProviderConfig(provider, 'anthropic/claude-sonnet-4');
+    expect(config.apiKey).toBe('sk-or-test');
+    expect(config.baseUrl).toBe('https://openrouter.ai/api/v1');
+    expect(config.headers!['HTTP-Referer']).toBe('https://stratuscode.dev/');
+    expect(config.headers!['X-Title']).toBe('StratusCode');
+    expect(config.contextWindow).toBe(200_000);
+  });
+
+  test('findModelConfig finds openrouter model', async () => {
+    const originalEnv = { ...process.env };
+    try {
+      process.env.OPENROUTER_API_KEY = 'sk-or-find-test';
+      const { findModelConfig } = await import('./providers');
+      const result = await findModelConfig('anthropic/claude-sonnet-4');
+      expect(result).toBeDefined();
+      expect(result!.model.id).toBe('anthropic/claude-sonnet-4');
+      expect(result!.provider.id).toBe('openrouter');
     } finally {
       process.env = originalEnv;
     }

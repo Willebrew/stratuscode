@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { discoverOllamaModels } from './config';
+import { discoverOllamaModels, PROVIDER_MODELS, findModelEntry } from './config';
 import { buildSystemPrompt, BUILT_IN_AGENTS, getPromptVariant } from './agents';
 
 // ============================================
@@ -216,5 +216,65 @@ describe('buildSystemPrompt variant coverage', () => {
     expect(getPromptVariant('')).toBe('default');
     // Random model
     expect(getPromptVariant('random-model-xyz')).toBe('default');
+  });
+
+  test('getPromptVariant handles OpenRouter vendor-prefixed IDs', () => {
+    expect(getPromptVariant('openai/gpt-4o')).toBe('openai');
+    expect(getPromptVariant('google/gemini-2.5-pro-preview')).toBe('gemini');
+    expect(getPromptVariant('anthropic/claude-sonnet-4')).toBe('default');
+  });
+});
+
+// ============================================
+// OpenRouter provider in PROVIDER_MODELS
+// ============================================
+
+describe('PROVIDER_MODELS: OpenRouter', () => {
+  test('openrouter provider exists with correct label', () => {
+    expect(PROVIDER_MODELS.openrouter).toBeDefined();
+    expect(PROVIDER_MODELS.openrouter!.label).toBe('OpenRouter');
+  });
+
+  test('openrouter has expected models', () => {
+    const models = PROVIDER_MODELS.openrouter!.models;
+    expect(models.length).toBeGreaterThan(0);
+
+    const claude = models.find(m => m.id === 'anthropic/claude-sonnet-4');
+    expect(claude).toBeDefined();
+    expect(claude!.contextWindow).toBe(200_000);
+
+    const gemini = models.find(m => m.id === 'google/gemini-2.5-pro-preview');
+    expect(gemini).toBeDefined();
+    expect(gemini!.contextWindow).toBe(1_000_000);
+  });
+
+  test('openrouter reasoning models are flagged correctly', () => {
+    const models = PROVIDER_MODELS.openrouter!.models;
+
+    const deepseekR1 = models.find(m => m.id === 'deepseek/deepseek-r1');
+    expect(deepseekR1).toBeDefined();
+    expect(deepseekR1!.reasoning).toBe(true);
+    expect(deepseekR1!.reasoningEfforts).toEqual(['low', 'medium', 'high']);
+
+    const o3mini = models.find(m => m.id === 'openai/o3-mini');
+    expect(o3mini).toBeDefined();
+    expect(o3mini!.reasoning).toBe(true);
+  });
+
+  test('openrouter non-reasoning models have no reasoning flag', () => {
+    const models = PROVIDER_MODELS.openrouter!.models;
+
+    const claude = models.find(m => m.id === 'anthropic/claude-sonnet-4');
+    expect(claude!.reasoning).toBeUndefined();
+
+    const deepseekV3 = models.find(m => m.id === 'deepseek/deepseek-chat-v3');
+    expect(deepseekV3!.reasoning).toBeUndefined();
+  });
+
+  test('findModelEntry resolves OpenRouter models', () => {
+    const entry = findModelEntry('google/gemini-2.5-flash-preview');
+    expect(entry).toBeDefined();
+    expect(entry!.name).toBe('Gemini 2.5 Flash');
+    expect(entry!.contextWindow).toBe(1_000_000);
   });
 });

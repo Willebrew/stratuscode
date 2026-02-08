@@ -62,6 +62,17 @@ describe('getPromptVariant', () => {
     expect(getPromptVariant('claude-3.5-sonnet')).toBe('default');
     expect(getPromptVariant('llama-3')).toBe('default');
   });
+
+  test('OpenRouter vendor-prefixed models resolve correctly', () => {
+    expect(getPromptVariant('openai/gpt-4o')).toBe('openai');
+    expect(getPromptVariant('openai/o3-mini')).toBe('openai');
+    expect(getPromptVariant('google/gemini-2.5-pro-preview')).toBe('gemini');
+    expect(getPromptVariant('google/gemini-2.5-flash-preview')).toBe('gemini');
+    expect(getPromptVariant('moonshotai/kimi-k2')).toBe('zen');
+    expect(getPromptVariant('anthropic/claude-sonnet-4')).toBe('default');
+    expect(getPromptVariant('deepseek/deepseek-r1')).toBe('default');
+    expect(getPromptVariant('meta-llama/llama-4-maverick')).toBe('default');
+  });
 });
 
 // ============================================
@@ -413,6 +424,19 @@ describe('findModelEntry', () => {
     expect(entry).toBeDefined();
     expect(entry!.free).toBe(true);
   });
+
+  test('finds OpenRouter models', () => {
+    const entry = findModelEntry('anthropic/claude-sonnet-4');
+    expect(entry).toBeDefined();
+    expect(entry!.name).toBe('Claude Sonnet 4');
+    expect(entry!.contextWindow).toBe(200_000);
+  });
+
+  test('finds OpenRouter reasoning model', () => {
+    const entry = findModelEntry('deepseek/deepseek-r1');
+    expect(entry).toBeDefined();
+    expect(entry!.reasoning).toBe(true);
+  });
 });
 
 // ============================================
@@ -440,6 +464,16 @@ describe('modelSupportsReasoning', () => {
 
   test('unknown plain model returns false', () => {
     expect(modelSupportsReasoning('llama-3-70b')).toBe(false);
+  });
+
+  test('OpenRouter vendor-prefixed reasoning heuristic', () => {
+    expect(modelSupportsReasoning('openai/o3-mini')).toBe(true);
+    expect(modelSupportsReasoning('deepseek/deepseek-r1-unknown')).toBe(true);
+    expect(modelSupportsReasoning('meta-llama/llama-4-maverick')).toBe(false);
+  });
+
+  test('known OpenRouter reasoning model returns true', () => {
+    expect(modelSupportsReasoning('deepseek/deepseek-r1')).toBe(true);
   });
 });
 
