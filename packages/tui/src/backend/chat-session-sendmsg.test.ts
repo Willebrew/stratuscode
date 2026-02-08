@@ -95,7 +95,7 @@ afterAll(() => {
 
 function createBaseConfig() {
   return {
-    model: 'gpt-4o',
+    model: 'gpt-5-mini',
     provider: {
       apiKey: 'sk-test-key',
       baseUrl: 'https://api.openai.com/v1',

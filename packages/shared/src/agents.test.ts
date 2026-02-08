@@ -31,9 +31,9 @@ import {
 
 describe('getPromptVariant', () => {
   test('gpt models return openai', () => {
-    expect(getPromptVariant('gpt-4o')).toBe('openai');
+    expect(getPromptVariant('gpt-5-mini')).toBe('openai');
     expect(getPromptVariant('gpt-5.2-codex')).toBe('openai');
-    expect(getPromptVariant('GPT-4o')).toBe('openai');
+    expect(getPromptVariant('gpt-5-mini')).toBe('openai');
   });
 
   test('o-series models return openai', () => {
@@ -393,9 +393,9 @@ describe('buildSystemPrompt', () => {
 
 describe('findModelEntry', () => {
   test('finds known OpenAI model', () => {
-    const entry = findModelEntry('gpt-4o');
+    const entry = findModelEntry('gpt-5-mini');
     expect(entry).toBeDefined();
-    expect(entry!.name).toBe('GPT-4o');
+    expect(entry!.name).toBe('GPT-5 Mini');
   });
 
   test('finds known Codex model', () => {
@@ -426,7 +426,7 @@ describe('modelSupportsReasoning', () => {
   });
 
   test('known non-reasoning model returns false', () => {
-    expect(modelSupportsReasoning('gpt-4o')).toBe(false);
+    expect(modelSupportsReasoning('minimax-m2.1-free')).toBe(false);
   });
 
   test('unknown codex model uses heuristic', () => {
@@ -456,8 +456,8 @@ describe('defineConfig', () => {
   });
 
   test('overrides provided fields', () => {
-    const config = defineConfig({ model: 'gpt-4o', temperature: 0.7 });
-    expect(config.model).toBe('gpt-4o');
+    const config = defineConfig({ model: 'gpt-5-mini', temperature: 0.7 });
+    expect(config.model).toBe('gpt-5-mini');
     expect(config.temperature).toBe(0.7);
   });
 

@@ -131,7 +131,6 @@ async function ensureCodexToken(config: StratusCodeConfig, providerOverride?: st
 
 const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'gpt-5-mini': 128_000,
-  'gpt-4o': 128_000,
   'o3-mini': 128_000,
   'gpt-5.2-codex': 272_000,
   'gpt-5.1-codex': 128_000,

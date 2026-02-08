@@ -15,7 +15,6 @@ import { getPlanFilePath, ensurePlanFile as ensurePlanFileInSandbox, PLAN_MODE_R
 // Per-model context window lookup — mirrors CLI's MODEL_CONTEXT_WINDOWS
 const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'gpt-5-mini': 128_000,
-  'gpt-4o': 128_000,
   'o3-mini': 128_000,
   'gpt-5.3-codex': 272_000,
   'gpt-5.2-codex': 272_000,

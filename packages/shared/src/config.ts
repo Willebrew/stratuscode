@@ -195,7 +195,6 @@ export const PROVIDER_MODELS: Record<string, { label: string; models: ProviderMo
     label: 'OpenAI',
     models: [
       { id: 'gpt-5-mini', name: 'GPT-5 Mini', reasoning: true, reasoningEfforts: ['minimal', 'low', 'medium', 'high'] },
-      { id: 'gpt-4o', name: 'GPT-4o' },
       { id: 'o3-mini', name: 'o3-mini', reasoning: true, reasoningEfforts: ['low', 'medium', 'high'] },
     ],
   },

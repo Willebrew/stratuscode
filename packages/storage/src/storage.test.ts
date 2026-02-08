@@ -158,14 +158,14 @@ describe('Message CRUD', () => {
     const id = createMessage(session.id, 'assistant', 'answer', undefined, {
       input: 100,
       output: 50,
-      model: 'gpt-4o',
+      model: 'gpt-5-mini',
     });
 
     const tokens = getMessageTokens(id);
     expect(tokens).toBeDefined();
     expect(tokens!.input).toBe(100);
     expect(tokens!.output).toBe(50);
-    expect(tokens!.model).toBe('gpt-4o');
+    expect(tokens!.model).toBe('gpt-5-mini');
   });
 
   test('updates message content', () => {
@@ -189,7 +189,7 @@ describe('Message CRUD', () => {
   test('updates message tokens', () => {
     const session = createSession('/project', 'Update Tokens');
     const id = createMessage(session.id, 'assistant', 'answer');
-    updateMessageTokens(id, { input: 200, output: 100, model: 'gpt-4o-mini' });
+    updateMessageTokens(id, { input: 200, output: 100, model: 'gpt-5-mini' });
 
     const tokens = getMessageTokens(id);
     expect(tokens!.input).toBe(200);

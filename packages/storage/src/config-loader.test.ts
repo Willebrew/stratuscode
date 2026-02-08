@@ -52,11 +52,11 @@ describe('config-loader: loadConfig', () => {
     try {
       fs.writeFileSync(
         path.join(tmpDir, 'stratuscode.json'),
-        JSON.stringify({ model: 'gpt-4o', temperature: 0.5 })
+        JSON.stringify({ model: 'gpt-5-mini', temperature: 0.5 })
       );
 
       const { config, sources } = loadConfig(tmpDir);
-      expect(config.model).toBe('gpt-4o');
+      expect(config.model).toBe('gpt-5-mini');
       expect(config.temperature).toBe(0.5);
       expect(sources.some(s => s.includes('stratuscode.json'))).toBe(true);
     } finally {
@@ -186,11 +186,11 @@ describe('config-loader: loadConfig', () => {
 
 describe('config-loader: saveProjectConfig', () => {
   test('writes stratuscode.json to project dir', () => {
-    saveProjectConfig(tmpDir, { model: 'gpt-4o' });
+    saveProjectConfig(tmpDir, { model: 'gpt-5-mini' });
     const configPath = path.join(tmpDir, 'stratuscode.json');
     expect(fs.existsSync(configPath)).toBe(true);
     const loaded = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    expect(loaded.model).toBe('gpt-4o');
+    expect(loaded.model).toBe('gpt-5-mini');
   });
 });
 

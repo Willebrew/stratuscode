@@ -160,7 +160,7 @@ describe('buildSystemPrompt variant coverage', () => {
       agent: BUILT_IN_AGENTS.build!,
       tools: [],
       projectDir: '/test',
-      modelId: 'gpt-4o',
+      modelId: 'gpt-5-mini',
     });
     expect(prompt).toContain('CORE PRINCIPLES');
     expect(prompt).toContain('CAPABILITIES');
@@ -193,7 +193,7 @@ describe('buildSystemPrompt variant coverage', () => {
       agent: BUILT_IN_AGENTS.build!,
       tools: [],
       projectDir: '/test',
-      modelId: 'gpt-4o',
+      modelId: 'gpt-5-mini',
     });
     expect(prompt.length).toBeLessThan(openaiPrompt.length);
   });

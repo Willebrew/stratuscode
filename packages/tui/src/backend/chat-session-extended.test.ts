@@ -26,7 +26,7 @@ afterAll(() => {
 
 function createBaseConfig() {
   return {
-    model: 'gpt-4o',
+    model: 'gpt-5-mini',
     provider: {
       apiKey: 'sk-test',
       baseUrl: 'https://api.openai.com/v1',
@@ -363,7 +363,7 @@ describe('toSageConfig additional', () => {
   test('non-reasoning model has no reasoning effort', () => {
     const config = {
       ...createBaseConfig(),
-      model: 'gpt-4o',
+      model: 'gpt-5-mini',
     };
     const result = toSageConfig(config as any);
     expect(result.enableReasoningEffort).toBe(false);

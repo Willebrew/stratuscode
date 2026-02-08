@@ -58,7 +58,7 @@ describe('session-manager: createCloudSession', () => {
       repo: 'myrepo',
       branch: 'main',
       githubToken: 'gh-token',
-      model: 'gpt-4o',
+      model: 'gpt-5-mini',
       apiKey: 'sk-test',
       baseUrl: 'https://api.openai.com/v1',
       providerType: 'chat-completions',
@@ -92,7 +92,7 @@ describe('session-manager: createCloudSession', () => {
       repo: 'r',
       branch: 'main',
       githubToken: 'gh',
-      model: 'gpt-4o',
+      model: 'gpt-5-mini',
       apiKey: 'key',
     });
     await createCloudSession({
@@ -101,7 +101,7 @@ describe('session-manager: createCloudSession', () => {
       repo: 'r2',
       branch: 'dev',
       githubToken: 'gh',
-      model: 'gpt-4o',
+      model: 'gpt-5-mini',
       apiKey: 'key',
     });
 
@@ -115,7 +115,7 @@ describe('session-manager: createCloudSession', () => {
       repo: 'r',
       branch: 'main',
       githubToken: 'gh',
-      model: 'gpt-4o',
+      model: 'gpt-5-mini',
       apiKey: 'key',
     });
 
@@ -130,7 +130,7 @@ describe('session-manager: createCloudSession', () => {
       repo: 'r',
       branch: 'main',
       githubToken: 'gh',
-      model: 'gpt-4o',
+      model: 'gpt-5-mini',
       apiKey: 'key',
       agent: 'plan',
     });
@@ -145,7 +145,7 @@ describe('session-manager: createCloudSession', () => {
       repo: 'r',
       branch: 'main',
       githubToken: 'gh',
-      model: 'gpt-4o',
+      model: 'gpt-5-mini',
       apiKey: 'key',
       providerHeaders: { 'X-Custom': 'value' },
     });
@@ -174,7 +174,7 @@ describe('session-manager: destroyCloudSession', () => {
       repo: 'r',
       branch: 'main',
       githubToken: 'gh',
-      model: 'gpt-4o',
+      model: 'gpt-5-mini',
       apiKey: 'key',
     });
 

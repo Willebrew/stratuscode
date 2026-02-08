@@ -13,7 +13,7 @@ function makeSession(overrides: Partial<import('./cloud-session').CloudSessionOp
   return new CloudSession({
     sessionId: 'test-session-1',
     workDir: '/sandbox/project',
-    model: 'gpt-4o',
+    model: 'gpt-5-mini',
     apiKey: 'sk-test',
     sandboxInfo: stubSandboxInfo,
     ...overrides,

@@ -21,7 +21,7 @@ afterAll(() => {
 
 function createBaseConfig() {
   return {
-    model: 'gpt-4o',
+    model: 'gpt-5-mini',
     provider: {
       apiKey: 'sk-test-key',
       baseUrl: 'https://api.openai.com/v1',
@@ -46,7 +46,7 @@ describe('toSageConfig', () => {
 
     expect(result.provider.apiKey).toBe('sk-test-key');
     expect(result.provider.baseUrl).toBe('https://api.openai.com/v1');
-    expect(result.model).toBe('gpt-4o');
+    expect(result.model).toBe('gpt-5-mini');
   });
 
   test('selects provider override from config.providers', () => {

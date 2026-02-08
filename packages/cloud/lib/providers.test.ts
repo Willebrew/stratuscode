@@ -74,7 +74,7 @@ describe('cloud/providers', () => {
       const models = await getAvailableModels();
       expect(models.length).toBeGreaterThan(0);
       // Should include OpenAI models
-      const gpt4o = models.find(m => m.model.id === 'gpt-4o');
+      const gpt4o = models.find(m => m.model.id === 'gpt-5-mini');
       expect(gpt4o).toBeDefined();
       expect(gpt4o!.providerId).toBe('openai');
     } finally {
@@ -87,9 +87,9 @@ describe('cloud/providers', () => {
     try {
       process.env.OPENAI_API_KEY = 'test-key';
       const { findModelConfig } = await import('./providers');
-      const result = await findModelConfig('gpt-4o');
+      const result = await findModelConfig('gpt-5-mini');
       expect(result).toBeDefined();
-      expect(result!.model.id).toBe('gpt-4o');
+      expect(result!.model.id).toBe('gpt-5-mini');
       expect(result!.provider.id).toBe('openai');
     } finally {
       process.env = originalEnv;
@@ -110,10 +110,10 @@ describe('cloud/providers', () => {
       baseUrl: 'https://api.openai.com/v1',
       type: 'chat-completions',
       models: [
-        { id: 'gpt-4o', name: 'GPT-4o', contextWindow: 128_000, reasoning: false },
+        { id: 'gpt-5-mini', name: 'gpt-5-mini', contextWindow: 128_000, reasoning: false },
       ],
     };
-    const config = buildSageProviderConfig(provider, 'gpt-4o');
+    const config = buildSageProviderConfig(provider, 'gpt-5-mini');
     expect(config.apiKey).toBe('sk-test');
     expect(config.baseUrl).toBe('https://api.openai.com/v1');
     expect(config.contextWindow).toBe(128_000);

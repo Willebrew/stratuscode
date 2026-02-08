@@ -45,11 +45,8 @@ export const PROVIDER_CONFIGS: Record<string, Omit<ProviderConfig, 'apiKey'> & {
     baseUrl: 'https://api.openai.com/v1',
     type: 'chat-completions',
     models: [
-      { id: 'gpt-4o', name: 'GPT-4o', contextWindow: 128_000 },
-      { id: 'gpt-4o-mini', name: 'GPT-4o Mini', contextWindow: 128_000 },
-      { id: 'gpt-4-turbo', name: 'GPT-4 Turbo', contextWindow: 128_000 },
-      { id: 'o3-mini', name: 'o3-mini', reasoning: true, reasoningEfforts: ['low', 'medium', 'high'], contextWindow: 128_000 },
       { id: 'gpt-5-mini', name: 'GPT-5 Mini', reasoning: true, reasoningEfforts: ['minimal', 'low', 'medium', 'high'], contextWindow: 128_000 },
+      { id: 'o3-mini', name: 'o3-mini', reasoning: true, reasoningEfforts: ['low', 'medium', 'high'], contextWindow: 128_000 },
     ],
   },
   'openai-codex': {

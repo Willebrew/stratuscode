@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Determine model and provider
-  const modelId = requestedModel || process.env.STRATUSCODE_MODEL || 'gpt-4o';
+  const modelId = requestedModel || process.env.STRATUSCODE_MODEL || 'gpt-5-mini';
   const modelConfig = await findModelConfig(modelId);
   
   // Get provider - either from model config or default

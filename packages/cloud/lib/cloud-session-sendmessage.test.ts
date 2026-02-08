@@ -67,7 +67,7 @@ function makeSession(overrides: Partial<CloudSessionOptions> = {}) {
   return new CloudSession({
     sessionId: 'test-session-1',
     workDir: '/sandbox/project',
-    model: 'gpt-4o',
+    model: 'gpt-5-mini',
     apiKey: 'sk-test',
     sandboxInfo: stubSandboxInfo,
     ...overrides,
@@ -522,7 +522,7 @@ describe('CloudSession: buildSageConfig (via processDirectly calls)', () => {
   });
 
   test('sets reasoningEffort to undefined for non-reasoning models', async () => {
-    const session = makeSession({ model: 'gpt-4o' });
+    const session = makeSession({ model: 'gpt-5-mini' });
     await session.sendMessage('test');
 
     const call = mockProcessDirectly.mock.calls[0]![0] as any;
@@ -550,12 +550,12 @@ describe('CloudSession: buildSageConfig (via processDirectly calls)', () => {
   });
 
   test('config includes summary settings', async () => {
-    const session = makeSession({ model: 'gpt-4o' });
+    const session = makeSession({ model: 'gpt-5-mini' });
     await session.sendMessage('test');
 
     const call = mockProcessDirectly.mock.calls[0]![0] as any;
     expect(call.config.context.summary.enabled).toBe(true);
-    expect(call.config.context.summary.model).toBe('gpt-4o');
+    expect(call.config.context.summary.model).toBe('gpt-5-mini');
     expect(call.config.context.summary.targetTokens).toBe(500);
   });
 });
