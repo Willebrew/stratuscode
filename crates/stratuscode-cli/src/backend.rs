@@ -117,7 +117,7 @@ impl BackendClient {
     fn start_reader_thread(stdout: ChildStdout, pending: Arc<Mutex<HashMap<u64, Sender<Value>>>>, notify_tx: Sender<BackendNotification>) {
         thread::spawn(move || {
             let reader = BufReader::new(stdout);
-            for line in reader.lines().flatten() {
+            for line in reader.lines().map_while(Result::ok) {
                 let trimmed = line.trim();
                 if trimmed.is_empty() {
                     continue;

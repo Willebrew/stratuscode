@@ -16,6 +16,8 @@ env:
   CARGO_TERM_COLOR: always
   # SAGE repo — update this to your GitHub repo URL
   SAGE_REPO: ${{ vars.SAGE_REPO || '' }}
+  # GitHub Packages auth for @willebrew scoped packages (bunfig.toml reads $GITHUB_TOKEN)
+  GITHUB_TOKEN: ${{ secrets.SAGE_TOKEN || secrets.GITHUB_TOKEN }}
 
 jobs:
   # ──────────────────────────────────────────────

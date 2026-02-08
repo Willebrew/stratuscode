@@ -7,7 +7,7 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use serde_json::json;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -83,7 +83,7 @@ fn main() -> Result<()> {
     run_interactive(&root, &cli)
 }
 
-fn run_auth(root: &PathBuf, key: Option<String>, show: bool, provider: Option<String>) -> Result<()> {
+fn run_auth(root: &Path, key: Option<String>, show: bool, provider: Option<String>) -> Result<()> {
     let primary = root.join("packages/tui/dist/auth.js");
     let fallback = root.join("packages/tui/src/auth.ts");
     let auth_path = if primary.exists() { primary } else if fallback.exists() { fallback } else {
@@ -109,7 +109,7 @@ fn run_auth(root: &PathBuf, key: Option<String>, show: bool, provider: Option<St
     Ok(())
 }
 
-fn run_interactive(root: &PathBuf, cli: &Cli) -> Result<()> {
+fn run_interactive(root: &Path, cli: &Cli) -> Result<()> {
     let primary_backend = root.join("packages/tui/dist/backend/server.js");
     let fallback_backend = root.join("packages/tui/dist/backend.js");
     let backend_path = if primary_backend.exists() {
@@ -266,8 +266,8 @@ fn run_interactive(root: &PathBuf, cli: &Cli) -> Result<()> {
                 std::thread::spawn(move || {
                     if let Ok(resp) = client.lock().unwrap().call("get_pending_question", json!({ "sessionId": session_id })) {
                         if let Ok(list) = serde_json::from_value::<Vec<PendingQuestion>>(resp) {
-                            if let Some(pending) = list.get(0) {
-                                if let Some(item) = pending.questions.get(0) {
+                            if let Some(pending) = list.first() {
+                                if let Some(item) = pending.questions.first() {
                                     let options = item.options.clone();
                                     let mut selected = vec![false; options.len()];
                                     if !selected.is_empty() {
@@ -312,7 +312,7 @@ fn run_interactive(root: &PathBuf, cli: &Cli) -> Result<()> {
     Ok(())
 }
 
-fn run_non_interactive(root: &PathBuf, cli: &Cli, prompt: &str) -> Result<()> {
+fn run_non_interactive(root: &Path, cli: &Cli, prompt: &str) -> Result<()> {
     let primary_backend = root.join("packages/tui/dist/backend/server.js");
     let fallback_backend = root.join("packages/tui/dist/backend.js");
     let backend_path = if primary_backend.exists() {

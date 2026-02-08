@@ -41,7 +41,7 @@ fn cursor_left(value: &str, cursor: usize) -> usize {
     let Some(prev) = prev_char_start(value, cursor) else {
         return 0;
     };
-    if value[prev..].chars().next() == Some(PASTE_END) {
+    if value[prev..].starts_with(PASTE_END) {
         if let Some(start) = value[..prev].rfind(PASTE_START) {
             return start;
         }
@@ -272,9 +272,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent, client: &Arc<Mutex<BackendClient
             if !content.is_empty() || !app.attachments.is_empty() {
                 let text_content = app
                     .input
-                    .replace(PASTE_START, "")
-                    .replace(PASTE_END, "")
-                    .replace(IMAGE_MARKER, "");
+                    .replace([PASTE_START, PASTE_END, IMAGE_MARKER], "");
                 let attachments = if app.attachments.is_empty() {
                     json!(null)
                 } else {
@@ -539,8 +537,8 @@ pub fn handle_overlay_keys(app: &mut App, key: KeyEvent, client: &Arc<Mutex<Back
             } else if app.model_selected >= app.model_offset + 10 {
                 app.model_offset = app.model_selected + 1 - 10;
             }
-            if app.custom_model_mode && key.code == KeyCode::Enter {
-                if !app.custom_model_input.trim().is_empty() {
+            if app.custom_model_mode && key.code == KeyCode::Enter
+                && !app.custom_model_input.trim().is_empty() {
                     let model = app.custom_model_input.trim();
                     let _ = client.lock().unwrap().call("set_model", json!({ "model": model }));
                     let _ = client.lock().unwrap().call("set_provider", json!({ "provider": null }));
@@ -549,7 +547,6 @@ pub fn handle_overlay_keys(app: &mut App, key: KeyEvent, client: &Arc<Mutex<Back
                     app.mode = UiMode::Normal;
                     app.custom_model_mode = false;
                     app.custom_model_input.clear();
-                }
             }
             app.mark_dirty();
             return true;
@@ -711,15 +708,13 @@ pub fn handle_overlay_keys(app: &mut App, key: KeyEvent, client: &Arc<Mutex<Back
                             if !key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT) {
                                 q.custom_input.push(ch);
                             }
-                        } else {
-                            if let Some(d) = ch.to_digit(10) {
-                                let idx = d.saturating_sub(1) as usize;
-                                if idx < q.options.len() {
-                                    let answer = q.options[idx].label.clone();
-                                    let _ = client.lock().unwrap().call("answer_question", json!({ "id": q.id, "answers": vec![answer] }));
-                                    app.question = None;
-                                    app.mode = UiMode::Normal;
-                                }
+                        } else if let Some(d) = ch.to_digit(10) {
+                            let idx = d.saturating_sub(1) as usize;
+                            if idx < q.options.len() {
+                                let answer = q.options[idx].label.clone();
+                                let _ = client.lock().unwrap().call("answer_question", json!({ "id": q.id, "answers": vec![answer] }));
+                                app.question = None;
+                                app.mode = UiMode::Normal;
                             }
                         }
                     }

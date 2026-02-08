@@ -87,7 +87,7 @@ pub fn render_ui(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app
         } else {
             &timeline_lines[start..start + view_height]
         };
-        let timeline_text = Text::from(slice.iter().cloned().collect::<Vec<Line>>());
+        let timeline_text = Text::from(slice.to_vec());
 
         if app.show_splash && app.state.timeline_events.is_empty() && matches!(app.mode, UiMode::Normal) && !app.state.is_loading {
             render_splash(frame, timeline_area, app);
@@ -174,7 +174,7 @@ pub fn build_timeline_lines(state: &crate::backend::ChatState, compact: bool, wi
             ]));
             let mut body: Vec<Line> = wrap_plain_lines(&event.content, content_width)
                 .into_iter()
-                .map(|l| Line::from(l))
+                .map(Line::from)
                 .collect();
             if let Some(atts) = &event.attachments {
                 if !atts.is_empty() {
@@ -295,6 +295,7 @@ pub fn build_timeline_lines(state: &crate::backend::ChatState, compact: bool, wi
     lines
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn render_unified_input_box(
     frame: &mut Frame,
     rect: Rect,
@@ -307,7 +308,7 @@ pub fn render_unified_input_box(
     input_content_width: usize,
     overlay: Option<InlineOverlay>,
     mut overlay_lines: Vec<Line<'static>>,
-    todo_lines: &mut Vec<Line<'static>>,
+    todo_lines: &mut [Line<'static>],
     status_lines: Vec<Line<'static>>,
 ) {
     let title = Line::from(vec![Span::styled("Input", Style::default().fg(COLOR_TEXT_DIM))]);
@@ -326,7 +327,7 @@ pub fn render_unified_input_box(
     let mut overlay_block: Option<Vec<Line>> = None;
     let mut overlay_index: Option<usize> = None;
     if !todo_lines.is_empty() {
-        sections.push((todo_lines.clone(), todo_lines.len() as u16));
+        sections.push((todo_lines.to_owned(), todo_lines.len() as u16));
     }
     if let Some(overlay) = overlay {
         let mut lines = Vec::new();
@@ -977,7 +978,7 @@ fn compute_display_input_with_cursor(value: &str, cursor: usize) -> (String, usi
             } else {
                 None
             };
-            if display.chars().last().is_some() && display.chars().last() != Some(' ') {
+            if display.chars().last().is_some() && !display.ends_with(' ') {
                 image_marker.push(' ');
             }
             image_marker.push_str("[Image]");
@@ -1210,16 +1211,16 @@ fn parse_diff(diff: &str) -> (Vec<DiffLine>, usize, usize) {
             continue;
         }
 
-        if line.starts_with('+') {
+        if let Some(stripped) = line.strip_prefix('+') {
             additions += 1;
-            lines.push(DiffLine { kind: DiffKind::Add, content: line[1..].to_string(), old_line: None, new_line: Some(new_line) });
+            lines.push(DiffLine { kind: DiffKind::Add, content: stripped.to_string(), old_line: None, new_line: Some(new_line) });
             new_line = new_line.saturating_add(1);
-        } else if line.starts_with('-') {
+        } else if let Some(stripped) = line.strip_prefix('-') {
             deletions += 1;
-            lines.push(DiffLine { kind: DiffKind::Remove, content: line[1..].to_string(), old_line: Some(old_line), new_line: None });
+            lines.push(DiffLine { kind: DiffKind::Remove, content: stripped.to_string(), old_line: Some(old_line), new_line: None });
             old_line = old_line.saturating_add(1);
-        } else if line.starts_with(' ') {
-            lines.push(DiffLine { kind: DiffKind::Context, content: line[1..].to_string(), old_line: Some(old_line), new_line: Some(new_line) });
+        } else if let Some(stripped) = line.strip_prefix(' ') {
+            lines.push(DiffLine { kind: DiffKind::Context, content: stripped.to_string(), old_line: Some(old_line), new_line: Some(new_line) });
             old_line = old_line.saturating_add(1);
             new_line = new_line.saturating_add(1);
         } else {
