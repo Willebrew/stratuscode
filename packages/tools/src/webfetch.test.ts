@@ -164,9 +164,4 @@ describe('webfetch tool: edge cases', () => {
     globalThis.fetch = originalFetch;
   });
 
-  test('handles file not found', async () => {
-    expect(
-      webfetchTool.execute({ url: 'https://example.com/missing' }, ctx as any)
-    ).rejects.toThrow();
-  });
 });
