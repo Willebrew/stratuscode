@@ -171,7 +171,7 @@ describe('codesearch tool', () => {
   });
 
   test('indexes when getStats returns null', async () => {
-    mockIndexer.getStats.mockResolvedValue(null);
+    mockIndexer.getStats.mockResolvedValue(null as unknown as { pointsCount: number });
     mockIndexer.indexAll.mockResolvedValue({ chunksCreated: 10, filesProcessed: 2 });
 
     const result = await codesearchTool.execute(

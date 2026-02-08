@@ -28,6 +28,7 @@ mock.module('./client', () => ({
 }));
 
 // Use query-string cache-busting to bypass mock.module contamination from _lsp-ops.test.ts
+// @ts-expect-error query-string cache-busting for mock.module bypass
 const { LSPManager, createLSPManager } = await import('./manager?real=1');
 
 // ============================================
@@ -275,7 +276,7 @@ describe('LSPManager', () => {
       mockGetServersForFile = () => [makeServerInfo({ id: `srv-${ext}` })];
       const manager = new LSPManager('/project');
       await manager.getClient(`/project/test.${ext}`);
-      expect(capturedLangId).toBe(expected);
+      expect(capturedLangId).toBe(expected!);
     }
   });
 });

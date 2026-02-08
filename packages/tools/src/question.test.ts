@@ -21,7 +21,7 @@ describe('question tool', () => {
     await new Promise(r => setTimeout(r, 10));
     const pending = Question.getPending(sid);
     expect(pending.length).toBe(1);
-    Question.answer(pending[0].id, [['Red']]);
+    Question.answer(pending[0]!.id, [['Red']]);
     const result = await resultPromise;
     const parsed = JSON.parse(result as string);
     expect(parsed.success).toBe(true);
@@ -37,7 +37,7 @@ describe('question tool', () => {
     );
     await new Promise(r => setTimeout(r, 10));
     const pending = Question.getPending(sid);
-    Question.skip(pending[0].id);
+    Question.skip(pending[0]!.id);
     const result = await resultPromise;
     const parsed = JSON.parse(result as string);
     expect(parsed.skipped).toBe(true);
@@ -52,7 +52,7 @@ describe('question tool', () => {
     );
     await new Promise(r => setTimeout(r, 10));
     const pending = Question.getPending(sid);
-    Question.reject(pending[0].id);
+    Question.reject(pending[0]!.id);
     const result = await resultPromise;
     const parsed = JSON.parse(result as string);
     expect(parsed.rejected).toBe(true);
@@ -67,7 +67,7 @@ describe('question tool', () => {
     );
     await new Promise(r => setTimeout(r, 10));
     const pending = Question.getPending(sid);
-    Question.reject(pending[0].id, new Error('network failure'));
+    Question.reject(pending[0]!.id, new Error('network failure'));
     await expect(resultPromise).rejects.toThrow('network failure');
   });
 
@@ -84,7 +84,7 @@ describe('question tool', () => {
     );
     await new Promise(r => setTimeout(r, 10));
     const pending = Question.getPending(sid);
-    Question.answer(pending[0].id, [['Yes'], ['Fast']]);
+    Question.answer(pending[0]!.id, [['Yes'], ['Fast']]);
     const result = await resultPromise;
     const parsed = JSON.parse(result as string);
     expect(parsed.success).toBe(true);

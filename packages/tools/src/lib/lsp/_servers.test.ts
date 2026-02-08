@@ -54,6 +54,7 @@ const {
   Vue,
   Astro,
   Biome,
+  // @ts-expect-error query-string cache-busting for mock.module bypass
 } = await import('./servers?real=1');
 
 // ============================================

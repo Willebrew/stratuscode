@@ -9,6 +9,7 @@ import * as os from 'os';
 // creates a distinct module ID that isn't affected by the mock
 // ============================================
 
+// @ts-expect-error query-string cache-busting for mock.module bypass
 const { CodebaseIndexer } = await import('./lib/embeddings/indexer?real=1');
 
 // ============================================
@@ -190,7 +191,7 @@ describe('CodebaseIndexer', () => {
 
     const indexer = new CodebaseIndexer({ projectDir: tmpDir });
     const progressCalls: string[] = [];
-    const stats = await indexer.indexAll((file) => { progressCalls.push(file); });
+    const stats = await indexer.indexAll((file: string) => { progressCalls.push(file); });
 
     expect(stats.filesIndexed).toBeGreaterThanOrEqual(3);
     expect(stats.chunksCreated).toBeGreaterThan(0);

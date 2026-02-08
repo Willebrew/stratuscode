@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { EventEmitter } from 'events';
 
 // Use query-string cache-busting to bypass mock.module contamination from _manager.test.ts
+// @ts-expect-error query-string cache-busting for mock.module bypass
 const { LspClient } = await import('./client?real=1');
 
 // ============================================

@@ -47,7 +47,7 @@ describe('todoread tool', () => {
     Todo.create(sid, 'Task A');
     Todo.create(sid, 'Task B');
     const todos = Todo.list(sid);
-    Todo.update(todos[0].id, { status: 'completed' });
+    Todo.update(todos[0]!.id, { status: 'completed' });
     const result = await todoReadTool.execute({}, ctx(sid) as any);
     const parsed = JSON.parse(result as string);
     expect(parsed.counts.completed).toBe(1);

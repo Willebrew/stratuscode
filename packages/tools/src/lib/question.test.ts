@@ -66,17 +66,17 @@ describe('question: full ask + answer lifecycle', () => {
     // getPending should now have the question
     const pending = Question.getPending(sessionId);
     expect(pending.length).toBe(1);
-    expect(pending[0].status).toBe('pending');
-    expect(pending[0].questions[0].question).toBe('Pick color');
-    expect(pending[0].questions[0].options).toEqual([{ label: 'Red' }, { label: 'Blue' }]);
+    expect(pending[0]!.status).toBe('pending');
+    expect(pending[0]!.questions[0]!.question).toBe('Pick color');
+    expect(pending[0]!.questions[0]!.options).toEqual([{ label: 'Red' }, { label: 'Blue' }]);
     // hasPending should be true
     expect(Question.hasPending(sessionId)).toBe(true);
     // getFirst should return it
     const first = Question.getFirst(sessionId);
     expect(first).toBeDefined();
-    expect(first!.id).toBe(pending[0].id);
+    expect(first!.id).toBe(pending[0]!.id);
     // Answer it
-    Question.answer(pending[0].id, [['Red']]);
+    Question.answer(pending[0]!.id, [['Red']]);
     const answers = await answersPromise;
     expect(answers).toEqual([['Red']]);
   });
@@ -88,7 +88,7 @@ describe('question: full ask + answer lifecycle', () => {
       questions: [{ question: 'Pick?', options: [{ label: 'A' }] }],
     });
     const pending = Question.getPending(sessionId);
-    Question.skip(pending[0].id);
+    Question.skip(pending[0]!.id);
     await expect(answersPromise).rejects.toBeInstanceOf(QuestionSkippedError);
   });
 
@@ -99,7 +99,7 @@ describe('question: full ask + answer lifecycle', () => {
       questions: [{ question: 'Pick?', options: [{ label: 'A' }] }],
     });
     const pending = Question.getPending(sessionId);
-    Question.reject(pending[0].id);
+    Question.reject(pending[0]!.id);
     await expect(answersPromise).rejects.toBeInstanceOf(QuestionRejectedError);
   });
 
@@ -110,7 +110,7 @@ describe('question: full ask + answer lifecycle', () => {
       questions: [{ question: 'Pick?', options: [{ label: 'A' }] }],
     });
     const pending = Question.getPending(sessionId);
-    Question.reject(pending[0].id, new Error('custom rejection'));
+    Question.reject(pending[0]!.id, new Error('custom rejection'));
     await expect(answersPromise).rejects.toThrow('custom rejection');
   });
 
@@ -123,9 +123,9 @@ describe('question: full ask + answer lifecycle', () => {
     });
     const pending = Question.getPending(sessionId);
     expect(pending.length).toBe(1);
-    expect(pending[0].messageId).toBe('msg-1');
-    expect(pending[0].toolCallId).toBe('call-1');
-    Question.answer(pending[0].id, [['Yes']]);
+    expect(pending[0]!.messageId).toBe('msg-1');
+    expect(pending[0]!.toolCallId).toBe('call-1');
+    Question.answer(pending[0]!.id, [['Yes']]);
     const answers = await answersPromise;
     expect(answers).toEqual([['Yes']]);
   });
