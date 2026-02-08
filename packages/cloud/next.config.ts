@@ -25,7 +25,6 @@ const nextConfig: NextConfig = {
     // Point workspace packages to their source for transpilation
     config.resolve.alias = {
       ...config.resolve.alias,
-      '@/': path.resolve(__dirname),
       '@stratuscode/shared': path.resolve(monorepoRoot, 'packages/shared/src'),
       '@stratuscode/tools': path.resolve(monorepoRoot, 'packages/tools/src'),
       '@stratuscode/core': path.resolve(monorepoRoot, 'packages/core/src'),
