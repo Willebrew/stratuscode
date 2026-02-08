@@ -25,7 +25,7 @@ import {
   updateToolCallResult,
   getSessionTokenTotals,
 } from '@stratuscode/storage';
-import { processDirectly, type ToolRegistry } from '@sage/core';
+import { processDirectly, type ToolRegistry } from '@willebrew/sage-core';
 import { SQLiteErrorStore } from '@stratuscode/storage';
 
 export interface ChatSessionOptions {

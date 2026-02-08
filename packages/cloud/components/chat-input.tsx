@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { ArrowUp, Loader2, Paperclip, Plus, Zap, Brain, X, Hammer, Map } from 'lucide-react';
+import { ArrowUp, Loader2, Paperclip, Plus, Zap, Brain, X, Hammer, Map, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import clsx from 'clsx';
 import { TodoPanel } from './todo-panel';
@@ -18,6 +18,8 @@ interface ChatInputProps {
   reasoningEffort: 'low' | 'medium' | 'high';
   onReasoningEffortChange: (effort: 'low' | 'medium' | 'high') => void;
   todos?: TodoItem[];
+  error?: string | null;
+  onDismissError?: () => void;
 }
 
 export function ChatInput({
@@ -31,6 +33,8 @@ export function ChatInput({
   reasoningEffort,
   onReasoningEffortChange,
   todos = [],
+  error,
+  onDismissError,
 }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -73,9 +77,66 @@ export function ChatInput({
   const effortSegments: Array<'low' | 'medium' | 'high'> = ['low', 'medium', 'high'];
 
   return (
-    <form onSubmit={handleSubmit} className="fixed bottom-0 left-0 right-0 z-40 px-4 pb-4 pt-2 pointer-events-none">
-      <div className="max-w-3xl mx-auto pointer-events-auto">
-        <div className="dark-input-area">
+    <form onSubmit={handleSubmit} className="py-3 sm:py-4 pt-8 sm:pt-10 bg-gradient-to-t from-background via-background to-transparent">
+      <div className="max-w-3xl mx-auto px-3 sm:px-4">
+        <div
+          className={clsx(
+            'dark-input-area transition-[box-shadow,ring-color] duration-300 !transform-none',
+            agentMode === 'plan' && 'ring-1 ring-blue-500/30 shadow-[0_0_20px_rgba(59,130,246,0.08),0_0_40px_rgba(59,130,246,0.04)]'
+          )}
+        >
+          {/* Plan mode top bar */}
+          <AnimatePresence>
+            {agentMode === 'plan' && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+                className="overflow-hidden"
+              >
+                <div className="flex items-center gap-2 mb-3 pb-3 border-b border-blue-500/10">
+                  <Map className="w-3.5 h-3.5 text-blue-400" />
+                  <span className="text-[11px] font-medium text-blue-400/80">Planning Mode</span>
+                  <button
+                    type="button"
+                    onClick={() => onAgentModeChange('build')}
+                    className="ml-auto text-[10px] text-white/30 hover:text-white/50 transition-colors"
+                  >
+                    Switch to build →
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Inline error banner */}
+          <AnimatePresence>
+            {error && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+                className="overflow-hidden"
+              >
+                <div className="flex items-start gap-2 mb-3 pb-3 border-b border-red-500/10">
+                  <AlertCircle className="w-3.5 h-3.5 text-red-400 mt-0.5 shrink-0" />
+                  <span className="text-[11px] text-red-400/90 leading-relaxed flex-1 break-words">{error}</span>
+                  {onDismissError && (
+                    <button
+                      type="button"
+                      onClick={onDismissError}
+                      className="text-white/30 hover:text-white/50 transition-colors shrink-0"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Inline todo/plan panel */}
           {todos.length > 0 && (
             <div className="mb-2 border-b border-white/10 pb-2">
@@ -89,10 +150,13 @@ export function ChatInput({
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={placeholder || 'Describe what you want to build...'}
+              placeholder={agentMode === 'plan' ? 'Describe what you want to plan...' : (placeholder || 'Describe what you want to build...')}
               disabled={isLoading}
               rows={1}
-              className="flex-1 bg-transparent border-0 resize-none focus:outline-none focus:ring-0 text-white/90 text-sm sm:text-base placeholder:text-white/40 disabled:opacity-50 max-h-[200px] leading-relaxed"
+              className={clsx(
+                'flex-1 bg-transparent border-0 resize-none focus:outline-none focus:ring-0 text-sm sm:text-base disabled:opacity-50 max-h-[200px] leading-relaxed',
+                agentMode === 'plan' ? 'text-white/90 placeholder:text-blue-400/30' : 'text-white/90 placeholder:text-white/40'
+              )}
             />
           </div>
           <div className="flex items-center justify-between mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-white/10">
@@ -118,11 +182,12 @@ export function ChatInput({
                         : 'w-8 h-8 bg-white/10 hover:bg-white/20'
                   )}
                 >
-                  {menuOpen ? (
-                    <X className="w-4 h-4 text-white/60" />
-                  ) : (
+                  <motion.div
+                    animate={{ rotate: menuOpen ? 45 : 0 }}
+                    transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+                  >
                     <Plus className="w-4 h-4 text-white/60" />
-                  )}
+                  </motion.div>
                 </button>
                 {alphaMode && !menuOpen && (
                   <>

@@ -24,16 +24,16 @@ import type {
   ToolContext,
 } from '@stratuscode/shared';
 import { MaxDepthError, AbortError, generateId, patchGlobalFetch, modelSupportsReasoning } from '@stratuscode/shared';
-import { createProviderFromConfig } from '@sage/core/providers';
-import type { Provider, NormalizedStreamEvent, ProviderRequest, ProviderConfig } from '@sage/core/providers';
+import { createProviderFromConfig } from '@willebrew/sage-core/providers';
+import type { Provider, NormalizedStreamEvent, ProviderRequest, ProviderConfig } from '@willebrew/sage-core/providers';
 import { handleNormalizedEvent, createAccumulator, type StreamAccumulator } from '../streaming/handler';
 import { executeTool, parseToolArguments } from '../tools/executor';
 import type { ToolRegistry } from '../tools/registry';
 import { executeSubagent, getSubagentDefinition, BUILTIN_SUBAGENTS } from './subagent';
-import { manageContext } from '@sage/core/context';
-import type { ContextConfig, SummaryState } from '@sage/core/context';
-import { verifyEdit, formatVerification, detectProjectLinters } from '@sage/core/verification';
-import type { LinterConfig } from '@sage/core/verification';
+import { manageContext } from '@willebrew/sage-core/context';
+import type { ContextConfig, SummaryState } from '@willebrew/sage-core/context';
+import { verifyEdit, formatVerification, detectProjectLinters } from '@willebrew/sage-core/verification';
+import type { LinterConfig } from '@willebrew/sage-core/verification';
 
 // Ensure Codex fetch patch is applied once in this process
 patchGlobalFetch();

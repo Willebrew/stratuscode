@@ -7,7 +7,7 @@
  */
 
 import { getDatabase, insert, deleteById } from './database';
-import type { ErrorMemoryStore, ErrorMemoryEntry } from '@sage/core';
+import type { ErrorMemoryStore, ErrorMemoryEntry } from '@willebrew/sage-core';
 
 // ============================================
 // Row Type (internal — maps to DB schema)

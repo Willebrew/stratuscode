@@ -7,6 +7,7 @@ import {
 } from '@/lib/session-manager';
 import { findModelConfig, getDefaultProvider } from '@/lib/providers';
 import { resolveAnswer } from '@/lib/sandbox-tools';
+import { startSandboxKeepalive } from '@/lib/sandbox';
 
 const MAX_SESSIONS_PER_USER = 5;
 
@@ -151,6 +152,8 @@ export async function POST(request: NextRequest) {
         controller.enqueue(encoder.encode(event));
       };
 
+      let stopKeepalive: (() => void) | undefined;
+
       try {
         // Create sandbox with live status updates if new session
         if (needsNewSession) {
@@ -185,6 +188,9 @@ export async function POST(request: NextRequest) {
           branch: activeSession!.branch,
         });
 
+        // Start keepalive to prevent sandbox timeout during long agent loops
+        stopKeepalive = startSandboxKeepalive(activeSession!.cloudSession.getSessionId());
+
         await activeSession!.cloudSession.sendMessage(message, {
           onToken: (token) => {
             sendEvent('token', { content: token });
@@ -213,6 +219,17 @@ export async function POST(request: NextRequest) {
                 const parsed = JSON.parse(result);
                 if (parsed.todos) {
                   sendEvent('todos', { todos: parsed.todos, counts: parsed.counts });
+                }
+              } catch { /* ignore parse errors */ }
+            }
+
+            // Detect plan_enter → switch to plan mode and notify frontend
+            if (toolCall.function.name === 'plan_enter') {
+              try {
+                const parsed = JSON.parse(result);
+                if (parsed.entered && parsed.mode === 'plan') {
+                  activeSession!.cloudSession.switchMode('plan');
+                  sendEvent('mode_switch', { mode: 'plan' });
                 }
               } catch { /* ignore parse errors */ }
             }
@@ -251,6 +268,7 @@ export async function POST(request: NextRequest) {
           error instanceof Error ? error.message : String(error);
         sendEvent('error', { content: errorMessage });
       } finally {
+        stopKeepalive?.();
         controller.close();
       }
     },

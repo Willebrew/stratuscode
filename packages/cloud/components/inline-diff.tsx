@@ -37,8 +37,8 @@ function parseDiff(raw: string): { filename: string; lines: DiffLine[] } {
     if (line.startsWith('@@')) {
       const match = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)/);
       if (match) {
-        oldLine = parseInt(match[1], 10);
-        newLine = parseInt(match[2], 10);
+        oldLine = parseInt(match[1]!, 10);
+        newLine = parseInt(match[2]!, 10);
         parsed.push({ type: 'header', content: line });
       }
       continue;

@@ -25,7 +25,7 @@ let mockProcessDirectly = mock(async (_opts: any) => ({
   responseMessages: [{ role: 'assistant', content: 'Hello from assistant.' }],
 }));
 
-mock.module('@sage/core', () => ({
+mock.module('@willebrew/sage-core', () => ({
   processDirectly: (...args: any[]) => mockProcessDirectly(...args),
   createToolRegistry: () => createMockRegistry(),
 }));

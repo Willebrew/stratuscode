@@ -55,6 +55,40 @@ interface OAuthResult {
   accountId?: string;
 }
 
+function parseJwtClaims(token: string): Record<string, unknown> | undefined {
+  const parts = token.split('.');
+  if (parts.length !== 3) return undefined;
+  try {
+    return JSON.parse(Buffer.from(parts[1]!, 'base64url').toString());
+  } catch {
+    return undefined;
+  }
+}
+
+function extractAccountIdFromClaims(claims: Record<string, unknown>): string | undefined {
+  if (typeof claims.chatgpt_account_id === 'string') return claims.chatgpt_account_id;
+  const authClaim = claims['https://api.openai.com/auth'] as Record<string, unknown> | undefined;
+  if (authClaim && typeof authClaim.chatgpt_account_id === 'string') return authClaim.chatgpt_account_id;
+  const orgs = claims.organizations as Array<{ id: string }> | undefined;
+  if (orgs?.[0]?.id) return orgs[0].id;
+  return undefined;
+}
+
+function extractAccountIdFromTokens(tokenJson: Record<string, unknown>): string | undefined {
+  const idToken = tokenJson.id_token;
+  if (typeof idToken === 'string') {
+    const claims = parseJwtClaims(idToken);
+    const accountId = claims && extractAccountIdFromClaims(claims);
+    if (accountId) return accountId;
+  }
+  const accessToken = tokenJson.access_token;
+  if (typeof accessToken === 'string') {
+    const claims = parseJwtClaims(accessToken);
+    return claims ? extractAccountIdFromClaims(claims) : undefined;
+  }
+  return undefined;
+}
+
 function generateRandomString(length: number): string {
   return crypto.randomBytes(length).toString('hex');
 }
@@ -70,12 +104,15 @@ function buildAuthorizeUrl(issuer: string, redirectUri: string, challenge: strin
     response_type: 'code',
     client_id: clientId,
     redirect_uri: redirectUri,
-    scope: 'openid profile email',
+    scope: 'openid profile email offline_access',
     state,
     code_challenge: challenge,
     code_challenge_method: 'S256',
+    id_token_add_organizations: 'true',
+    codex_cli_simplified_flow: 'true',
+    originator: 'stratuscode',
   });
-  return `${issuer}/authorize?${params.toString()}`;
+  return `${issuer}/oauth/authorize?${params.toString()}`;
 }
 
 async function waitForOAuthCode(port: number, expectedState: string): Promise<string | null> {
@@ -144,7 +181,7 @@ async function runCodexBrowserAuth(): Promise<OAuthResult | null> {
     const refresh = String(tokenJson.refresh_token || '');
     const expires = Number(tokenJson.expires_in || 0);
 
-    const accountId = typeof tokenJson.account_id === 'string' ? tokenJson.account_id : undefined;
+    const accountId = extractAccountIdFromTokens(tokenJson);
     return { refresh, access, expires, accountId };
   } catch (err) {
     console.error('OAuth failed:', err);

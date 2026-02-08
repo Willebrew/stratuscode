@@ -18,7 +18,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@sage/core": "file:/Users/willkillebrew/Documents/Stratus-Server/Personal/SAGE/packages/core",
+    "@willebrew/sage-core": "0.1.1",
     "@stratuscode/shared": "workspace:*"
   },
   "devDependencies": {

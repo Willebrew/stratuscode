@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { ChevronRight, Loader2, Check, X, Wrench, HelpCircle, FileCode, Rocket } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import ReactMarkdown from 'react-markdown';
+import { MarkdownRenderer } from './markdown-renderer';
 import { InlineDiff } from './inline-diff';
 import type { ChatMessage, ToolCallInfo, MessagePart, TodoItem } from '@/hooks/use-chat-stream';
 
@@ -26,9 +26,7 @@ export function MessageBubble({ message, todos, onSend, onAnswer }: MessageBubbl
         className="flex justify-end"
       >
         <div className="max-w-[85%] sm:max-w-[70%] rounded-2xl px-4 sm:px-5 py-3 sm:py-3.5 bg-foreground text-background">
-          <div className="prose prose-sm prose-invert max-w-none">
-            <ReactMarkdown>{message.content}</ReactMarkdown>
-          </div>
+          <MarkdownRenderer content={message.content} />
         </div>
       </motion.div>
     );
@@ -53,7 +51,7 @@ export function MessageBubble({ message, todos, onSend, onAnswer }: MessageBubbl
 
   // Second pass: filter out duplicate text parts and duplicate question tool calls
   for (let i = 0; i < message.parts.length; i++) {
-    const part = message.parts[i];
+    const part = message.parts[i]!;
 
     // Skip text parts whose content matches a question tool call's question
     if (part.type === 'text' && questionTexts.size > 0) {
@@ -69,9 +67,9 @@ export function MessageBubble({ message, todos, onSend, onAnswer }: MessageBubbl
     }
 
     // Skip duplicate question tool calls (same question text)
-    if (part.type === 'tool_call' && part.toolCall.name === 'question') {
+    if (part.type === 'tool_call' && (part as any).toolCall?.name === 'question') {
       try {
-        const parsed = JSON.parse(part.toolCall.args);
+        const parsed = JSON.parse((part as any).toolCall.args);
         const key = parsed.question || '';
         if (seenQuestionKeys.has(key)) continue;
         seenQuestionKeys.add(key);
@@ -100,11 +98,7 @@ function MessagePartView({ part, todos, onSend, onAnswer }: { part: MessagePart;
       // Reasoning is hidden from UI per user preference
       return null;
     case 'text':
-      return (
-        <div className="prose prose-sm dark:prose-invert max-w-none">
-          <ReactMarkdown>{part.content}</ReactMarkdown>
-        </div>
-      );
+      return <MarkdownRenderer content={part.content} />;
     case 'tool_call':
       if (part.toolCall.name === 'question') {
         return <QuestionCard toolCall={part.toolCall} onAnswer={onAnswer} />;
@@ -114,6 +108,9 @@ function MessagePartView({ part, todos, onSend, onAnswer }: { part: MessagePart;
       }
       if (part.toolCall.name === 'write_to_file') {
         return <FileWriteCard toolCall={part.toolCall} />;
+      }
+      if (part.toolCall.name === 'edit' || part.toolCall.name === 'multi_edit') {
+        return <EditCard toolCall={part.toolCall} />;
       }
       return (
         <div className="mb-2">
@@ -172,7 +169,9 @@ function QuestionCard({ toolCall, onAnswer }: { toolCall: ToolCallInfo; onAnswer
     <div className="my-3 rounded-2xl border border-border/50 bg-secondary/20 p-4 sm:p-5">
       <div className="flex items-start gap-2 sm:gap-2.5 mb-3">
         <HelpCircle className="w-4 h-4 text-foreground/70 mt-0.5 flex-shrink-0" />
-        <p className="text-xs sm:text-sm font-medium text-foreground">{question}</p>
+        <div className="text-xs sm:text-sm font-medium text-foreground flex-1 min-w-0">
+          <MarkdownRenderer content={question} />
+        </div>
       </div>
       {options.length > 0 && (
         <div className="flex flex-wrap gap-2 pl-0 sm:pl-6">
@@ -428,6 +427,111 @@ function FileWriteCard({ toolCall }: { toolCall: ToolCallInfo }) {
         <div className="p-3 flex items-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="w-3 h-3 animate-spin" />
           <span>Writing file...</span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function EditCard({ toolCall }: { toolCall: ToolCallInfo }) {
+  let filename = '';
+  let explanation = '';
+  let oldStr = '';
+  let newStr = '';
+  let edits: Array<{ old_string: string; new_string: string }> = [];
+  try {
+    const parsed = JSON.parse(toolCall.args);
+    filename = parsed.file_path || '';
+    explanation = parsed.explanation || '';
+    oldStr = parsed.old_string || '';
+    newStr = parsed.new_string || '';
+    if (parsed.edits) edits = parsed.edits;
+  } catch { /* ignore */ }
+
+  const rawName = filename.split('/').pop() || filename;
+  const isRunning = toolCall.status === 'running';
+
+  // Extract diff from JSON result (edit tools wrap diff inside { diff: "..." })
+  let diff = '';
+  if (toolCall.result) {
+    try {
+      const parsed = JSON.parse(toolCall.result);
+      diff = parsed.diff || '';
+    } catch {
+      if (isDiffContent(toolCall.result)) diff = toolCall.result;
+    }
+  }
+
+  const hasDiff = diff && isDiffContent(diff);
+
+  // Build a preview from args while the tool is running
+  const hasArgsPreview = !hasDiff && (oldStr || newStr || edits.length > 0);
+  const previewLines: Array<{ type: 'remove' | 'add' | 'context'; text: string }> = [];
+  if (hasArgsPreview) {
+    const pairs = edits.length > 0 ? edits : [{ old_string: oldStr, new_string: newStr }];
+    pairs.forEach((pair, idx) => {
+      if (idx > 0) previewLines.push({ type: 'context', text: '...' });
+      pair.old_string.split('\n').forEach(l => previewLines.push({ type: 'remove', text: l }));
+      pair.new_string.split('\n').forEach(l => previewLines.push({ type: 'add', text: l }));
+    });
+  }
+
+  return (
+    <div className="my-2 rounded-xl overflow-hidden border border-border/30 bg-secondary/20">
+      <div className="flex items-center gap-2 px-3 py-2 bg-secondary/50 border-b border-border/30">
+        {isRunning ? (
+          <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
+        ) : (
+          <FileCode className="w-3.5 h-3.5 text-muted-foreground" />
+        )}
+        <span className="text-xs text-muted-foreground font-mono truncate flex-1">{rawName || 'file'}</span>
+        {explanation && !hasDiff && (
+          <span className="text-[10px] text-muted-foreground/60 truncate max-w-[200px]">{explanation}</span>
+        )}
+        {hasDiff && (() => {
+          const added = (diff.match(/^\+[^+]/gm) || []).length;
+          const removed = (diff.match(/^-[^-]/gm) || []).length;
+          return (
+            <span className="flex items-center gap-2 flex-shrink-0">
+              {added > 0 && <span className="text-xs text-green-500">+{added}</span>}
+              {removed > 0 && <span className="text-xs text-red-500">-{removed}</span>}
+            </span>
+          );
+        })()}
+      </div>
+      {hasDiff ? (
+        <InlineDiff diff={diff} filename={rawName} defaultExpanded={true} hideHeader />
+      ) : hasArgsPreview ? (
+        <div className="overflow-x-auto max-h-64 scrollbar-hide">
+          <pre className="p-3 text-xs font-mono leading-relaxed whitespace-pre">
+            {previewLines.map((line, i) => (
+              <div
+                key={i}
+                className={
+                  line.type === 'remove' ? 'text-red-400/80 bg-red-500/5' :
+                  line.type === 'add' ? 'text-green-400/80 bg-green-500/5' :
+                  'text-muted-foreground/50'
+                }
+              >
+                <span className="inline-block w-4 text-right mr-2 select-none opacity-50">
+                  {line.type === 'remove' ? '-' : line.type === 'add' ? '+' : ' '}
+                </span>
+                {line.text}
+              </div>
+            ))}
+            {isRunning && <span className="animate-pulse text-muted-foreground">|</span>}
+          </pre>
+        </div>
+      ) : isRunning ? (
+        <div className="p-3 flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="w-3 h-3 animate-spin" />
+          <span>Editing file...</span>
+        </div>
+      ) : toolCall.result ? (
+        <div className="p-3 text-xs text-muted-foreground">
+          {(() => {
+            try { return JSON.parse(toolCall.result).message || 'Edit applied'; } catch { return 'Edit applied'; }
+          })()}
         </div>
       ) : null}
     </div>

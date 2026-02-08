@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
     '@stratuscode/core',
     '@stratuscode/shared',
     '@stratuscode/tools',
-    '@sage/core',
+    '@willebrew/sage-core',
   ],
   experimental: {
     serverActions: {

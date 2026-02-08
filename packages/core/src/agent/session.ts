@@ -16,7 +16,7 @@ import { createSession as persistSession, updateSession as persistSessionUpdate,
 import { processWithToolLoop, type AgentContext, type AgentLoopCallbacks } from './loop';
 import { buildSystemPrompt, getAgentPrompt, AGENT_PROMPTS } from './system-prompt';
 import type { ToolRegistry } from '../tools/registry';
-import type { ContextConfig, SummaryState } from '@sage/core/context';
+import type { ContextConfig, SummaryState } from '@willebrew/sage-core/context';
 
 // ============================================
 // Types

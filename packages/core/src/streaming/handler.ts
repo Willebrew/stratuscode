@@ -6,7 +6,7 @@
  */
 
 import type { ToolCall, StreamChunk } from '@stratuscode/shared';
-import type { NormalizedStreamEvent } from '@sage/core/providers';
+import type { NormalizedStreamEvent } from '@willebrew/sage-core/providers';
 
 // ============================================
 // Types

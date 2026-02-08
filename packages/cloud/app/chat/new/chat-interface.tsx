@@ -88,23 +88,20 @@ export function ChatInterface({ owner, repo, branch }: ChatInterfaceProps) {
 
       <MessageList messages={messages} sandboxStatus={sandboxStatus} todos={todos} onSend={handleSend} onAnswer={answerQuestion} />
 
-      {error && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-xl bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 text-sm shadow-lg">
-          {error}
-        </div>
-      )}
-
-      <ChatInput
-        onSend={handleSend}
-        isLoading={isLoading}
-        alphaMode={alphaMode}
-        onAlphaModeChange={setAlphaMode}
-        agentMode={agentMode}
-        onAgentModeChange={setAgentMode}
-        reasoningEffort={reasoningEffort}
-        onReasoningEffortChange={setReasoningEffort}
-        todos={todos}
-      />
+      <div className="fixed bottom-0 left-0 right-0 z-20">
+        <ChatInput
+          onSend={handleSend}
+          isLoading={isLoading}
+          alphaMode={alphaMode}
+          onAlphaModeChange={setAlphaMode}
+          agentMode={agentMode}
+          onAgentModeChange={setAgentMode}
+          reasoningEffort={reasoningEffort}
+          onReasoningEffortChange={setReasoningEffort}
+          todos={todos}
+          error={error}
+        />
+      </div>
     </div>
   );
 }

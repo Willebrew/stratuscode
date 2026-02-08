@@ -13,7 +13,7 @@ import { listSessions, deleteSession, getMessages, updateSession } from '@stratu
 import { Question, Todo } from '@stratuscode/tools';
 import { discoverOllamaModels } from '@stratuscode/shared';
 import { buildModelEntries } from './model_entries';
-import { registerContextWindow } from '@sage/core';
+import { registerContextWindow } from '@willebrew/sage-core';
 
 interface RpcRequest {
   jsonrpc: '2.0';

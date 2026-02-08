@@ -11,5 +11,5 @@ export default defineConfig({
   splitting: false,
   sourcemap: true,
   clean: true,
-  external: ['@stratuscode/shared', '@stratuscode/storage', '@sage/core'],
+  external: ['@stratuscode/shared', '@stratuscode/storage', '@willebrew/sage-core'],
 });

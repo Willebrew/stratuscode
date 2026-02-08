@@ -10,7 +10,7 @@ import {
   type Tool as SageTool,
   type ToolRegistry as SageToolRegistry,
   type ToolContext as SageToolContext,
-} from '@sage/core';
+} from '@willebrew/sage-core';
 import type { ToolContext as StratusToolContext } from '@stratuscode/shared';
 
 // ============================================

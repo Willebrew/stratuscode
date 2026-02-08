@@ -1,3 +1,6 @@
+[install.scopes]
+"@willebrew" = { token = "$GITHUB_TOKEN", url = "https://npm.pkg.github.com/" }
+
 [test]
 coverageSkipTestFiles = true
 coveragePathIgnorePatterns = [

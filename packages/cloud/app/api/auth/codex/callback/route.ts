@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { exchangeCodexCode, saveCodexTokens } from '@/lib/codex-auth';
+import { exchangeCodexCode, saveCodexTokens, getPkceVerifier } from '@/lib/codex-auth';
 
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get('code');
@@ -11,8 +11,15 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const codeVerifier = await getPkceVerifier();
+  if (!codeVerifier) {
+    return NextResponse.redirect(
+      new URL('/login?codex_error=missing_pkce', request.nextUrl.origin)
+    );
+  }
+
   const callbackUrl = `${request.nextUrl.origin}/api/auth/codex/callback`;
-  const tokens = await exchangeCodexCode(code, state, callbackUrl);
+  const tokens = await exchangeCodexCode(code, state, callbackUrl, codeVerifier);
 
   if (!tokens) {
     return NextResponse.redirect(

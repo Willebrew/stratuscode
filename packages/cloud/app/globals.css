@@ -220,7 +220,65 @@ code {
   font-size: 0.875em;
 }
 
+/* Chat scroll area — overlay scrollbar so it doesn't shift content vs the fixed input */
+.chat-scroll-area {
+  overflow-y: auto;
+  overflow-y: overlay; /* Chrome/Edge — scrollbar overlays content, no width shift */
+}
+
+.chat-scroll-area::-webkit-scrollbar {
+  width: 6px;
+  background: transparent;
+}
+
+.chat-scroll-area::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+.chat-scroll-area::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.chat-scroll-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Firefox thin scrollbar */
+@supports (scrollbar-width: thin) {
+  .chat-scroll-area {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+  }
+}
+
 /* Markdown content styling */
+.markdown-body {
+  max-width: none;
+  word-break: break-word;
+}
+
+.markdown-body > :first-child {
+  margin-top: 0;
+}
+
+.markdown-body > :last-child {
+  margin-bottom: 0;
+}
+
+/* KaTeX overrides to match theme */
+.markdown-body .katex-display {
+  margin: 0.75rem 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.5rem 0;
+}
+
+.markdown-body .katex {
+  font-size: 1em;
+}
+
+/* Legacy prose compat */
 .prose {
   max-width: none;
 }

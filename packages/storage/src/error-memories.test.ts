@@ -8,7 +8,7 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { initDatabase, closeDatabase } from './database';
 import { SQLiteErrorStore } from './error-memories';
-import type { ErrorMemoryEntry } from '@sage/core';
+import type { ErrorMemoryEntry } from '@willebrew/sage-core';
 
 const testDir = `/tmp/stratuscode-error-memories-test-${Date.now()}`;
 let store: SQLiteErrorStore;

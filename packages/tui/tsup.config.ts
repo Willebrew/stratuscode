@@ -15,6 +15,6 @@ export default defineConfig({
     '@stratuscode/shared',
     '@stratuscode/tools',
     '@stratuscode/storage',
-    '@sage/core',
+    '@willebrew/sage-core',
   ],
 });
