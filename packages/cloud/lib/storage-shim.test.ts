@@ -8,6 +8,7 @@ import {
   deleteSession,
   createMessage,
   getMessages,
+  updateMessage,
   appendMessageContent,
   createTimelineEvent,
   listTimelineEvents,
@@ -389,5 +390,13 @@ describe('storage-shim: clearAllStorage', () => {
     expect(listSessions()).toHaveLength(0);
     expect(getMessages(session.id)).toEqual([]);
     expect(listTodos(session.id)).toEqual([]);
+  });
+});
+
+describe('storage-shim: updateMessage', () => {
+  test('updateMessage is a no-op (in-memory shim)', () => {
+    const session = createSession('/test');
+    createMessage(session.id, 'user', 'hello');
+    updateMessage('msg-1', 'updated content', { input: 10, output: 5 });
   });
 });

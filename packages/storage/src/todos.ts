@@ -47,18 +47,6 @@ function rowToTodo(row: TodoRow): Todo {
   };
 }
 
-function todoToRow(todo: Partial<Todo> & { id: string; sessionId: string }): Partial<TodoRow> {
-  const row: Partial<TodoRow> = {
-    id: todo.id,
-    session_id: todo.sessionId,
-  };
-  if (todo.content !== undefined) row.content = todo.content;
-  if (todo.status !== undefined) row.status = todo.status;
-  if (todo.priority !== undefined) row.priority = todo.priority;
-  if (todo.createdAt !== undefined) row.created_at = todo.createdAt;
-  if (todo.updatedAt !== undefined) row.updated_at = todo.updatedAt;
-  return row;
-}
 
 // ============================================
 // Operations

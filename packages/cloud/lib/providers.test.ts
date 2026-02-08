@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test, mock } from 'bun:test';
 
 import { getAvailableProviders, getProvider, PROVIDER_CONFIGS, buildSageProviderConfig } from './providers';
 
@@ -132,5 +132,75 @@ describe('cloud/providers', () => {
     const config = buildSageProviderConfig(provider, 'unknown-model');
     expect(config.contextWindow).toBe(128_000);
     expect(config.supportsReasoning).toBe(false);
+  });
+});
+
+describe('cloud/providers: codex OAuth', () => {
+  test('getAvailableProviders includes codex when OAuth tokens available', async () => {
+    mock.module('./codex-auth', () => ({
+      getCodexTokens: () => Promise.resolve({ accessToken: 'codex-oauth-at', accountId: 'acct-xyz' }),
+    }));
+
+    const providers = await getAvailableProviders();
+    const codex = providers.find(p => p.id === 'openai-codex');
+    expect(codex).toBeDefined();
+    expect(codex!.apiKey).toBe('codex-oauth-at');
+    expect(codex!.headers!['ChatGPT-Account-Id']).toBe('acct-xyz');
+  });
+
+  test('getProvider returns codex with OAuth tokens and headers', async () => {
+    const provider = await getProvider('openai-codex');
+    expect(provider).toBeDefined();
+    expect(provider!.apiKey).toBe('codex-oauth-at');
+    expect(provider!.headers!['ChatGPT-Account-Id']).toBe('acct-xyz');
+    expect(provider!.type).toBe('responses-api');
+  });
+
+  test('getAvailableProviders includes codex without accountId', async () => {
+    mock.module('./codex-auth', () => ({
+      getCodexTokens: () => Promise.resolve({ accessToken: 'codex-no-acct' }),
+    }));
+
+    const providers = await getAvailableProviders();
+    const codex = providers.find(p => p.id === 'openai-codex');
+    expect(codex).toBeDefined();
+    expect(codex!.apiKey).toBe('codex-no-acct');
+    expect(codex!.headers?.['ChatGPT-Account-Id']).toBeUndefined();
+  });
+
+  test('getProvider returns codex without accountId header', async () => {
+    mock.module('./codex-auth', () => ({
+      getCodexTokens: () => Promise.resolve({ accessToken: 'codex-no-acct-gp' }),
+    }));
+
+    const provider = await getProvider('openai-codex');
+    expect(provider).toBeDefined();
+    expect(provider!.apiKey).toBe('codex-no-acct-gp');
+    expect(provider!.headers?.['ChatGPT-Account-Id']).toBeUndefined();
+  });
+
+  test('getCodexTokensSafe returns null when getCodexTokens rejects', async () => {
+    mock.module('./codex-auth', () => ({
+      getCodexTokens: () => Promise.reject(new Error('token expired')),
+    }));
+
+    const providers = await getAvailableProviders();
+    const codex = providers.find(p => p.id === 'openai-codex');
+    expect(codex).toBeUndefined();
+  });
+
+  test('getProvider returns null for codex when tokens unavailable', async () => {
+    const originalEnv = { ...process.env };
+    delete process.env.CODEX_ACCESS_TOKEN;
+    try {
+      mock.module('./codex-auth', () => ({
+        getCodexTokens: () => Promise.resolve(null),
+      }));
+
+      const provider = await getProvider('openai-codex');
+      expect(provider).toBeNull();
+    } finally {
+      process.env = originalEnv;
+    }
   });
 });
