@@ -12,6 +12,7 @@ import { Check, Copy } from 'lucide-react';
 const codeTheme: Record<string, React.CSSProperties> = {
   'pre[class*="language-"]': {
     background: 'transparent',
+    color: '#e4e4e7',
     margin: 0,
     padding: 0,
     overflow: 'auto',
@@ -20,6 +21,7 @@ const codeTheme: Record<string, React.CSSProperties> = {
   },
   'code[class*="language-"]': {
     background: 'transparent',
+    color: '#e4e4e7',
     fontSize: '0.8125rem',
     lineHeight: '1.6',
     fontFamily: 'var(--font-mono), ui-monospace, monospace',
