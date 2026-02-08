@@ -5,14 +5,16 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useState, useCallback } from 'react';
 import { Check, Copy } from 'lucide-react';
 
-// Custom dark theme matching the existing UI
+// One Dark theme with transparent background to match our container
 const codeTheme: Record<string, React.CSSProperties> = {
+  ...oneDark,
   'pre[class*="language-"]': {
+    ...(oneDark['pre[class*="language-"]'] as React.CSSProperties),
     background: 'transparent',
-    color: '#e4e4e7',
     margin: 0,
     padding: 0,
     overflow: 'auto',
@@ -20,40 +22,12 @@ const codeTheme: Record<string, React.CSSProperties> = {
     lineHeight: '1.6',
   },
   'code[class*="language-"]': {
+    ...(oneDark['code[class*="language-"]'] as React.CSSProperties),
     background: 'transparent',
-    color: '#e4e4e7',
     fontSize: '0.8125rem',
     lineHeight: '1.6',
     fontFamily: 'var(--font-mono), ui-monospace, monospace',
   },
-  comment: { color: '#6b7280' },
-  prolog: { color: '#6b7280' },
-  doctype: { color: '#6b7280' },
-  cdata: { color: '#6b7280' },
-  punctuation: { color: '#a8a29e' },
-  property: { color: '#93c5fd' },
-  tag: { color: '#f87171' },
-  boolean: { color: '#c084fc' },
-  number: { color: '#c084fc' },
-  constant: { color: '#c084fc' },
-  symbol: { color: '#c084fc' },
-  deleted: { color: '#f87171' },
-  selector: { color: '#86efac' },
-  'attr-name': { color: '#fcd34d' },
-  string: { color: '#86efac' },
-  char: { color: '#86efac' },
-  builtin: { color: '#93c5fd' },
-  inserted: { color: '#86efac' },
-  operator: { color: '#a8a29e' },
-  entity: { color: '#fcd34d' },
-  url: { color: '#93c5fd' },
-  'attr-value': { color: '#86efac' },
-  keyword: { color: '#f472b6' },
-  regex: { color: '#fcd34d' },
-  important: { color: '#fcd34d', fontWeight: 'bold' },
-  variable: { color: '#f472b6' },
-  function: { color: '#93c5fd' },
-  'class-name': { color: '#fcd34d' },
 };
 
 function CopyButton({ text }: { text: string }) {
