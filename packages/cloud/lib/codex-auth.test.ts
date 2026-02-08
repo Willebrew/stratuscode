@@ -383,3 +383,151 @@ describe('codex-auth: pollCodexDeviceAuth', () => {
     expect(pollCodexDeviceAuth('da-id', 'user-code')).rejects.toThrow('Token exchange failed');
   });
 });
+
+// ============================================
+// AccountId extraction edge cases
+// ============================================
+
+describe('codex-auth: accountId extraction edge cases', () => {
+  test('extracts accountId from auth claim nested object', async () => {
+    const claims = { 'https://api.openai.com/auth': { chatgpt_account_id: 'acct-nested' } };
+    const fakeIdToken = `header.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.signature`;
+    globalThis.fetch = mock(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            access_token: 'at',
+            refresh_token: 'rt',
+            expires_in: 3600,
+            id_token: fakeIdToken,
+          }),
+      } as Response)
+    ) as unknown as typeof fetch;
+    const tokens = await exchangeCodexCode('code', 'state', 'http://localhost/cb', 'v');
+    expect(tokens!.accountId).toBe('acct-nested');
+  });
+
+  test('extracts accountId from organizations array', async () => {
+    const claims = { organizations: [{ id: 'org-456' }] };
+    const fakeIdToken = `header.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.signature`;
+    globalThis.fetch = mock(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            access_token: 'at',
+            refresh_token: 'rt',
+            expires_in: 3600,
+            id_token: fakeIdToken,
+          }),
+      } as Response)
+    ) as unknown as typeof fetch;
+    const tokens = await exchangeCodexCode('code', 'state', 'http://localhost/cb', 'v');
+    expect(tokens!.accountId).toBe('org-456');
+  });
+
+  test('returns undefined accountId when no claims match', async () => {
+    const claims = { sub: 'user-123', email: 'test@test.com' };
+    const fakeIdToken = `header.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.signature`;
+    globalThis.fetch = mock(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            access_token: 'at',
+            refresh_token: 'rt',
+            expires_in: 3600,
+            id_token: fakeIdToken,
+          }),
+      } as Response)
+    ) as unknown as typeof fetch;
+    const tokens = await exchangeCodexCode('code', 'state', 'http://localhost/cb', 'v');
+    expect(tokens!.accountId).toBeUndefined();
+  });
+
+  test('falls back to access_token when id_token has no accountId', async () => {
+    const idClaims = { sub: 'no-account-id' };
+    const fakeIdToken = `header.${Buffer.from(JSON.stringify(idClaims)).toString('base64url')}.signature`;
+    const atClaims = { chatgpt_account_id: 'acct-from-at' };
+    const fakeAccessToken = `header.${Buffer.from(JSON.stringify(atClaims)).toString('base64url')}.signature`;
+    globalThis.fetch = mock(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            access_token: fakeAccessToken,
+            refresh_token: 'rt',
+            expires_in: 3600,
+            id_token: fakeIdToken,
+          }),
+      } as Response)
+    ) as unknown as typeof fetch;
+    const tokens = await exchangeCodexCode('code', 'state', 'http://localhost/cb', 'v');
+    expect(tokens!.accountId).toBe('acct-from-at');
+  });
+
+  test('returns undefined accountId when neither id_token nor access_token present', async () => {
+    globalThis.fetch = mock(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            refresh_token: 'rt',
+            expires_in: 3600,
+          }),
+      } as Response)
+    ) as unknown as typeof fetch;
+    const tokens = await exchangeCodexCode('code', 'state', 'http://localhost/cb', 'v');
+    expect(tokens!.accountId).toBeUndefined();
+  });
+
+  test('returns undefined accountId for JWT with invalid base64 payload', async () => {
+    globalThis.fetch = mock(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            access_token: 'header.!!!invalid!!!.signature',
+            refresh_token: 'rt',
+            expires_in: 3600,
+          }),
+      } as Response)
+    ) as unknown as typeof fetch;
+    const tokens = await exchangeCodexCode('code', 'state', 'http://localhost/cb', 'v');
+    expect(tokens!.accountId).toBeUndefined();
+  });
+
+  test('returns undefined accountId for non-JWT access_token', async () => {
+    globalThis.fetch = mock(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            access_token: 'not-a-jwt',
+            refresh_token: 'rt',
+            expires_in: 3600,
+          }),
+      } as Response)
+    ) as unknown as typeof fetch;
+    const tokens = await exchangeCodexCode('code', 'state', 'http://localhost/cb', 'v');
+    expect(tokens!.accountId).toBeUndefined();
+  });
+});
+
+describe('codex-auth: refresh edge cases', () => {
+  test('handles refresh when fetch throws network error', async () => {
+    const stored: CodexTokens = {
+      accessToken: 'old-at',
+      refreshToken: 'rt-456',
+      expiresAt: Date.now() - 10_000,
+    };
+    mockCookieStore.get.mockReturnValue({ value: JSON.stringify(stored) });
+    globalThis.fetch = mock(() =>
+      Promise.reject(new Error('network failure'))
+    ) as unknown as typeof fetch;
+    const tokens = await getCodexTokens();
+    expect(tokens).toBeNull();
+    expect(mockCookieStore.delete).toHaveBeenCalled();
+  });
+});

@@ -97,3 +97,21 @@ describe('revert tool: real git repo', () => {
     expect(parsed.message).toBeTruthy();
   });
 });
+
+describe('revert tool: empty git repo (no HEAD)', () => {
+  test('returns error when no HEAD exists', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'revert-empty-'));
+    execSync('git init', { cwd: dir, stdio: 'pipe' });
+    execSync('git config user.email "test@test.com"', { cwd: dir, stdio: 'pipe' });
+    execSync('git config user.name "Test"', { cwd: dir, stdio: 'pipe' });
+    const repoCtx = { sessionId: 'test', metadata: { projectDir: dir } };
+    try {
+      const result = await revertTool.execute({}, repoCtx as any);
+      const parsed = JSON.parse(result as string);
+      expect(parsed.error).toBe(true);
+      expect(parsed.message).toContain('No snapshots found');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
