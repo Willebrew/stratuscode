@@ -4,11 +4,10 @@
 [test]
 coverageSkipTestFiles = true
 coveragePathIgnorePatterns = [
-  "/dist/",
-  "\\/dist\\/",
-  "\\/\\.next\\/",
-  "\\/coverage\\/",
-  "\\/\\.turbo\\/",
-  "\\/node_modules\\/",
-  "\\/Documents\\/",
+  "dist",
+  "\\.next",
+  "node_modules",
+  "coverage",
+  "\\.turbo",
+  "Documents",
 ]

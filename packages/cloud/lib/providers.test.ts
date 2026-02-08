@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { getAvailableProviders, getProvider, PROVIDER_CONFIGS } from './providers';
+import { getAvailableProviders, getProvider, PROVIDER_CONFIGS, buildSageProviderConfig } from './providers';
 
 describe('cloud/providers', () => {
   test('getAvailableProviders returns env-configured providers (no codex oauth)', async () => {
@@ -52,5 +52,85 @@ describe('cloud/providers', () => {
     expect(PROVIDER_CONFIGS['openai-codex']!.id).toBe('openai-codex');
     expect(PROVIDER_CONFIGS['opencode-zen']!.id).toBe('opencode-zen');
     expect(PROVIDER_CONFIGS.anthropic!.id).toBe('anthropic');
+  });
+
+  test('getDefaultProvider returns the first available provider', async () => {
+    const originalEnv = { ...process.env };
+    try {
+      process.env.OPENAI_API_KEY = 'test-key';
+      const { getDefaultProvider } = await import('./providers');
+      const provider = await getDefaultProvider();
+      expect(provider).toBeDefined();
+    } finally {
+      process.env = originalEnv;
+    }
+  });
+
+  test('getAvailableModels lists models from all configured providers', async () => {
+    const originalEnv = { ...process.env };
+    try {
+      process.env.OPENAI_API_KEY = 'test-key';
+      const { getAvailableModels } = await import('./providers');
+      const models = await getAvailableModels();
+      expect(models.length).toBeGreaterThan(0);
+      // Should include OpenAI models
+      const gpt4o = models.find(m => m.model.id === 'gpt-4o');
+      expect(gpt4o).toBeDefined();
+      expect(gpt4o!.providerId).toBe('openai');
+    } finally {
+      process.env = originalEnv;
+    }
+  });
+
+  test('findModelConfig finds a known model', async () => {
+    const originalEnv = { ...process.env };
+    try {
+      process.env.OPENAI_API_KEY = 'test-key';
+      const { findModelConfig } = await import('./providers');
+      const result = await findModelConfig('gpt-4o');
+      expect(result).toBeDefined();
+      expect(result!.model.id).toBe('gpt-4o');
+      expect(result!.provider.id).toBe('openai');
+    } finally {
+      process.env = originalEnv;
+    }
+  });
+
+  test('findModelConfig returns null for unknown model', async () => {
+    const { findModelConfig } = await import('./providers');
+    const result = await findModelConfig('does-not-exist-model');
+    expect(result).toBeNull();
+  });
+
+  test('buildSageProviderConfig maps provider to SAGE config', () => {
+    const provider: import('./providers').ProviderConfig = {
+      id: 'openai',
+      label: 'OpenAI',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.openai.com/v1',
+      type: 'chat-completions',
+      models: [
+        { id: 'gpt-4o', name: 'GPT-4o', contextWindow: 128_000, reasoning: false },
+      ],
+    };
+    const config = buildSageProviderConfig(provider, 'gpt-4o');
+    expect(config.apiKey).toBe('sk-test');
+    expect(config.baseUrl).toBe('https://api.openai.com/v1');
+    expect(config.contextWindow).toBe(128_000);
+    expect(config.supportsReasoning).toBe(false);
+  });
+
+  test('buildSageProviderConfig defaults contextWindow when model not found', () => {
+    const provider: import('./providers').ProviderConfig = {
+      id: 'test',
+      label: 'Test',
+      apiKey: 'key',
+      baseUrl: 'http://localhost',
+      type: 'chat-completions',
+      models: [],
+    };
+    const config = buildSageProviderConfig(provider, 'unknown-model');
+    expect(config.contextWindow).toBe(128_000);
+    expect(config.supportsReasoning).toBe(false);
   });
 });
