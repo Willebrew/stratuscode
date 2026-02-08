@@ -739,7 +739,8 @@ export class ChatSession extends EventEmitter {
               }
             }
           },
-          onStepComplete: (_step, accumulator) => {
+          // @ts-expect-error onStepComplete exists on internal AgentLoopCallbacks but not on sage-core AgentCallbacks
+          onStepComplete: (_step: number, accumulator: { inputTokens?: number; outputTokens?: number }) => {
             const inputTokens = accumulator.inputTokens ?? 0;
             const outputTokens = accumulator.outputTokens ?? 0;
             this.setState({

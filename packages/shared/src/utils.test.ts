@@ -149,7 +149,7 @@ describe('isAbsolutePath', () => {
 
 describe('safeJsonParse', () => {
   test('parses valid JSON', () => {
-    expect(safeJsonParse('{"key":"value"}', null)).toEqual({ key: 'value' });
+    expect(safeJsonParse('{"key":"value"}', null)).toEqual({ key: 'value' } as any);
   });
 
   test('returns fallback for invalid JSON', () => {
@@ -174,14 +174,14 @@ describe('prettyJson', () => {
 
 describe('deepMerge', () => {
   test('merges flat objects', () => {
-    const result = deepMerge({ a: 1, b: 2 }, { b: 3, c: 4 });
-    expect(result).toEqual({ a: 1, b: 3, c: 4 });
+    const result = deepMerge({ a: 1, b: 2 }, { b: 3, c: 4 } as any);
+    expect(result).toEqual({ a: 1, b: 3, c: 4 } as any);
   });
 
   test('deep merges nested objects', () => {
     const result = deepMerge(
       { nested: { a: 1, b: 2 } },
-      { nested: { b: 3 } }
+      { nested: { b: 3 } } as any
     );
     expect(result).toEqual({ nested: { a: 1, b: 3 } });
   });
@@ -195,7 +195,7 @@ describe('deepMerge', () => {
     const target = { a: 1 };
     const result = deepMerge(target, { b: 2 } as any);
     expect(target).toEqual({ a: 1 });
-    expect(result).toEqual({ a: 1, b: 2 });
+    expect(result).toEqual({ a: 1, b: 2 } as any);
   });
 
   test('ignores undefined source values', () => {

@@ -156,10 +156,10 @@ describe('Todo.replaceAll', () => {
     ]);
 
     expect(replaced.length).toBe(2);
-    expect(replaced[0].content).toBe('New 1');
-    expect(replaced[1].content).toBe('New 2');
-    expect(replaced[1].status).toBe('completed');
-    expect(replaced[1].priority).toBe('high');
+    expect(replaced[0]!.content).toBe('New 1');
+    expect(replaced[1]!.content).toBe('New 2');
+    expect(replaced[1]!.status).toBe('completed');
+    expect(replaced[1]!.priority).toBe('high');
 
     // Old todos should be gone
     const todos = Todo.list(sid);

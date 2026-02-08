@@ -64,8 +64,8 @@ describe('validateToolArgs', () => {
     const result = validateToolArgs(makeTool(), { count: 5 });
     expect(result.valid).toBe(false);
     expect(result.errors).toHaveLength(1);
-    expect(result.errors[0].path).toBe('name');
-    expect(result.errors[0].message).toContain('Required field');
+    expect(result.errors[0]!.path).toBe('name');
+    expect(result.errors[0]!.message).toContain('Required field');
   });
 
   test('wrong type returns error', () => {
@@ -94,6 +94,7 @@ describe('validateToolArgs', () => {
     });
     const result = validateToolArgs(tool, { count: 5.5 });
     expect(result.valid).toBe(false);
+    // @ts-ignore
     expect(result.errors[0].message).toContain('integer');
   });
 
@@ -117,7 +118,7 @@ describe('validateToolArgs', () => {
     });
     const result = validateToolArgs(tool, { mode: 'medium' });
     expect(result.valid).toBe(false);
-    expect(result.errors[0].message).toContain('one of');
+    expect(result.errors[0]!.message).toContain('one of');
   });
 
   test('array type validation', () => {
@@ -279,9 +280,8 @@ describe('executeWithTimeout', () => {
 
 describe('executeTool', () => {
   const ctx: ToolContext = {
-    userId: 'user-1',
-    conversationId: 'conv-1',
     sessionId: 'sess-1',
+    projectDir: '/test',
   };
 
   test('returns success for valid tool execution', async () => {

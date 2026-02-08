@@ -26,7 +26,7 @@ let mockProcessDirectly = mock(async (_opts: any) => ({
 }));
 
 mock.module('@willebrew/sage-core', () => ({
-  processDirectly: (...args: any[]) => mockProcessDirectly(...args),
+  processDirectly: (...args: [any]) => mockProcessDirectly(...args),
   createToolRegistry: () => createMockRegistry(),
 }));
 
@@ -1349,10 +1349,10 @@ describe('ensureCodexToken via sendMessage', () => {
   test('skips refresh when no oauth auth', async () => {
     const session = createTestSession();
     let fetchCalled = false;
-    globalThis.fetch = async (...args: any[]) => {
+    globalThis.fetch = (async (...args: any[]) => {
       fetchCalled = true;
       return originalFetch(...(args as [any]));
-    };
+    }) as typeof fetch;
 
     await session.sendMessage('No codex needed');
     expect(fetchCalled).toBe(false);
@@ -1377,17 +1377,17 @@ describe('ensureCodexToken via sendMessage', () => {
       },
     };
 
-    globalThis.fetch = async (url: any) => {
+    globalThis.fetch = ((url: any) => {
       const urlStr = typeof url === 'string' ? url : url.toString();
       if (urlStr.includes('oauth/token')) {
-        return new Response(JSON.stringify({
+        return Promise.resolve(new Response(JSON.stringify({
           access_token: 'new-access-token',
           refresh_token: 'new-refresh-token',
           expires_in: 3600,
-        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
       }
-      return new Response('', { status: 404 });
-    };
+      return Promise.resolve(new Response('', { status: 404 }));
+    }) as typeof fetch;
 
     const session = new ChatSession({
       projectDir,
@@ -1421,9 +1421,9 @@ describe('ensureCodexToken via sendMessage', () => {
       },
     };
 
-    globalThis.fetch = async () => {
-      return new Response('Unauthorized', { status: 401 });
-    };
+    globalThis.fetch = (() => {
+      return Promise.resolve(new Response('Unauthorized', { status: 401 }));
+    }) as unknown as typeof fetch;
 
     const session = new ChatSession({
       projectDir,
@@ -1453,9 +1453,9 @@ describe('ensureCodexToken via sendMessage', () => {
       },
     };
 
-    globalThis.fetch = async () => {
-      throw new Error('Network unreachable');
-    };
+    globalThis.fetch = (() => {
+      return Promise.reject(new Error('Network unreachable'));
+    }) as unknown as typeof fetch;
 
     const session = new ChatSession({
       projectDir,
@@ -1486,13 +1486,13 @@ describe('ensureCodexToken via sendMessage', () => {
     };
 
     let tokenRefreshAttempted = false;
-    globalThis.fetch = async (url: any) => {
+    globalThis.fetch = ((url: any) => {
       const urlStr = typeof url === 'string' ? url : url.toString();
       if (urlStr.includes('oauth/token')) {
         tokenRefreshAttempted = true;
       }
-      return new Response('', { status: 404 });
-    };
+      return Promise.resolve(new Response('', { status: 404 }));
+    }) as typeof fetch;
 
     const session = new ChatSession({
       projectDir,
@@ -1760,7 +1760,7 @@ describe('sendMessage onContextManaged setTimeout', () => {
 
       // Now invoke the captured timeout callback
       expect(capturedTimeoutCallback).not.toBeNull();
-      expect(capturedDelay).toBe(15000);
+      expect(capturedDelay as unknown as number).toBe(15000);
       capturedTimeoutCallback!();
 
       // After the timeout fires, contextStatus should be null

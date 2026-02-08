@@ -170,7 +170,7 @@ describe('getSubagentDefinitions', () => {
 describe('buildSystemPrompt', () => {
   test('includes agent instructions', () => {
     const prompt = buildSystemPrompt({
-      agent: BUILT_IN_AGENTS.build,
+      agent: BUILT_IN_AGENTS.build!,
       tools: [],
       projectDir: '/test/project',
     });
@@ -180,7 +180,7 @@ describe('buildSystemPrompt', () => {
 
   test('includes environment info', () => {
     const prompt = buildSystemPrompt({
-      agent: BUILT_IN_AGENTS.build,
+      agent: BUILT_IN_AGENTS.build!,
       tools: [],
       projectDir: '/test/project',
     });
@@ -190,7 +190,7 @@ describe('buildSystemPrompt', () => {
 
   test('environment info contains OS, hostname, user, shell, memory, and node version', () => {
     const prompt = buildSystemPrompt({
-      agent: BUILT_IN_AGENTS.build,
+      agent: BUILT_IN_AGENTS.build!,
       tools: [],
       projectDir: '/test/env-check',
     });
@@ -211,7 +211,7 @@ describe('buildSystemPrompt', () => {
 
   test('environment info includes osRelease, exact memory value, and shell path', () => {
     const prompt = buildSystemPrompt({
-      agent: BUILT_IN_AGENTS.build,
+      agent: BUILT_IN_AGENTS.build!,
       tools: [],
       projectDir: '/test/env-detail',
     });
@@ -231,7 +231,7 @@ describe('buildSystemPrompt', () => {
 
   test('includes tool descriptions when tools provided', () => {
     const prompt = buildSystemPrompt({
-      agent: BUILT_IN_AGENTS.build,
+      agent: BUILT_IN_AGENTS.build!,
       tools: [{
         name: 'bash',
         description: 'Run a shell command',
@@ -250,7 +250,7 @@ describe('buildSystemPrompt', () => {
 
   test('includes custom instructions', () => {
     const prompt = buildSystemPrompt({
-      agent: BUILT_IN_AGENTS.build,
+      agent: BUILT_IN_AGENTS.build!,
       tools: [],
       projectDir: '/test',
       customInstructions: ['Always use TypeScript', 'Prefer functional style'],
@@ -261,7 +261,7 @@ describe('buildSystemPrompt', () => {
 
   test('includes delegation guidance for subagents', () => {
     const prompt = buildSystemPrompt({
-      agent: BUILT_IN_AGENTS.build,
+      agent: BUILT_IN_AGENTS.build!,
       tools: [],
       projectDir: '/test',
       subagents: [
@@ -274,7 +274,7 @@ describe('buildSystemPrompt', () => {
 
   test('uses zen variant for zen models', () => {
     const prompt = buildSystemPrompt({
-      agent: BUILT_IN_AGENTS.build,
+      agent: BUILT_IN_AGENTS.build!,
       tools: [],
       projectDir: '/test',
       modelId: 'kimi-k2.5-free',
@@ -285,7 +285,7 @@ describe('buildSystemPrompt', () => {
 
   test('uses gemini variant for gemini models', () => {
     const prompt = buildSystemPrompt({
-      agent: BUILT_IN_AGENTS.build,
+      agent: BUILT_IN_AGENTS.build!,
       tools: [],
       projectDir: '/test',
       modelId: 'gemini-2.0-flash',
@@ -296,7 +296,7 @@ describe('buildSystemPrompt', () => {
   });
 
   test('omits agent_instructions when agent has no prompt', () => {
-    const agent = { ...BUILT_IN_AGENTS.build, prompt: undefined };
+    const agent = { ...BUILT_IN_AGENTS.build!, prompt: undefined } as any;
     const prompt = buildSystemPrompt({
       agent,
       tools: [],
@@ -307,7 +307,7 @@ describe('buildSystemPrompt', () => {
 
   test('omits tools section when no tools provided', () => {
     const prompt = buildSystemPrompt({
-      agent: BUILT_IN_AGENTS.build,
+      agent: BUILT_IN_AGENTS.build!,
       tools: [],
       projectDir: '/test',
     });
@@ -316,7 +316,7 @@ describe('buildSystemPrompt', () => {
 
   test('omits delegation section when no subagents provided', () => {
     const prompt = buildSystemPrompt({
-      agent: BUILT_IN_AGENTS.build,
+      agent: BUILT_IN_AGENTS.build!,
       tools: [],
       projectDir: '/test',
     });
@@ -325,7 +325,7 @@ describe('buildSystemPrompt', () => {
 
   test('omits custom instructions when none provided', () => {
     const prompt = buildSystemPrompt({
-      agent: BUILT_IN_AGENTS.build,
+      agent: BUILT_IN_AGENTS.build!,
       tools: [],
       projectDir: '/test',
     });
@@ -334,7 +334,7 @@ describe('buildSystemPrompt', () => {
 
   test('delegation includes tool names for subagents with restricted tools', () => {
     const prompt = buildSystemPrompt({
-      agent: BUILT_IN_AGENTS.build,
+      agent: BUILT_IN_AGENTS.build!,
       tools: [],
       projectDir: '/test',
       subagents: [
@@ -346,7 +346,7 @@ describe('buildSystemPrompt', () => {
 
   test('delegation shows "all available tools" when subagent has no toolNames', () => {
     const prompt = buildSystemPrompt({
-      agent: BUILT_IN_AGENTS.build,
+      agent: BUILT_IN_AGENTS.build!,
       tools: [],
       projectDir: '/test',
       subagents: [
@@ -358,7 +358,7 @@ describe('buildSystemPrompt', () => {
 
   test('tool descriptions include required parameter markers', () => {
     const prompt = buildSystemPrompt({
-      agent: BUILT_IN_AGENTS.build,
+      agent: BUILT_IN_AGENTS.build!,
       tools: [{
         name: 'edit',
         description: 'Edit a file',
@@ -379,7 +379,7 @@ describe('buildSystemPrompt', () => {
 
   test('includes guidelines section', () => {
     const prompt = buildSystemPrompt({
-      agent: BUILT_IN_AGENTS.build,
+      agent: BUILT_IN_AGENTS.build!,
       tools: [],
       projectDir: '/test',
     });

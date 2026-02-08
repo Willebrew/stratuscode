@@ -112,42 +112,42 @@ describe('parseTodosFromMarkdown', () => {
   test('parses pending item', () => {
     const result = parseTodosFromMarkdown('- [ ] Task one');
     expect(result).toHaveLength(1);
-    expect(result[0].content).toBe('Task one');
-    expect(result[0].status).toBe('pending');
+    expect(result[0]!.content).toBe('Task one');
+    expect(result[0]!.status).toBe('pending');
   });
 
   test('parses completed item', () => {
     const result = parseTodosFromMarkdown('- [x] Done task');
     expect(result).toHaveLength(1);
-    expect(result[0].status).toBe('completed');
+    expect(result[0]!.status).toBe('completed');
   });
 
   test('parses uppercase X as completed', () => {
     const result = parseTodosFromMarkdown('- [X] Done task');
-    expect(result[0].status).toBe('completed');
+    expect(result[0]!.status).toBe('completed');
   });
 
   test('parses in_progress badge', () => {
     const result = parseTodosFromMarkdown('- [ ] Working on it [IN PROGRESS]');
-    expect(result[0].status).toBe('in_progress');
-    expect(result[0].content).toBe('Working on it');
+    expect(result[0]!.status).toBe('in_progress');
+    expect(result[0]!.content).toBe('Working on it');
   });
 
   test('parses high priority badge', () => {
     const result = parseTodosFromMarkdown('- [ ] Critical [HIGH]');
-    expect(result[0].priority).toBe('high');
-    expect(result[0].content).toBe('Critical');
+    expect(result[0]!.priority).toBe('high');
+    expect(result[0]!.content).toBe('Critical');
   });
 
   test('parses low priority badge', () => {
     const result = parseTodosFromMarkdown('- [ ] Nice to have [LOW]');
-    expect(result[0].priority).toBe('low');
-    expect(result[0].content).toBe('Nice to have');
+    expect(result[0]!.priority).toBe('low');
+    expect(result[0]!.content).toBe('Nice to have');
   });
 
   test('defaults to medium priority', () => {
     const result = parseTodosFromMarkdown('- [ ] Normal task');
-    expect(result[0].priority).toBe('medium');
+    expect(result[0]!.priority).toBe('medium');
   });
 
   test('parses multiple items', () => {
@@ -160,9 +160,9 @@ describe('parseTodosFromMarkdown', () => {
 
     const result = parseTodosFromMarkdown(markdown);
     expect(result).toHaveLength(3);
-    expect(result[0].status).toBe('completed');
-    expect(result[1].status).toBe('in_progress');
-    expect(result[2].priority).toBe('high');
+    expect(result[0]!.status).toBe('completed');
+    expect(result[1]!.status).toBe('in_progress');
+    expect(result[2]!.priority).toBe('high');
   });
 
   test('ignores non-todo lines', () => {
@@ -193,13 +193,13 @@ Not a todo item
     const parsed = parseTodosFromMarkdown(markdown);
 
     expect(parsed).toHaveLength(4);
-    expect(parsed[0].content).toBe('Task A');
-    expect(parsed[0].status).toBe('completed');
-    expect(parsed[1].content).toBe('Task B');
-    expect(parsed[1].status).toBe('in_progress');
-    expect(parsed[2].content).toBe('Task C');
-    expect(parsed[2].priority).toBe('high');
-    expect(parsed[3].content).toBe('Task D');
-    expect(parsed[3].priority).toBe('low');
+    expect(parsed[0]!.content).toBe('Task A');
+    expect(parsed[0]!.status).toBe('completed');
+    expect(parsed[1]!.content).toBe('Task B');
+    expect(parsed[1]!.status).toBe('in_progress');
+    expect(parsed[2]!.content).toBe('Task C');
+    expect(parsed[2]!.priority).toBe('high');
+    expect(parsed[3]!.content).toBe('Task D');
+    expect(parsed[3]!.priority).toBe('low');
   });
 });

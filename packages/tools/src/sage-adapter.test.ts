@@ -32,8 +32,8 @@ describe('defineTool', () => {
     const params = {
       type: 'object' as const,
       properties: {
-        a: { type: 'string', description: 'First param' },
-        b: { type: 'number' },
+        a: { type: 'string' as const, description: 'First param' },
+        b: { type: 'number' as const },
       },
       required: ['a'],
     };

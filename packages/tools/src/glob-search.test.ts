@@ -173,7 +173,7 @@ describe('globTool.execute - basic patterns', () => {
     ));
 
     expect(result.total).toBe(1);
-    expect(result.results[0].path).toBe('README.md');
+    expect(result.results[0]!.path).toBe('README.md');
   });
 
   test('finds .css files nested deep', async () => {
@@ -183,7 +183,7 @@ describe('globTool.execute - basic patterns', () => {
     ));
 
     expect(result.total).toBe(1);
-    expect(result.results[0].path).toBe('src/components/styles/theme.css');
+    expect(result.results[0]!.path).toBe('src/components/styles/theme.css');
   });
 
   test('returns no results for non-matching pattern', async () => {
@@ -219,7 +219,7 @@ describe('globTool.execute - basic patterns', () => {
     ));
 
     expect(result.total).toBe(1);
-    expect(result.results[0].path).toBe('src/app.test.ts');
+    expect(result.results[0]!.path).toBe('src/app.test.ts');
   });
 });
 
@@ -496,7 +496,7 @@ describe('globTool.execute - max_depth', () => {
 
     // theme.css is at depth 3 - should be found without depth limit
     expect(result.total).toBe(1);
-    expect(result.results[0].path).toBe('src/components/styles/theme.css');
+    expect(result.results[0]!.path).toBe('src/components/styles/theme.css');
   });
 });
 
@@ -685,10 +685,10 @@ describe('globTool.execute - output shape', () => {
     ));
 
     expect(result.total).toBe(1);
-    expect(result.results[0].type).toBe('file');
-    expect(typeof result.results[0].size).toBe('number');
+    expect(result.results[0]!.type).toBe('file');
+    expect(typeof result.results[0]!.size).toBe('number');
     // 'export {};' is 10 bytes
-    expect(result.results[0].size).toBe(10);
+    expect(result.results[0]!.size).toBe(10);
   });
 
   test('searchDirectory in output is absolute', async () => {
@@ -758,7 +758,7 @@ describe('globTool.execute - edge cases', () => {
       ));
 
       expect(result.total).toBe(1);
-      expect(result.results[0].path).toBe('.env');
+      expect(result.results[0]!.path).toBe('.env');
     } finally {
       rmSync(join(testDir, '.env'), { force: true });
     }
@@ -806,6 +806,6 @@ describe('globTool.execute - edge cases', () => {
 
     expect(result.total).toBe(1);
     // '# Test' is 6 bytes
-    expect(result.results[0].size).toBe(6);
+    expect(result.results[0]!.size).toBe(6);
   });
 });

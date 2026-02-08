@@ -24,8 +24,8 @@ describe('parsePatch', () => {
 
     const result = parsePatch(patch);
     expect(result).toHaveLength(1);
-    expect(result[0].path).toBe('file.txt');
-    expect(result[0].hunks).toHaveLength(1);
+    expect(result[0]!.path).toBe('file.txt');
+    expect(result[0]!.hunks).toHaveLength(1);
   });
 
   test('strips a/ and b/ prefix from paths', () => {
@@ -36,7 +36,7 @@ describe('parsePatch', () => {
 +added`;
 
     const result = parsePatch(patch);
-    expect(result[0].path).toBe('src/index.ts');
+    expect(result[0]!.path).toBe('src/index.ts');
   });
 
   test('parses multi-file patch', () => {
@@ -53,8 +53,8 @@ describe('parsePatch', () => {
 
     const result = parsePatch(patch);
     expect(result).toHaveLength(2);
-    expect(result[0].path).toBe('file1.ts');
-    expect(result[1].path).toBe('file2.ts');
+    expect(result[0]!.path).toBe('file1.ts');
+    expect(result[1]!.path).toBe('file2.ts');
   });
 
   test('returns empty array for empty input', () => {
@@ -90,7 +90,7 @@ no hunk headers here`;
 
     const result = parsePatch(patch);
     expect(result).toHaveLength(1);
-    expect(result[0].hunks).toHaveLength(2);
+    expect(result[0]!.hunks).toHaveLength(2);
   });
 
   test('handles paths without a/b prefix', () => {
@@ -101,7 +101,7 @@ no hunk headers here`;
 +new`;
 
     const result = parsePatch(patch);
-    expect(result[0].path).toBe('file.txt');
+    expect(result[0]!.path).toBe('file.txt');
   });
 
   test('skips malformed @@ hunk header when parseHunk returns null', () => {
@@ -131,9 +131,9 @@ no hunk headers here`;
 
     const result = parsePatch(patch);
     expect(result).toHaveLength(1);
-    expect(result[0].path).toBe('file.txt');
-    expect(result[0].hunks).toHaveLength(1);
-    expect(result[0].hunks[0].lines).toHaveLength(3);
+    expect(result[0]!.path).toBe('file.txt');
+    expect(result[0]!.hunks).toHaveLength(1);
+    expect(result[0]!.hunks[0]!.lines).toHaveLength(3);
   });
 });
 
@@ -182,13 +182,13 @@ describe('parseHunk', () => {
     ];
     const result = parseHunk(lines, 0);
 
-    expect(result!.hunk.lines[0].type).toBe('context');
-    expect(result!.hunk.lines[0].content).toBe('context line');
-    expect(result!.hunk.lines[1].type).toBe('remove');
-    expect(result!.hunk.lines[1].content).toBe('removed line');
-    expect(result!.hunk.lines[2].type).toBe('add');
-    expect(result!.hunk.lines[2].content).toBe('added line');
-    expect(result!.hunk.lines[3].type).toBe('context');
+    expect(result!.hunk.lines[0]!.type).toBe('context');
+    expect(result!.hunk.lines[0]!.content).toBe('context line');
+    expect(result!.hunk.lines[1]!.type).toBe('remove');
+    expect(result!.hunk.lines[1]!.content).toBe('removed line');
+    expect(result!.hunk.lines[2]!.type).toBe('add');
+    expect(result!.hunk.lines[2]!.content).toBe('added line');
+    expect(result!.hunk.lines[3]!.type).toBe('context');
   });
 
   test('stops at next hunk header', () => {
