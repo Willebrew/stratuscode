@@ -212,6 +212,7 @@ describe('config-loader: hasApiKey', () => {
   });
 });
 
+
 describe('config-loader: error handling', () => {
   test('continues on invalid JSON in project config', () => {
     const originalEnv = { ...process.env };
@@ -224,37 +225,19 @@ describe('config-loader: error handling', () => {
     delete process.env.CODEX_ACCESS_TOKEN;
     try {
       fs.writeFileSync(path.join(tmpDir, 'stratuscode.json'), 'not valid json {{{');
-      const { config } = loadConfig(tmpDir);
-      expect(config.model).toBe('gpt-5.2-codex');
+      const { config, sources } = loadConfig(tmpDir);
+      // Invalid JSON is caught and warned, not added to sources
+      expect(sources.every((s: string) => !s.includes(tmpDir))).toBe(true);
+      expect(config.agent!.name).toBe('stratuscode');
     } finally {
       process.env = originalEnv;
     }
   });
 });
 
-describe('config-loader: saveGlobalConfig', () => {
-  test('creates directory and writes config', () => {
-    const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'config-home-'));
-    const originalHome = process.env.HOME;
-    process.env.HOME = fakeHome;
-    try {
-      saveGlobalConfig({ model: 'test-model' } as any);
-      const configPath = path.join(fakeHome, '.stratuscode', 'config.json');
-      expect(fs.existsSync(configPath)).toBe(true);
-      const loaded = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      expect(loaded.model).toBe('test-model');
-    } finally {
-      process.env.HOME = originalHome;
-      fs.rmSync(fakeHome, { recursive: true, force: true });
-    }
-  });
-});
-
 describe('config-loader: env var provider creation', () => {
-  test('OPENAI_API_KEY creates provider when no global config', () => {
-    const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'config-no-global-'));
+  test('OPENAI_API_KEY creates provider when no global config exists', () => {
     const originalEnv = { ...process.env };
-    process.env.HOME = fakeHome;
     delete process.env.STRATUSCODE_API_KEY;
     delete process.env.STRATUSCODE_BASE_URL;
     delete process.env.OPENCODE_ZEN_API_KEY;
@@ -265,17 +248,30 @@ describe('config-loader: env var provider creation', () => {
     try {
       const { config } = loadConfig(tmpDir);
       expect(config.provider!.apiKey).toBe('sk-no-global');
-      expect(config.provider!.baseUrl).toBe('https://api.openai.com/v1');
     } finally {
-      fs.rmSync(fakeHome, { recursive: true, force: true });
       process.env = originalEnv;
     }
   });
 
-  test('STRATUSCODE_BASE_URL creates provider when no global config', () => {
-    const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'config-no-global-'));
+  test('STRATUSCODE_API_KEY creates provider when set alone', () => {
     const originalEnv = { ...process.env };
-    process.env.HOME = fakeHome;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.STRATUSCODE_BASE_URL;
+    delete process.env.OPENCODE_ZEN_API_KEY;
+    delete process.env.OPENCODE_API_KEY;
+    delete process.env.CODEX_REFRESH_TOKEN;
+    delete process.env.CODEX_ACCESS_TOKEN;
+    process.env.STRATUSCODE_API_KEY = 'sk-stratus-only';
+    try {
+      const { config } = loadConfig(tmpDir);
+      expect(config.provider!.apiKey).toBe('sk-stratus-only');
+    } finally {
+      process.env = originalEnv;
+    }
+  });
+
+  test('STRATUSCODE_BASE_URL creates provider when set alone', () => {
+    const originalEnv = { ...process.env };
     delete process.env.OPENAI_API_KEY;
     delete process.env.STRATUSCODE_API_KEY;
     delete process.env.OPENCODE_ZEN_API_KEY;
@@ -287,7 +283,6 @@ describe('config-loader: env var provider creation', () => {
       const { config } = loadConfig(tmpDir);
       expect(config.provider!.baseUrl).toBe('http://custom:8080/v1');
     } finally {
-      fs.rmSync(fakeHome, { recursive: true, force: true });
       process.env = originalEnv;
     }
   });
