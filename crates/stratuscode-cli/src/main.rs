@@ -1,8 +1,10 @@
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
-use crossterm::event::{self, Event, EnableBracketedPaste, DisableBracketedPaste};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::event::{self, DisableBracketedPaste, EnableBracketedPaste, Event};
 use crossterm::execute;
+use crossterm::terminal::{
+    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use serde_json::json;
@@ -12,21 +14,24 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-mod backend;
-mod constants;
 mod app;
+mod backend;
 mod commands;
+mod constants;
 mod input;
 mod ui;
 
+use app::{App, PendingQuestion, QuestionState, SessionInfo, TodoCounts, TodoItem, UiMode};
 use backend::{BackendClient, ChatState, TimelineEvent};
 use constants::SPINNER_FRAMES;
-use app::{App, PendingQuestion, QuestionState, SessionInfo, TodoCounts, TodoItem, UiMode};
 use input::{handle_key, handle_paste};
 use ui::{extract_diff_summary, format_tool_args, render_ui, tool_icon};
 
 enum UiUpdate {
-    Todos { list: Vec<TodoItem>, counts: TodoCounts },
+    Todos {
+        list: Vec<TodoItem>,
+        counts: TodoCounts,
+    },
     Question(QuestionState),
     QuestionNone,
 }
@@ -72,7 +77,12 @@ fn main() -> Result<()> {
         .unwrap()
         .to_path_buf();
 
-    if let Some(Commands::Auth { key, show, provider }) = cli.command {
+    if let Some(Commands::Auth {
+        key,
+        show,
+        provider,
+    }) = cli.command
+    {
         return run_auth(&root, key, show, provider);
     }
 
@@ -86,7 +96,11 @@ fn main() -> Result<()> {
 fn run_auth(root: &Path, key: Option<String>, show: bool, provider: Option<String>) -> Result<()> {
     let primary = root.join("packages/tui/dist/auth.js");
     let fallback = root.join("packages/tui/src/auth.ts");
-    let auth_path = if primary.exists() { primary } else if fallback.exists() { fallback } else {
+    let auth_path = if primary.exists() {
+        primary
+    } else if fallback.exists() {
+        fallback
+    } else {
         return Err(anyhow!("Auth script not found: {}", primary.display()));
     };
 
@@ -117,7 +131,10 @@ fn run_interactive(root: &Path, cli: &Cli) -> Result<()> {
     } else if fallback_backend.exists() {
         fallback_backend
     } else {
-        return Err(anyhow!("Backend build not found: {}", primary_backend.display()));
+        return Err(anyhow!(
+            "Backend build not found: {}",
+            primary_backend.display()
+        ));
     };
 
     let args = vec![backend_path.to_string_lossy().to_string()];
@@ -137,8 +154,9 @@ fn run_interactive(root: &Path, cli: &Cli) -> Result<()> {
     });
 
     let init_result = client.lock().unwrap().call("initialize", init_payload)?;
-    let state: ChatState = serde_json::from_value(init_result.get("state").cloned().unwrap_or_default())
-        .map_err(|e| anyhow!("Failed to parse state: {e}"))?;
+    let state: ChatState =
+        serde_json::from_value(init_result.get("state").cloned().unwrap_or_default())
+            .map_err(|e| anyhow!("Failed to parse state: {e}"))?;
     let base_model = init_result
         .get("baseModel")
         .and_then(|v| v.as_str())
@@ -156,7 +174,11 @@ fn run_interactive(root: &Path, cli: &Cli) -> Result<()> {
     let (ui_tx, ui_rx) = std::sync::mpsc::channel::<UiUpdate>();
 
     loop {
-        let tick_rate = if app.state.is_loading { Duration::from_millis(80) } else { Duration::from_millis(220) };
+        let tick_rate = if app.state.is_loading {
+            Duration::from_millis(80)
+        } else {
+            Duration::from_millis(220)
+        };
         if app.dirty || last_tick.elapsed() >= tick_rate {
             if app.state.is_loading {
                 app.spinner_index = (app.spinner_index + 1) % SPINNER_FRAMES.len();
@@ -227,7 +249,11 @@ fn run_interactive(root: &Path, cli: &Cli) -> Result<()> {
             break;
         }
 
-        let todo_refresh = if app.state.is_loading { Duration::from_millis(750) } else { Duration::from_secs(3) };
+        let todo_refresh = if app.state.is_loading {
+            Duration::from_millis(750)
+        } else {
+            Duration::from_secs(3)
+        };
         if (app.todos_expanded || !app.todos.is_empty())
             && app.last_todos_refresh.elapsed() > todo_refresh
             && !app.todos_request_inflight
@@ -239,15 +265,28 @@ fn run_interactive(root: &Path, cli: &Cli) -> Result<()> {
                 let tx = ui_tx.clone();
                 std::thread::spawn(move || {
                     let mut list = Vec::new();
-                    let mut counts = TodoCounts { pending: 0, in_progress: 0, completed: 0, total: 0 };
-                    if let Ok(resp) = client.lock().unwrap().call("list_todos", json!({ "sessionId": session_id })) {
+                    let mut counts = TodoCounts {
+                        pending: 0,
+                        in_progress: 0,
+                        completed: 0,
+                        total: 0,
+                    };
+                    if let Ok(resp) = client
+                        .lock()
+                        .unwrap()
+                        .call("list_todos", json!({ "sessionId": session_id }))
+                    {
                         if let Some(list_val) = resp.get("list") {
-                            if let Ok(parsed) = serde_json::from_value::<Vec<TodoItem>>(list_val.clone()) {
+                            if let Ok(parsed) =
+                                serde_json::from_value::<Vec<TodoItem>>(list_val.clone())
+                            {
                                 list = parsed;
                             }
                         }
                         if let Some(counts_val) = resp.get("counts") {
-                            if let Ok(parsed) = serde_json::from_value::<TodoCounts>(counts_val.clone()) {
+                            if let Ok(parsed) =
+                                serde_json::from_value::<TodoCounts>(counts_val.clone())
+                            {
                                 counts = parsed;
                             }
                         }
@@ -257,14 +296,20 @@ fn run_interactive(root: &Path, cli: &Cli) -> Result<()> {
             }
         }
 
-        if app.last_question_poll.elapsed() > Duration::from_millis(500) && !app.question_request_inflight {
+        if app.last_question_poll.elapsed() > Duration::from_millis(500)
+            && !app.question_request_inflight
+        {
             if let Some(session_id) = app.state.session_id.clone() {
                 app.question_request_inflight = true;
                 app.last_question_poll = Instant::now();
                 let client = client.clone();
                 let tx = ui_tx.clone();
                 std::thread::spawn(move || {
-                    if let Ok(resp) = client.lock().unwrap().call("get_pending_question", json!({ "sessionId": session_id })) {
+                    if let Ok(resp) = client
+                        .lock()
+                        .unwrap()
+                        .call("get_pending_question", json!({ "sessionId": session_id }))
+                    {
                         if let Ok(list) = serde_json::from_value::<Vec<PendingQuestion>>(resp) {
                             if let Some(pending) = list.first() {
                                 if let Some(item) = pending.questions.first() {
@@ -305,7 +350,11 @@ fn run_interactive(root: &Path, cli: &Cli) -> Result<()> {
     }
 
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), DisableBracketedPaste, LeaveAlternateScreen)?;
+    execute!(
+        terminal.backend_mut(),
+        DisableBracketedPaste,
+        LeaveAlternateScreen
+    )?;
     terminal.show_cursor()?;
     client.lock().unwrap().shutdown();
 
@@ -320,7 +369,10 @@ fn run_non_interactive(root: &Path, cli: &Cli, prompt: &str) -> Result<()> {
     } else if fallback_backend.exists() {
         fallback_backend
     } else {
-        return Err(anyhow!("Backend build not found: {}", primary_backend.display()));
+        return Err(anyhow!(
+            "Backend build not found: {}",
+            primary_backend.display()
+        ));
     };
     let args = vec![backend_path.to_string_lossy().to_string()];
     let (client, notify_rx) = BackendClient::spawn("bun", &args)?;
@@ -332,13 +384,19 @@ fn run_non_interactive(root: &Path, cli: &Cli, prompt: &str) -> Result<()> {
                 if let Ok(event) = serde_json::from_value::<TimelineEvent>(notif.params) {
                     if event.kind == "tool_call" {
                         let icon = tool_icon(event.tool_name.as_deref().unwrap_or(""));
-                        println!("\n{} {}", icon, event.tool_name.unwrap_or_else(|| "tool".to_string()));
+                        println!(
+                            "\n{} {}",
+                            icon,
+                            event.tool_name.unwrap_or_else(|| "tool".to_string())
+                        );
                         if !event.content.is_empty() {
                             println!("   {}", format_tool_args(&event.content));
                         }
                     }
                     if event.kind == "tool_result" {
-                        if let Some((_summary, diff_lines)) = extract_diff_summary(&event.content, 120) {
+                        if let Some((_summary, diff_lines)) =
+                            extract_diff_summary(&event.content, 120)
+                        {
                             for line in diff_lines.into_iter().take(120) {
                                 let mut out = String::new();
                                 for span in line.spans {
@@ -373,17 +431,27 @@ fn run_non_interactive(root: &Path, cli: &Cli, prompt: &str) -> Result<()> {
         "provider": cli.provider,
     });
     let init_result = client.call("initialize", init_payload)?;
-    let _state: ChatState = serde_json::from_value(init_result.get("state").cloned().unwrap_or_default())
-        .map_err(|e| anyhow!("Failed to parse state: {e}"))?;
+    let _state: ChatState =
+        serde_json::from_value(init_result.get("state").cloned().unwrap_or_default())
+            .map_err(|e| anyhow!("Failed to parse state: {e}"))?;
 
     client.call("send_message", json!({ "content": prompt }))?;
     let state_value = client.call("get_state", json!({}))?;
-    let state: ChatState = serde_json::from_value(state_value).map_err(|e| anyhow!("Failed to parse state: {e}"))?;
+    let state: ChatState =
+        serde_json::from_value(state_value).map_err(|e| anyhow!("Failed to parse state: {e}"))?;
 
-    if let Some(last) = state.timeline_events.iter().rev().find(|e| e.kind == "assistant") {
+    if let Some(last) = state
+        .timeline_events
+        .iter()
+        .rev()
+        .find(|e| e.kind == "assistant")
+    {
         println!("{}", last.content);
     }
-    println!("\nTokens: {} in / {} out", state.tokens.input, state.tokens.output);
+    println!(
+        "\nTokens: {} in / {} out",
+        state.tokens.input, state.tokens.output
+    );
     client.shutdown();
     let _ = notify_handle.join();
     Ok(())

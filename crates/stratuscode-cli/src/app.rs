@@ -211,7 +211,12 @@ impl App {
             history_needs_refresh: false,
             question: None,
             todos: Vec::new(),
-            todo_counts: TodoCounts { pending: 0, in_progress: 0, completed: 0, total: 0 },
+            todo_counts: TodoCounts {
+                pending: 0,
+                in_progress: 0,
+                completed: 0,
+                total: 0,
+            },
             compact_view: false,
             scroll_from_bottom: 0,
             dirty: true,
@@ -273,7 +278,12 @@ impl App {
     }
 
     pub fn upsert_timeline(&mut self, event: TimelineEvent) {
-        if let Some(idx) = self.state.timeline_events.iter().position(|e| e.id == event.id) {
+        if let Some(idx) = self
+            .state
+            .timeline_events
+            .iter()
+            .position(|e| e.id == event.id)
+        {
             self.state.timeline_events[idx] = event;
         } else {
             self.state.timeline_events.push(event);
@@ -374,8 +384,20 @@ impl App {
 pub fn build_file_index(project_dir: &Path) -> Vec<FileResult> {
     let mut index = Vec::new();
     let excludes = [
-        "node_modules", ".git", "dist", "build", ".next", ".cache", ".turbo", ".output",
-        ".nuxt", "coverage", "__pycache__", ".stratuscode", ".vscode", ".idea",
+        "node_modules",
+        ".git",
+        "dist",
+        "build",
+        ".next",
+        ".cache",
+        ".turbo",
+        ".output",
+        ".nuxt",
+        "coverage",
+        "__pycache__",
+        ".stratuscode",
+        ".vscode",
+        ".idea",
     ];
 
     for entry in WalkDir::new(project_dir)
@@ -493,7 +515,11 @@ pub fn collect_answers(q: &QuestionState) -> Vec<String> {
 
 pub fn refresh_todos(app: &mut App, client: &Arc<Mutex<BackendClient>>) {
     if let Some(session_id) = &app.state.session_id {
-        if let Ok(resp) = client.lock().unwrap().call("list_todos", json!({ "sessionId": session_id })) {
+        if let Ok(resp) = client
+            .lock()
+            .unwrap()
+            .call("list_todos", json!({ "sessionId": session_id }))
+        {
             if let Some(list_val) = resp.get("list") {
                 if let Ok(list) = serde_json::from_value::<Vec<TodoItem>>(list_val.clone()) {
                     app.todos = list;

@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main, develop]
 
+permissions:
+  contents: read
+  packages: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -17,7 +21,7 @@ env:
   # SAGE repo — update this to your GitHub repo URL
   SAGE_REPO: ${{ vars.SAGE_REPO || '' }}
   # GitHub Packages auth for @willebrew scoped packages (bunfig.toml reads $GITHUB_TOKEN)
-  GITHUB_TOKEN: ${{ secrets.SAGE_TOKEN || secrets.GITHUB_TOKEN }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   # ──────────────────────────────────────────────

@@ -4,9 +4,9 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 #[derive(Debug, Clone)]
@@ -90,7 +90,10 @@ pub struct BackendClient {
 }
 
 impl BackendClient {
-    pub fn spawn(backend_cmd: &str, args: &[String]) -> Result<(Self, Receiver<BackendNotification>)> {
+    pub fn spawn(
+        backend_cmd: &str,
+        args: &[String],
+    ) -> Result<(Self, Receiver<BackendNotification>)> {
         let mut cmd = Command::new(backend_cmd);
         cmd.args(args)
             .stdin(Stdio::piped())
@@ -98,23 +101,36 @@ impl BackendClient {
             .stderr(Stdio::null());
 
         let mut child = cmd.spawn()?;
-        let stdin = child.stdin.take().ok_or_else(|| anyhow!("Failed to open stdin"))?;
-        let stdout = child.stdout.take().ok_or_else(|| anyhow!("Failed to open stdout"))?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| anyhow!("Failed to open stdin"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow!("Failed to open stdout"))?;
 
         let pending: Arc<Mutex<HashMap<u64, Sender<Value>>>> = Arc::new(Mutex::new(HashMap::new()));
         let (notify_tx, notify_rx) = mpsc::channel();
 
         Self::start_reader_thread(stdout, pending.clone(), notify_tx);
 
-        Ok((Self {
-            child,
-            stdin,
-            pending,
-            next_id: AtomicU64::new(1),
-        }, notify_rx))
+        Ok((
+            Self {
+                child,
+                stdin,
+                pending,
+                next_id: AtomicU64::new(1),
+            },
+            notify_rx,
+        ))
     }
 
-    fn start_reader_thread(stdout: ChildStdout, pending: Arc<Mutex<HashMap<u64, Sender<Value>>>>, notify_tx: Sender<BackendNotification>) {
+    fn start_reader_thread(
+        stdout: ChildStdout,
+        pending: Arc<Mutex<HashMap<u64, Sender<Value>>>>,
+        notify_tx: Sender<BackendNotification>,
+    ) {
         thread::spawn(move || {
             let reader = BufReader::new(stdout);
             for line in reader.lines().map_while(Result::ok) {

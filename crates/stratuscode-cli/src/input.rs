@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use base64::Engine;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde_json::json;
 
 use crate::app::{
@@ -9,7 +9,10 @@ use crate::app::{
     App, UiMode,
 };
 use crate::backend::BackendClient;
-use crate::commands::{commands_list, execute_command, filter_commands, filter_models, parse_command, sort_models_by_provider};
+use crate::commands::{
+    commands_list, execute_command, filter_commands, filter_models, parse_command,
+    sort_models_by_provider,
+};
 use crate::constants::{IMAGE_MARKER, PASTE_END, PASTE_START};
 
 pub fn clamp_cursor(value: &str, cursor: usize) -> usize {
@@ -200,7 +203,10 @@ pub fn handle_key(app: &mut App, key: KeyEvent, client: &Arc<Mutex<BackendClient
                 _ => "off",
             };
             app.reasoning_effort = next.to_string();
-            let _ = client.lock().unwrap().call("set_reasoning_effort", json!({ "reasoningEffort": next }));
+            let _ = client
+                .lock()
+                .unwrap()
+                .call("set_reasoning_effort", json!({ "reasoningEffort": next }));
             app.set_toast(format!("Reasoning: {}", next));
         }
         KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -209,9 +215,16 @@ pub fn handle_key(app: &mut App, key: KeyEvent, client: &Arc<Mutex<BackendClient
             crate::app::refresh_todos(app, client);
         }
         KeyCode::Tab => {
-            let next = if app.state.agent == "build" { "plan" } else { "build" };
+            let next = if app.state.agent == "build" {
+                "plan"
+            } else {
+                "build"
+            };
             app.state.agent = next.to_string();
-            let _ = client.lock().unwrap().call("set_agent", json!({ "agent": next }));
+            let _ = client
+                .lock()
+                .unwrap()
+                .call("set_agent", json!({ "agent": next }));
             app.mark_dirty();
         }
         KeyCode::Char('/') if app.input.is_empty() => {
@@ -276,11 +289,15 @@ pub fn handle_key(app: &mut App, key: KeyEvent, client: &Arc<Mutex<BackendClient
                 let attachments = if app.attachments.is_empty() {
                     json!(null)
                 } else {
-                    json!(app.attachments.iter().map(|a| json!({
-                        "type": "image",
-                        "data": a.data,
-                        "mime": a.mime
-                    })).collect::<Vec<_>>())
+                    json!(app
+                        .attachments
+                        .iter()
+                        .map(|a| json!({
+                            "type": "image",
+                            "data": a.data,
+                            "mime": a.mime
+                        }))
+                        .collect::<Vec<_>>())
                 };
                 let payload = json!({ "content": text_content, "attachments": attachments });
                 app.input.clear();
@@ -298,7 +315,11 @@ pub fn handle_key(app: &mut App, key: KeyEvent, client: &Arc<Mutex<BackendClient
         }
         KeyCode::Backspace => {
             if let Some((new_value, new_cursor)) = handle_backspace(&app.input, app.cursor) {
-                let removed_images = app.input.chars().filter(|&c| c == IMAGE_MARKER).count()
+                let removed_images = app
+                    .input
+                    .chars()
+                    .filter(|&c| c == IMAGE_MARKER)
+                    .count()
                     .saturating_sub(new_value.chars().filter(|&c| c == IMAGE_MARKER).count());
                 app.input = new_value;
                 app.cursor = new_cursor;
@@ -329,7 +350,10 @@ pub fn handle_key(app: &mut App, key: KeyEvent, client: &Arc<Mutex<BackendClient
                 ClipboardImageResult::Image(data) => {
                     app.input.insert(app.cursor, IMAGE_MARKER);
                     app.cursor += IMAGE_MARKER.len_utf8();
-                    app.attachments.push(crate::app::AttachmentUpload { data, mime: "image/png".to_string() });
+                    app.attachments.push(crate::app::AttachmentUpload {
+                        data,
+                        mime: "image/png".to_string(),
+                    });
                     app.set_toast("Image attached".to_string());
                     app.mark_dirty();
                 }
@@ -345,7 +369,9 @@ pub fn handle_key(app: &mut App, key: KeyEvent, client: &Arc<Mutex<BackendClient
             }
         }
         KeyCode::Char(ch) => {
-            if !key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT) {
+            if !key.modifiers.contains(KeyModifiers::CONTROL)
+                && !key.modifiers.contains(KeyModifiers::ALT)
+            {
                 app.input.insert(app.cursor, ch);
                 app.cursor += ch.len_utf8();
                 app.mark_dirty();
@@ -366,7 +392,11 @@ pub fn handle_key(app: &mut App, key: KeyEvent, client: &Arc<Mutex<BackendClient
     }
 }
 
-pub fn handle_overlay_keys(app: &mut App, key: KeyEvent, client: &Arc<Mutex<BackendClient>>) -> bool {
+pub fn handle_overlay_keys(
+    app: &mut App,
+    key: KeyEvent,
+    client: &Arc<Mutex<BackendClient>>,
+) -> bool {
     app.cursor = clamp_cursor(&app.input, app.cursor);
 
     match app.mode {
@@ -408,7 +438,9 @@ pub fn handle_overlay_keys(app: &mut App, key: KeyEvent, client: &Arc<Mutex<Back
                     app.command_offset = 0;
                 }
                 KeyCode::Char(ch) => {
-                    if !key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT) {
+                    if !key.modifiers.contains(KeyModifiers::CONTROL)
+                        && !key.modifiers.contains(KeyModifiers::ALT)
+                    {
                         app.command_query.push(ch);
                         app.command_selected = 0;
                         app.command_offset = 0;
@@ -464,7 +496,9 @@ pub fn handle_overlay_keys(app: &mut App, key: KeyEvent, client: &Arc<Mutex<Back
                     }
                 }
                 KeyCode::Char(ch) => {
-                    if !key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT) {
+                    if !key.modifiers.contains(KeyModifiers::CONTROL)
+                        && !key.modifiers.contains(KeyModifiers::ALT)
+                    {
                         app.input.insert(app.cursor, ch);
                         app.cursor += ch.len_utf8();
                     }
@@ -500,15 +534,31 @@ pub fn handle_overlay_keys(app: &mut App, key: KeyEvent, client: &Arc<Mutex<Back
                     if app.model_selected == filtered.len() {
                         app.custom_model_mode = true;
                     } else if let Some(entry) = filtered.get(app.model_selected) {
-                        let _ = client.lock().unwrap().call("set_model", json!({ "model": entry.id }));
+                        let _ = client
+                            .lock()
+                            .unwrap()
+                            .call("set_model", json!({ "model": entry.id }));
                         if let Some(provider) = &entry.provider_key {
-                            let _ = client.lock().unwrap().call("set_provider", json!({ "provider": provider }));
+                            let _ = client
+                                .lock()
+                                .unwrap()
+                                .call("set_provider", json!({ "provider": provider }));
                         } else {
-                            let _ = client.lock().unwrap().call("set_provider", json!({ "provider": null }));
+                            let _ = client
+                                .lock()
+                                .unwrap()
+                                .call("set_provider", json!({ "provider": null }));
                         }
-                        let next_reasoning = if entry.reasoning.unwrap_or(false) { "medium" } else { "off" };
+                        let next_reasoning = if entry.reasoning.unwrap_or(false) {
+                            "medium"
+                        } else {
+                            "off"
+                        };
                         app.reasoning_effort = next_reasoning.to_string();
-                        let _ = client.lock().unwrap().call("set_reasoning_effort", json!({ "reasoningEffort": next_reasoning }));
+                        let _ = client.lock().unwrap().call(
+                            "set_reasoning_effort",
+                            json!({ "reasoningEffort": next_reasoning }),
+                        );
                         app.mode = UiMode::Normal;
                     }
                 }
@@ -520,7 +570,9 @@ pub fn handle_overlay_keys(app: &mut App, key: KeyEvent, client: &Arc<Mutex<Back
                     }
                 }
                 KeyCode::Char(ch) => {
-                    if !key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT) {
+                    if !key.modifiers.contains(KeyModifiers::CONTROL)
+                        && !key.modifiers.contains(KeyModifiers::ALT)
+                    {
                         if app.custom_model_mode {
                             app.custom_model_input.push(ch);
                         } else {
@@ -537,16 +589,27 @@ pub fn handle_overlay_keys(app: &mut App, key: KeyEvent, client: &Arc<Mutex<Back
             } else if app.model_selected >= app.model_offset + 10 {
                 app.model_offset = app.model_selected + 1 - 10;
             }
-            if app.custom_model_mode && key.code == KeyCode::Enter
-                && !app.custom_model_input.trim().is_empty() {
-                    let model = app.custom_model_input.trim();
-                    let _ = client.lock().unwrap().call("set_model", json!({ "model": model }));
-                    let _ = client.lock().unwrap().call("set_provider", json!({ "provider": null }));
-                    app.reasoning_effort = "off".to_string();
-                    let _ = client.lock().unwrap().call("set_reasoning_effort", json!({ "reasoningEffort": "off" }));
-                    app.mode = UiMode::Normal;
-                    app.custom_model_mode = false;
-                    app.custom_model_input.clear();
+            if app.custom_model_mode
+                && key.code == KeyCode::Enter
+                && !app.custom_model_input.trim().is_empty()
+            {
+                let model = app.custom_model_input.trim();
+                let _ = client
+                    .lock()
+                    .unwrap()
+                    .call("set_model", json!({ "model": model }));
+                let _ = client
+                    .lock()
+                    .unwrap()
+                    .call("set_provider", json!({ "provider": null }));
+                app.reasoning_effort = "off".to_string();
+                let _ = client
+                    .lock()
+                    .unwrap()
+                    .call("set_reasoning_effort", json!({ "reasoningEffort": "off" }));
+                app.mode = UiMode::Normal;
+                app.custom_model_mode = false;
+                app.custom_model_input.clear();
             }
             app.mark_dirty();
             return true;
@@ -565,7 +628,10 @@ pub fn handle_overlay_keys(app: &mut App, key: KeyEvent, client: &Arc<Mutex<Back
                         if let Some(sess) = app.session_list.get_mut(app.session_selected) {
                             let name = app.session_rename_input.trim().to_string();
                             if !name.is_empty() {
-                                let _ = client.lock().unwrap().call("rename_session", json!({ "sessionId": sess.id, "title": name }));
+                                let _ = client.lock().unwrap().call(
+                                    "rename_session",
+                                    json!({ "sessionId": sess.id, "title": name }),
+                                );
                                 sess.title = app.session_rename_input.trim().to_string();
                             }
                         }
@@ -573,7 +639,9 @@ pub fn handle_overlay_keys(app: &mut App, key: KeyEvent, client: &Arc<Mutex<Back
                         app.session_rename_input.clear();
                     }
                     KeyCode::Char(ch) => {
-                        if !key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT) {
+                        if !key.modifiers.contains(KeyModifiers::CONTROL)
+                            && !key.modifiers.contains(KeyModifiers::ALT)
+                        {
                             app.session_rename_input.push(ch);
                         }
                     }
@@ -594,13 +662,19 @@ pub fn handle_overlay_keys(app: &mut App, key: KeyEvent, client: &Arc<Mutex<Back
                     app.session_selected = app.session_selected.saturating_sub(10);
                 }
                 KeyCode::PageDown => {
-                    app.session_selected = (app.session_selected + 10).min(app.session_list.len().saturating_sub(1));
+                    app.session_selected =
+                        (app.session_selected + 10).min(app.session_list.len().saturating_sub(1));
                 }
                 KeyCode::Char('d') => {
                     if let Some(sess) = app.session_list.get(app.session_selected) {
-                        let _ = client.lock().unwrap().call("delete_session", json!({ "sessionId": sess.id }));
+                        let _ = client
+                            .lock()
+                            .unwrap()
+                            .call("delete_session", json!({ "sessionId": sess.id }));
                         app.session_list.remove(app.session_selected);
-                        if app.session_selected >= app.session_list.len() && !app.session_list.is_empty() {
+                        if app.session_selected >= app.session_list.len()
+                            && !app.session_list.is_empty()
+                        {
                             app.session_selected = app.session_list.len() - 1;
                         }
                         app.history_needs_refresh = true;
@@ -614,7 +688,10 @@ pub fn handle_overlay_keys(app: &mut App, key: KeyEvent, client: &Arc<Mutex<Back
                 }
                 KeyCode::Enter => {
                     if let Some(sess) = app.session_list.get(app.session_selected) {
-                        let _ = client.lock().unwrap().call("load_session", json!({ "sessionId": sess.id }));
+                        let _ = client
+                            .lock()
+                            .unwrap()
+                            .call("load_session", json!({ "sessionId": sess.id }));
                     }
                     app.mode = UiMode::Normal;
                 }
@@ -646,7 +723,10 @@ pub fn handle_overlay_keys(app: &mut App, key: KeyEvent, client: &Arc<Mutex<Back
                             q.custom_active = false;
                             q.custom_input.clear();
                         } else {
-                            let _ = client.lock().unwrap().call("skip_question", json!({ "id": q.id }));
+                            let _ = client
+                                .lock()
+                                .unwrap()
+                                .call("skip_question", json!({ "id": q.id }));
                             app.question = None;
                             app.mode = UiMode::Normal;
                         }
@@ -658,7 +738,8 @@ pub fn handle_overlay_keys(app: &mut App, key: KeyEvent, client: &Arc<Mutex<Back
                     }
                     KeyCode::Down => {
                         if !q.custom_active && total_options > 0 {
-                            q.focused_index = (q.focused_index + 1).min(total_options.saturating_sub(1));
+                            q.focused_index =
+                                (q.focused_index + 1).min(total_options.saturating_sub(1));
                         }
                     }
                     KeyCode::Char(' ') => {
@@ -673,7 +754,10 @@ pub fn handle_overlay_keys(app: &mut App, key: KeyEvent, client: &Arc<Mutex<Back
                     KeyCode::Enter => {
                         if q.custom_active {
                             if !q.custom_input.trim().is_empty() {
-                                let _ = client.lock().unwrap().call("answer_question", json!({ "id": q.id, "answers": vec![q.custom_input.trim()] }));
+                                let _ = client.lock().unwrap().call(
+                                    "answer_question",
+                                    json!({ "id": q.id, "answers": vec![q.custom_input.trim()] }),
+                                );
                                 app.question = None;
                                 app.mode = UiMode::Normal;
                             }
@@ -682,18 +766,27 @@ pub fn handle_overlay_keys(app: &mut App, key: KeyEvent, client: &Arc<Mutex<Back
                         } else if q.allow_multiple {
                             let answers = collect_answers(q);
                             if !answers.is_empty() {
-                                let _ = client.lock().unwrap().call("answer_question", json!({ "id": q.id, "answers": answers }));
+                                let _ = client.lock().unwrap().call(
+                                    "answer_question",
+                                    json!({ "id": q.id, "answers": answers }),
+                                );
                                 app.question = None;
                                 app.mode = UiMode::Normal;
                             } else if q.focused_index < q.options.len() {
                                 let answer = q.options[q.focused_index].label.clone();
-                                let _ = client.lock().unwrap().call("answer_question", json!({ "id": q.id, "answers": vec![answer] }));
+                                let _ = client.lock().unwrap().call(
+                                    "answer_question",
+                                    json!({ "id": q.id, "answers": vec![answer] }),
+                                );
                                 app.question = None;
                                 app.mode = UiMode::Normal;
                             }
                         } else if q.focused_index < q.options.len() {
                             let answer = q.options[q.focused_index].label.clone();
-                            let _ = client.lock().unwrap().call("answer_question", json!({ "id": q.id, "answers": vec![answer] }));
+                            let _ = client.lock().unwrap().call(
+                                "answer_question",
+                                json!({ "id": q.id, "answers": vec![answer] }),
+                            );
                             app.question = None;
                             app.mode = UiMode::Normal;
                         }
@@ -705,14 +798,19 @@ pub fn handle_overlay_keys(app: &mut App, key: KeyEvent, client: &Arc<Mutex<Back
                     }
                     KeyCode::Char(ch) => {
                         if q.custom_active {
-                            if !key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT) {
+                            if !key.modifiers.contains(KeyModifiers::CONTROL)
+                                && !key.modifiers.contains(KeyModifiers::ALT)
+                            {
                                 q.custom_input.push(ch);
                             }
                         } else if let Some(d) = ch.to_digit(10) {
                             let idx = d.saturating_sub(1) as usize;
                             if idx < q.options.len() {
                                 let answer = q.options[idx].label.clone();
-                                let _ = client.lock().unwrap().call("answer_question", json!({ "id": q.id, "answers": vec![answer] }));
+                                let _ = client.lock().unwrap().call(
+                                    "answer_question",
+                                    json!({ "id": q.id, "answers": vec![answer] }),
+                                );
                                 app.question = None;
                                 app.mode = UiMode::Normal;
                             }
@@ -936,10 +1034,10 @@ mod tests {
         let mut input = String::new();
         let mut cursor = 0usize;
 
-        insert_char(&mut input, &mut cursor, 'H');  // 1 byte
+        insert_char(&mut input, &mut cursor, 'H'); // 1 byte
         insert_char(&mut input, &mut cursor, '🎉'); // 4 bytes
-        insert_char(&mut input, &mut cursor, '世');  // 3 bytes
-        insert_char(&mut input, &mut cursor, '!');   // 1 byte
+        insert_char(&mut input, &mut cursor, '世'); // 3 bytes
+        insert_char(&mut input, &mut cursor, '!'); // 1 byte
 
         assert_eq!(input, "H🎉世!");
         assert_eq!(cursor, 9); // 1 + 4 + 3 + 1
@@ -979,16 +1077,16 @@ mod tests {
         let mut input = String::new();
         let mut cursor = 0usize;
 
-        insert_char(&mut input, &mut cursor, 'a');   // 1 byte
-        insert_char(&mut input, &mut cursor, '🎉');  // 4 bytes
-        insert_char(&mut input, &mut cursor, '世');   // 3 bytes
-        // cursor at end = 8
+        insert_char(&mut input, &mut cursor, 'a'); // 1 byte
+        insert_char(&mut input, &mut cursor, '🎉'); // 4 bytes
+        insert_char(&mut input, &mut cursor, '世'); // 3 bytes
+                                                    // cursor at end = 8
 
-        move_left(&input, &mut cursor);  // back over '世'
+        move_left(&input, &mut cursor); // back over '世'
         assert_eq!(cursor, 5);
         assert!(input.is_char_boundary(cursor));
 
-        move_left(&input, &mut cursor);  // back over '🎉'
+        move_left(&input, &mut cursor); // back over '🎉'
         assert_eq!(cursor, 1);
         assert!(input.is_char_boundary(cursor));
 

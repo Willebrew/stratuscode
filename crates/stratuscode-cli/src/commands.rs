@@ -1,22 +1,72 @@
 use serde_json::json;
 use std::sync::{Arc, Mutex};
 
+use crate::app::refresh_todos;
 use crate::app::{App, CommandItem, ModelEntry, SessionInfo, UiMode};
 use crate::backend::BackendClient;
-use crate::app::refresh_todos;
 
 pub fn commands_list() -> Vec<CommandItem> {
     vec![
-        CommandItem { name: "new", shortcut: Some("n"), description: "Start a new session", action: "session:new" },
-        CommandItem { name: "clear", shortcut: Some("c"), description: "Clear current conversation", action: "session:clear" },
-        CommandItem { name: "history", shortcut: Some("h"), description: "View session history", action: "session:history" },
-        CommandItem { name: "plan", shortcut: Some("p"), description: "Enter plan mode", action: "mode:plan" },
-        CommandItem { name: "build", shortcut: Some("b"), description: "Exit plan mode and start building", action: "mode:build" },
-        CommandItem { name: "reindex", shortcut: None, description: "Reindex codebase for search", action: "tool:reindex" },
-        CommandItem { name: "todos", shortcut: Some("t"), description: "Show todo list", action: "tool:todos" },
-        CommandItem { name: "revert", shortcut: Some("r"), description: "Revert files to previous state", action: "tool:revert" },
-        CommandItem { name: "models", shortcut: Some("m"), description: "Change AI model", action: "settings:model" },
-        CommandItem { name: "about", shortcut: None, description: "About StratusCode", action: "help:about" },
+        CommandItem {
+            name: "new",
+            shortcut: Some("n"),
+            description: "Start a new session",
+            action: "session:new",
+        },
+        CommandItem {
+            name: "clear",
+            shortcut: Some("c"),
+            description: "Clear current conversation",
+            action: "session:clear",
+        },
+        CommandItem {
+            name: "history",
+            shortcut: Some("h"),
+            description: "View session history",
+            action: "session:history",
+        },
+        CommandItem {
+            name: "plan",
+            shortcut: Some("p"),
+            description: "Enter plan mode",
+            action: "mode:plan",
+        },
+        CommandItem {
+            name: "build",
+            shortcut: Some("b"),
+            description: "Exit plan mode and start building",
+            action: "mode:build",
+        },
+        CommandItem {
+            name: "reindex",
+            shortcut: None,
+            description: "Reindex codebase for search",
+            action: "tool:reindex",
+        },
+        CommandItem {
+            name: "todos",
+            shortcut: Some("t"),
+            description: "Show todo list",
+            action: "tool:todos",
+        },
+        CommandItem {
+            name: "revert",
+            shortcut: Some("r"),
+            description: "Revert files to previous state",
+            action: "tool:revert",
+        },
+        CommandItem {
+            name: "models",
+            shortcut: Some("m"),
+            description: "Change AI model",
+            action: "settings:model",
+        },
+        CommandItem {
+            name: "about",
+            shortcut: None,
+            description: "About StratusCode",
+            action: "help:about",
+        },
     ]
 }
 
@@ -45,11 +95,18 @@ pub fn parse_command(input: &str) -> Option<(CommandItem, Option<String>)> {
     let name = parts.next()?.to_lowercase();
     let arg = parts.next().map(|s| s.to_string());
     let commands = commands_list();
-    let found = commands.into_iter().find(|c| c.name == name || c.shortcut == Some(name.as_str()));
+    let found = commands
+        .into_iter()
+        .find(|c| c.name == name || c.shortcut == Some(name.as_str()));
     found.map(|c| (c, arg))
 }
 
-pub fn execute_command(app: &mut App, client: &Arc<Mutex<BackendClient>>, cmd: &CommandItem, _arg: Option<String>) {
+pub fn execute_command(
+    app: &mut App,
+    client: &Arc<Mutex<BackendClient>>,
+    cmd: &CommandItem,
+    _arg: Option<String>,
+) {
     match cmd.action {
         "session:new" | "session:clear" => {
             let _ = client.lock().unwrap().call("clear", json!({}));
@@ -134,16 +191,23 @@ pub fn filter_models(entries: &[ModelEntry], query: &str) -> Vec<ModelEntry> {
             e.name.to_lowercase().contains(&q)
                 || e.id.to_lowercase().contains(&q)
                 || e.group.to_lowercase().contains(&q)
-                || e.provider_key.as_ref().map(|p| p.to_lowercase().contains(&q)).unwrap_or(false)
+                || e.provider_key
+                    .as_ref()
+                    .map(|p| p.to_lowercase().contains(&q))
+                    .unwrap_or(false)
         })
         .cloned()
         .collect()
 }
 
 pub fn sort_models_by_provider(entries: &[ModelEntry]) -> Vec<ModelEntry> {
-    let mut groups: std::collections::BTreeMap<String, Vec<ModelEntry>> = std::collections::BTreeMap::new();
+    let mut groups: std::collections::BTreeMap<String, Vec<ModelEntry>> =
+        std::collections::BTreeMap::new();
     for entry in entries {
-        groups.entry(entry.group.clone()).or_default().push(entry.clone());
+        groups
+            .entry(entry.group.clone())
+            .or_default()
+            .push(entry.clone());
     }
 
     let mut ordered_groups: Vec<(String, Vec<ModelEntry>)> = groups.into_iter().collect();
