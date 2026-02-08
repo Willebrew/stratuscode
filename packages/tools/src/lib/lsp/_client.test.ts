@@ -449,6 +449,22 @@ describe('LspClient', () => {
     expect(client.isAlive()).toBe(false);
   });
 
+  test('start throws when already started', async () => {
+    const mockProc = createMockProcess();
+    autoRespond(mockProc);
+    const client = new LspClient({ rootUri: '/project', languageId: 'typescript' });
+    await client.connect(mockProc as any);
+
+    // start() when already connected should throw
+    await expect(client.start('fake-lsp')).rejects.toThrow('LSP client already started');
+  });
+
+  test('sendRequest rejects when process not started', async () => {
+    const client = new LspClient({ rootUri: '/project', languageId: 'typescript' });
+    // hover internally calls request(), which rejects if no process
+    await expect(client.hover('/test.ts', { line: 0, character: 0 })).rejects.toThrow('LSP client not started');
+  });
+
   test('handles chunked data across multiple events', async () => {
     const mockProc = createMockProcess();
     const client = new LspClient({ rootUri: '/project', languageId: 'typescript' });
