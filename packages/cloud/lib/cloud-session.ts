@@ -175,6 +175,15 @@ export class CloudSession {
       };
     }
 
+    // Enrich headers for OpenRouter (same as CLI)
+    if (baseUrl.includes('openrouter.ai')) {
+      headers = {
+        ...headers,
+        'HTTP-Referer': 'https://stratuscode.dev/',
+        'X-Title': 'StratusCode',
+      };
+    }
+
     // Per-model context window lookup (same as CLI)
     const contextWindow = MODEL_CONTEXT_WINDOWS[model] ?? 128_000;
 

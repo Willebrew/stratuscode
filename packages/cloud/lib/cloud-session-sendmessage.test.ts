@@ -483,6 +483,19 @@ describe('CloudSession: buildSageConfig (via processDirectly calls)', () => {
     expect(headers['x-opencode-project']).toBe('stratuscode');
   });
 
+  test('enriches headers for OpenRouter baseUrl', async () => {
+    const session = makeSession({
+      baseUrl: 'https://openrouter.ai/api/v1',
+      sessionId: 'openrouter-session',
+    });
+    await session.sendMessage('test');
+
+    const call = mockProcessDirectly.mock.calls[0]![0] as any;
+    const headers = call.config.provider.headers;
+    expect(headers['HTTP-Referer']).toBe('https://stratuscode.dev/');
+    expect(headers['X-Title']).toBe('StratusCode');
+  });
+
   test('merges existing providerHeaders with Codex headers', async () => {
     const session = makeSession({
       baseUrl: 'https://chatgpt.com/backend-api/codex/v1',
@@ -494,6 +507,20 @@ describe('CloudSession: buildSageConfig (via processDirectly calls)', () => {
     const headers = call.config.provider.headers;
     expect(headers['x-custom']).toBe('value');
     expect(headers.originator).toBe('opencode');
+  });
+
+  test('merges existing providerHeaders with OpenRouter headers', async () => {
+    const session = makeSession({
+      baseUrl: 'https://openrouter.ai/api/v1',
+      providerHeaders: { 'X-Custom': 'custom-value' },
+    });
+    await session.sendMessage('test');
+
+    const call = mockProcessDirectly.mock.calls[0]![0] as any;
+    const headers = call.config.provider.headers;
+    expect(headers['X-Custom']).toBe('custom-value');
+    expect(headers['HTTP-Referer']).toBe('https://stratuscode.dev/');
+    expect(headers['X-Title']).toBe('StratusCode');
   });
 
   test('uses context window from MODEL_CONTEXT_WINDOWS for known model', async () => {
