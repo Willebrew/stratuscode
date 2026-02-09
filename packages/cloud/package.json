@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "bun run --bun next dev",
+    "build": "bun run --bun next build",
     "start": "next start",
     "lint": "next lint",
     "test": "bun test",
@@ -45,3 +45,4 @@
     "typescript": "^5.7.0"
   }
 }
+
