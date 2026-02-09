@@ -3,8 +3,9 @@
   "functions": {
     "app/api/**/*.ts": {
       "maxDuration": 800,
-      "runtime": "bun"
+      "runtime": "bun@1"
     }
   }
 }
+
 
