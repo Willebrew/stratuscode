@@ -5,8 +5,7 @@
   "buildCommand": "bun run build",
   "functions": {
     "app/api/**/*.ts": {
-      "maxDuration": 800,
-      "runtime": "nodejs22.x"
+      "maxDuration": 800
     }
   }
 }
