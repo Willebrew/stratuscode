@@ -2,9 +2,14 @@
 
 A terminal-first AI coding agent powered by SAGE, using OpenAI Responses API exclusively with `gpt-5-mini`.
 
+## Versions
+
+- **CLI** - Native terminal app written in Rust (ratatui)
+- **Cloud** - Web app deployed on Vercel with Bun runtime
+
 ## Features
 
-- **Terminal UI** - Rich TUI built with Ink/React
+- **Terminal UI** - Rich TUI built with Rust (ratatui)
 - **OpenAI Responses API** - Direct streaming without SDK abstraction
 - **Parallel Tool Execution** - Independent tools run simultaneously
 - **Multiple Agents** - `build` (full access) and `plan` (read-only)
@@ -29,12 +34,15 @@ bun run stratuscode -p "What files are in this project?"
 ## Project Structure
 
 ```
+crates/
+└── stratuscode-cli/  # Rust CLI (ratatui)
 packages/
-├── shared/     # Types and utilities
-├── core/       # Agent engine with Responses API
-├── tools/      # File and execution tools (read, edit, bash, grep, etc.)
-├── storage/    # SQLite + file persistence
-└── tui/        # Terminal UI (Ink/React)
+├── shared/           # Types and utilities
+├── core/             # Agent engine with Responses API
+├── tools/            # File and execution tools (read, edit, bash, grep, etc.)
+├── storage/          # SQLite + file persistence
+├── tui/              # TypeScript TUI backend (legacy)
+└── cloud/            # Next.js web app (Bun runtime)
 ```
 
 ## Available Tools
@@ -95,3 +103,4 @@ bun run typecheck
 ## License
 
 MIT
+

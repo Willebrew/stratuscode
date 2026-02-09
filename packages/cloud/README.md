@@ -131,14 +131,15 @@ packages/cloud/
 
 ## Key Differences from TUI
 
-| TUI | Cloud |
-|-----|-------|
+| CLI (Rust) | Cloud |
+|------------|-------|
 | SQLite storage | In-memory storage (session-scoped) |
 | Local filesystem | Vercel Sandbox microVM |
 | `process.cwd()` | Sandbox `workDir` |
 | EventEmitter | SSE streaming |
-| Bun runtime | Node.js (Vercel) |
+| Rust (ratatui) | Bun runtime (Vercel) |
 
 ## License
 
 MIT
+
