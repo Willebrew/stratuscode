@@ -99,6 +99,21 @@ export function loadConfig(projectDir: string): LoadedConfig {
     sources.push(process.env.OPENCODE_ZEN_API_KEY ? 'OPENCODE_ZEN_API_KEY' : 'OPENCODE_API_KEY');
   }
 
+  // OpenRouter provider
+  if (process.env.OPENROUTER_API_KEY) {
+    if (!config.providers) config.providers = {};
+    config.providers['openrouter'] = {
+      apiKey: process.env.OPENROUTER_API_KEY,
+      baseUrl: 'https://openrouter.ai/api/v1',
+      type: 'chat-completions',
+      headers: {
+        'HTTP-Referer': 'https://stratuscode.dev/',
+        'X-Title': 'StratusCode',
+      },
+    };
+    sources.push('OPENROUTER_API_KEY');
+  }
+
   // OpenAI Codex provider (ChatGPT Pro/Plus OAuth tokens)
   if (process.env.CODEX_REFRESH_TOKEN || process.env.CODEX_ACCESS_TOKEN) {
     if (!config.providers) config.providers = {};
@@ -171,8 +186,15 @@ export function saveGlobalConfig(config: Partial<StratusCodeConfig>): void {
 }
 
 /**
- * Check if API key is configured
+ * Check if API key is configured (default provider or any named provider)
  */
 export function hasApiKey(config: StratusCodeConfig): boolean {
-  return !!config.provider?.apiKey || !!(config.provider as any)?.auth?.access;
+  if (config.provider?.apiKey || (config.provider as any)?.auth?.access) return true;
+  // Check named providers (e.g. openrouter, opencode-zen, openai-codex)
+  if (config.providers) {
+    for (const p of Object.values(config.providers)) {
+      if (p.apiKey || (p as any).auth?.access) return true;
+    }
+  }
+  return false;
 }

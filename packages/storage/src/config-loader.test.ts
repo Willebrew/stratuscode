@@ -24,6 +24,7 @@ describe('config-loader: loadConfig', () => {
     delete process.env.OPENCODE_API_KEY;
     delete process.env.CODEX_REFRESH_TOKEN;
     delete process.env.CODEX_ACCESS_TOKEN;
+    delete process.env.OPENROUTER_API_KEY;
 
     try {
       const { config, sources } = loadConfig(tmpDir);
@@ -48,6 +49,7 @@ describe('config-loader: loadConfig', () => {
     delete process.env.OPENCODE_API_KEY;
     delete process.env.CODEX_REFRESH_TOKEN;
     delete process.env.CODEX_ACCESS_TOKEN;
+    delete process.env.OPENROUTER_API_KEY;
 
     try {
       fs.writeFileSync(
@@ -73,6 +75,7 @@ describe('config-loader: loadConfig', () => {
     delete process.env.OPENCODE_API_KEY;
     delete process.env.CODEX_REFRESH_TOKEN;
     delete process.env.CODEX_ACCESS_TOKEN;
+    delete process.env.OPENROUTER_API_KEY;
 
     try {
       fs.writeFileSync(
@@ -95,6 +98,7 @@ describe('config-loader: loadConfig', () => {
     delete process.env.OPENCODE_API_KEY;
     delete process.env.CODEX_REFRESH_TOKEN;
     delete process.env.CODEX_ACCESS_TOKEN;
+    delete process.env.OPENROUTER_API_KEY;
     process.env.OPENAI_API_KEY = 'sk-test-123';
 
     try {
@@ -113,6 +117,7 @@ describe('config-loader: loadConfig', () => {
     delete process.env.OPENCODE_API_KEY;
     delete process.env.CODEX_REFRESH_TOKEN;
     delete process.env.CODEX_ACCESS_TOKEN;
+    delete process.env.OPENROUTER_API_KEY;
     process.env.OPENAI_API_KEY = 'sk-openai';
     process.env.STRATUSCODE_API_KEY = 'sk-stratus';
 
@@ -132,6 +137,7 @@ describe('config-loader: loadConfig', () => {
     delete process.env.OPENCODE_API_KEY;
     delete process.env.CODEX_REFRESH_TOKEN;
     delete process.env.CODEX_ACCESS_TOKEN;
+    delete process.env.OPENROUTER_API_KEY;
     process.env.STRATUSCODE_BASE_URL = 'http://localhost:8080/v1';
 
     try {
@@ -151,6 +157,7 @@ describe('config-loader: loadConfig', () => {
     delete process.env.OPENCODE_API_KEY;
     delete process.env.CODEX_REFRESH_TOKEN;
     delete process.env.CODEX_ACCESS_TOKEN;
+    delete process.env.OPENROUTER_API_KEY;
     process.env.OPENCODE_ZEN_API_KEY = 'zen-key';
 
     try {
@@ -210,6 +217,18 @@ describe('config-loader: hasApiKey', () => {
   test('returns false when provider is undefined', () => {
     expect(hasApiKey({} as any)).toBe(false);
   });
+
+  test('returns true when named provider has apiKey', () => {
+    expect(hasApiKey({ provider: {}, providers: { openrouter: { apiKey: 'sk-or-key', baseUrl: 'https://openrouter.ai/api/v1' } } } as any)).toBe(true);
+  });
+
+  test('returns true when named provider has auth.access', () => {
+    expect(hasApiKey({ provider: {}, providers: { 'openai-codex': { baseUrl: 'x', auth: { access: 'at' } } } } as any)).toBe(true);
+  });
+
+  test('returns false when named providers exist but have no keys', () => {
+    expect(hasApiKey({ provider: {}, providers: { custom: { baseUrl: 'http://localhost' } } } as any)).toBe(false);
+  });
 });
 
 
@@ -223,6 +242,7 @@ describe('config-loader: error handling', () => {
     delete process.env.OPENCODE_API_KEY;
     delete process.env.CODEX_REFRESH_TOKEN;
     delete process.env.CODEX_ACCESS_TOKEN;
+    delete process.env.OPENROUTER_API_KEY;
     try {
       fs.writeFileSync(path.join(tmpDir, 'stratuscode.json'), 'not valid json {{{');
       const { config, sources } = loadConfig(tmpDir);
@@ -244,6 +264,7 @@ describe('config-loader: env var provider creation', () => {
     delete process.env.OPENCODE_API_KEY;
     delete process.env.CODEX_REFRESH_TOKEN;
     delete process.env.CODEX_ACCESS_TOKEN;
+    delete process.env.OPENROUTER_API_KEY;
     process.env.OPENAI_API_KEY = 'sk-no-global';
     try {
       const { config } = loadConfig(tmpDir);
@@ -261,11 +282,39 @@ describe('config-loader: env var provider creation', () => {
     delete process.env.OPENCODE_API_KEY;
     delete process.env.CODEX_REFRESH_TOKEN;
     delete process.env.CODEX_ACCESS_TOKEN;
+    delete process.env.OPENROUTER_API_KEY;
     process.env.STRATUSCODE_API_KEY = 'sk-stratus-only';
     try {
       const { config } = loadConfig(tmpDir);
       expect(config.provider!.apiKey).toBe('sk-stratus-only');
     } finally {
+      process.env = originalEnv;
+    }
+  });
+
+  test('OPENROUTER_API_KEY creates named provider', () => {
+    const originalEnv = { ...process.env };
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.STRATUSCODE_API_KEY;
+    delete process.env.STRATUSCODE_BASE_URL;
+    delete process.env.OPENCODE_ZEN_API_KEY;
+    delete process.env.OPENCODE_API_KEY;
+    delete process.env.CODEX_REFRESH_TOKEN;
+    delete process.env.CODEX_ACCESS_TOKEN;
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.OPENROUTER_API_KEY = 'sk-or-test-key';
+    try {
+      const { config, sources } = loadConfig(tmpDir);
+      expect(config.providers!['openrouter']).toBeDefined();
+      expect(config.providers!['openrouter']!.apiKey).toBe('sk-or-test-key');
+      expect(config.providers!['openrouter']!.baseUrl).toBe('https://openrouter.ai/api/v1');
+      expect(config.providers!['openrouter']!.headers!['HTTP-Referer']).toBe('https://stratuscode.dev/');
+      expect(config.providers!['openrouter']!.headers!['X-Title']).toBe('StratusCode');
+      expect(sources).toContain('OPENROUTER_API_KEY');
+      // hasApiKey should return true for named provider
+      expect(hasApiKey(config)).toBe(true);
+    } finally {
+      delete process.env.OPENROUTER_API_KEY;
       process.env = originalEnv;
     }
   });
@@ -278,6 +327,7 @@ describe('config-loader: env var provider creation', () => {
     delete process.env.OPENCODE_API_KEY;
     delete process.env.CODEX_REFRESH_TOKEN;
     delete process.env.CODEX_ACCESS_TOKEN;
+    delete process.env.OPENROUTER_API_KEY;
     process.env.STRATUSCODE_BASE_URL = 'http://custom:8080/v1';
     try {
       const { config } = loadConfig(tmpDir);
