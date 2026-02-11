@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { LogOut, PanelLeftOpen } from 'lucide-react';
+import { LogOut, PanelLeftOpen, Menu } from 'lucide-react';
 import { StratusLogo } from '@/components/stratus-logo';
 import { useSidebar } from '@/components/sidebar-context';
 import ProjectSelectionPage from './project-selection-page';
@@ -16,7 +16,7 @@ interface ChatPageRouterProps {
 
 export function ChatPageRouter({ mode }: ChatPageRouterProps) {
   const router = useRouter();
-  const { desktopCollapsed, toggleDesktop } = useSidebar();
+  const { desktopCollapsed, toggleDesktop, toggle } = useSidebar();
 
   const handleRepoSelect = (repo: RepoInfo, branch: string) => {
     const params = new URLSearchParams({
@@ -40,6 +40,12 @@ export function ChatPageRouter({ mode }: ChatPageRouterProps) {
         <nav className="relative z-10 border-b border-border/50 glass sticky top-0">
           <div className="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
+              <button
+                onClick={toggle}
+                className="p-2 -ml-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors md:hidden flex items-center justify-center"
+              >
+                <Menu className="w-5 h-5" />
+              </button>
               {desktopCollapsed && (
                 <button
                   onClick={toggleDesktop}
@@ -80,6 +86,12 @@ export function ChatPageRouter({ mode }: ChatPageRouterProps) {
         <nav className="relative z-10 border-b border-border/50 glass sticky top-0">
           <div className="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
+              <button
+                onClick={toggle}
+                className="p-2 -ml-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors md:hidden flex items-center justify-center"
+              >
+                <Menu className="w-5 h-5" />
+              </button>
               {desktopCollapsed && (
                 <button
                   onClick={toggleDesktop}
@@ -120,6 +132,12 @@ export function ChatPageRouter({ mode }: ChatPageRouterProps) {
         <nav className="relative z-10 border-b border-border/50 glass sticky top-0">
           <div className="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
+              <button
+                onClick={toggle}
+                className="p-2 -ml-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors md:hidden flex items-center justify-center"
+              >
+                <Menu className="w-5 h-5" />
+              </button>
               {desktopCollapsed && (
                 <button
                   onClick={toggleDesktop}
