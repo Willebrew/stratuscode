@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import type { Id } from '../convex/_generated/dataModel';
@@ -29,7 +29,11 @@ export function AppHeader({ sessionId, onSend }: AppHeaderProps) {
     sessionId ? { id: sessionId } : 'skip'
   );
 
+  const searchParams = useSearchParams();
+  const mode = searchParams.get('mode') || 'select';
+
   const inSession = !!sessionId;
+  const showBack = inSession || mode !== 'select';
   const hasChanges = session?.hasChanges === true;
   const owner = session?.owner ?? '';
   const repo = session?.repo ?? '';
@@ -80,7 +84,7 @@ export function AppHeader({ sessionId, onSend }: AppHeaderProps) {
           >
             <div
               className="overflow-hidden transition-all duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]"
-              style={{ width: inSession ? 16 : 0, opacity: inSession ? 1 : 0 }}
+              style={{ width: showBack ? 16 : 0, opacity: showBack ? 1 : 0 }}
             >
               <ChevronLeft className="w-4 h-4" />
             </div>
