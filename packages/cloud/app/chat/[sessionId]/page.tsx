@@ -1,19 +1,10 @@
-import { redirect } from 'next/navigation';
-import { isAuthenticated } from '@/lib/simple-auth';
+'use client';
+
+import { useParams } from 'next/navigation';
 import { ChatInterface } from '../new/chat-interface';
 
-export const dynamic = 'force-dynamic';
-
-interface SessionPageProps {
-  params: Promise<{ sessionId: string }>;
-}
-
-export default async function SessionPage({ params }: SessionPageProps) {
-  const authenticated = await isAuthenticated();
-  if (!authenticated) {
-    redirect('/login');
-  }
-
-  const { sessionId } = await params;
-  return <ChatInterface sessionId={sessionId} />;
+export default function SessionPage() {
+  const { sessionId } = useParams();
+  if (!sessionId) return null;
+  return <ChatInterface sessionId={sessionId as string} />;
 }
