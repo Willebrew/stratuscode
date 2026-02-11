@@ -2,6 +2,8 @@ import { redirect } from 'next/navigation';
 import { isAuthenticated } from '@/lib/simple-auth';
 import { ChatInterface } from '../new/chat-interface';
 
+export const dynamic = 'force-dynamic';
+
 interface SessionPageProps {
   params: Promise<{ sessionId: string }>;
 }

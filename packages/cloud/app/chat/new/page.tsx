@@ -2,6 +2,8 @@ import { redirect } from 'next/navigation';
 import { isAuthenticated } from '@/lib/simple-auth';
 import { CreateSession } from './create-session';
 
+export const dynamic = 'force-dynamic';
+
 interface NewChatPageProps {
   searchParams: Promise<{ owner?: string; repo?: string; branch?: string }>;
 }

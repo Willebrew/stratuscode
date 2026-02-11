@@ -2,6 +2,8 @@ import { redirect } from 'next/navigation';
 import { isAuthenticated } from '@/lib/simple-auth';
 import { ChatPageRouter } from './chat-page-router';
 
+export const dynamic = 'force-dynamic';
+
 interface ChatPageProps {
   searchParams: Promise<{ mode?: string }>;
 }
