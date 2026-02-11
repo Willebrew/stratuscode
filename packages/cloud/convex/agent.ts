@@ -43,6 +43,11 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   "openai/o3-mini": 128_000,
   "meta-llama/llama-4-maverick": 128_000,
   "moonshotai/kimi-k2": 128_000,
+  // Direct Anthropic API models
+  "claude-sonnet-4-20250514": 200_000,
+  "claude-3-5-sonnet-20241022": 200_000,
+  "claude-3-5-haiku-20241022": 200_000,
+  "claude-3-opus-20240229": 200_000,
 };
 
 // ─── Plan mode helpers (from session-manager.ts) ───
@@ -203,6 +208,74 @@ function buildSageConfig(
   };
 }
 
+// ─── Provider resolution ───
+
+/**
+ * Resolve provider credentials (apiKey, baseUrl, type, headers) from
+ * the model ID and available environment variables.  This replaces the
+ * previous hard-coded OpenAI-only logic so Codex, OpenRouter, Anthropic,
+ * and OpenCode Zen models all route to the correct API.
+ */
+function resolveProviderForModel(model: string): {
+  apiKey: string;
+  baseUrl: string;
+  providerType: string;
+  headers?: Record<string, string>;
+} {
+  const m = model.toLowerCase();
+
+  // Codex models → ChatGPT Codex Responses API
+  if (m.includes("codex")) {
+    return {
+      apiKey: process.env.CODEX_ACCESS_TOKEN || "",
+      baseUrl: "https://chatgpt.com/backend-api/codex",
+      providerType: "responses-api",
+      headers: process.env.CODEX_ACCOUNT_ID
+        ? { "ChatGPT-Account-Id": process.env.CODEX_ACCOUNT_ID }
+        : undefined,
+    };
+  }
+
+  // Direct Anthropic API (claude-* models without vendor prefix)
+  if (m.startsWith("claude-") && process.env.ANTHROPIC_API_KEY) {
+    return {
+      apiKey: process.env.ANTHROPIC_API_KEY,
+      baseUrl: "https://api.anthropic.com/v1",
+      providerType: "chat-completions",
+    };
+  }
+
+  // OpenRouter models (vendor/model format, e.g. "anthropic/claude-sonnet-4")
+  if (model.includes("/")) {
+    return {
+      apiKey: process.env.OPENROUTER_API_KEY || "",
+      baseUrl: "https://openrouter.ai/api/v1",
+      providerType: "chat-completions",
+      headers: {
+        "HTTP-Referer": "https://stratuscode.dev/",
+        "X-Title": "StratusCode",
+      },
+    };
+  }
+
+  // OpenCode Zen free models
+  if (m.includes("-free") || m === "big-pickle") {
+    return {
+      apiKey: process.env.OPENCODE_ZEN_API_KEY || "",
+      baseUrl: "https://opencode.ai/zen/v1",
+      providerType: "chat-completions",
+      headers: { "x-opencode-client": "cli" },
+    };
+  }
+
+  // Default: standard OpenAI API
+  return {
+    apiKey: process.env.OPENAI_API_KEY || "",
+    baseUrl: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
+    providerType: "chat-completions",
+  };
+}
+
 // ─── Main action ───
 
 export const sendMessage = internalAction({
@@ -228,10 +301,15 @@ export const sendMessage = internalAction({
     if (!githubToken) throw new Error("GITHUB_TOKEN not configured");
 
     const model = args.model || session.model || "gpt-5-mini";
-    const apiKey = args.apiKey || process.env.OPENAI_API_KEY || "";
-    const baseUrl = args.baseUrl || "https://api.openai.com/v1";
-    const providerType = args.providerType;
-    const providerHeaders = args.providerHeaders ? JSON.parse(args.providerHeaders) : undefined;
+
+    // Resolve provider from explicit args or auto-detect from model
+    const resolved = resolveProviderForModel(model);
+    const apiKey = args.apiKey || resolved.apiKey;
+    const baseUrl = args.baseUrl || resolved.baseUrl;
+    const providerType = args.providerType || resolved.providerType;
+    const providerHeaders = args.providerHeaders
+      ? JSON.parse(args.providerHeaders)
+      : resolved.headers;
     const workDir = "/vercel/sandbox";
     const sessionBranch = session.sessionBranch || `stratuscode/${session._id}`;
 
@@ -679,13 +757,12 @@ export const send = action({
     reasoningEffort: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    // Look up provider config from environment
-    const apiKey = process.env.OPENAI_API_KEY || "";
-    const baseUrl = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
+    // Resolve session and determine model
+    const session = await ctx.runQuery(internal.sessions.getInternal, { id: args.sessionId });
+    const model = args.model || session?.model || "gpt-5-mini";
 
-    // Force chat-completions mode — the Responses API tracks state via
-    // response IDs that expire between Convex action invocations.
-    const providerType = "chat-completions";
+    // Auto-resolve provider from model ID + environment variables
+    const resolved = resolveProviderForModel(model);
 
     // User message is already persisted by the frontend via messages.sendUserMessage
     // mutation (instant subscription update). We just need to set up session state.
@@ -701,7 +778,6 @@ export const send = action({
     await ctx.runMutation(internal.streaming.start, { sessionId: args.sessionId });
 
     // Update title from first message
-    const session = await ctx.runQuery(internal.sessions.getInternal, { id: args.sessionId });
     const agentState = await ctx.runQuery(internal.agent_state.get, { sessionId: args.sessionId });
     const hasPreviousMessages = agentState?.sageMessages
       ? JSON.parse(agentState.sageMessages).length > 0
@@ -720,10 +796,11 @@ export const send = action({
     await ctx.scheduler.runAfter(0, internal.agent.sendMessage, {
       sessionId: args.sessionId,
       message: args.message,
-      model: args.model,
-      apiKey,
-      baseUrl,
-      providerType,
+      model,
+      apiKey: resolved.apiKey,
+      baseUrl: resolved.baseUrl,
+      providerType: resolved.providerType,
+      providerHeaders: resolved.headers ? JSON.stringify(resolved.headers) : undefined,
       alphaMode: args.alphaMode,
       reasoningEffort: args.reasoningEffort,
     });

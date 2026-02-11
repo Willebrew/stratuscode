@@ -66,6 +66,10 @@ export function loadConfig(projectDir: string): LoadedConfig {
       config.provider = { baseUrl: 'https://api.openai.com/v1' };
     }
     config.provider.apiKey = process.env.OPENAI_API_KEY;
+    // If OPENAI_API_KEY is set but no explicit base URL, use OpenAI's URL
+    if (!config.provider.baseUrl || config.provider.baseUrl === 'https://chatgpt.com/backend-api/codex') {
+      config.provider.baseUrl = 'https://api.openai.com/v1';
+    }
     sources.push('OPENAI_API_KEY');
   }
 
@@ -135,13 +139,19 @@ export function loadConfig(projectDir: string): LoadedConfig {
     sources.push(process.env.CODEX_REFRESH_TOKEN ? 'CODEX_REFRESH_TOKEN' : 'CODEX_ACCESS_TOKEN');
   }
 
-  // Apply defaults
+  // Apply defaults — base URL depends on whether a Codex provider is configured
+  const defaultModel = config.model || 'gpt-5.2-codex';
+  const hasCodexProvider = !!config.providers?.['openai-codex'];
+  const defaultBaseUrl = (defaultModel.toLowerCase().includes('codex') && hasCodexProvider)
+    ? 'https://chatgpt.com/backend-api/codex'
+    : config.provider?.baseUrl || 'https://api.openai.com/v1';
+
   const finalConfig: StratusCodeConfig = {
-    model: config.model || 'gpt-5.2-codex',
+    model: defaultModel,
     provider: {
       apiKey: config.provider?.apiKey,
       auth: config.provider?.auth,
-      baseUrl: config.provider?.baseUrl || 'https://api.openai.com/v1',
+      baseUrl: config.provider?.baseUrl || defaultBaseUrl,
       type: config.provider?.type,
       headers: config.provider?.headers,
     },

@@ -21,11 +21,17 @@ export function CreateSession({ owner, repo, branch }: CreateSessionProps) {
     if (createdRef.current) return;
     createdRef.current = true;
 
+    // Use saved model preference from settings (if any)
+    const savedModel = typeof window !== 'undefined'
+      ? localStorage.getItem('stratuscode_default_model') || undefined
+      : undefined;
+
     createSession({
       userId: 'owner',
       owner,
       repo,
       branch,
+      model: savedModel,
     }).then((sessionId) => {
       router.replace(`/chat/${sessionId}`);
     });

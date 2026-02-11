@@ -206,3 +206,13 @@ export const updateAgent = internalMutation({
     });
   },
 });
+
+export const updateModel = mutation({
+  args: { id: v.id("sessions"), model: v.string() },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.id, {
+      model: args.model,
+      updatedAt: Date.now(),
+    });
+  },
+});

@@ -827,23 +827,65 @@ fn build_inline_overlay(app: &App, _width: usize) -> Option<InlineOverlay> {
                     Style::default().fg(COLOR_TEXT_DIM),
                 )]));
             } else {
-                let offset = app.model_offset.min(filtered.len());
-                let end = (offset + 10).min(filtered.len());
-                for (idx, entry) in filtered.iter().enumerate().skip(offset).take(end - offset) {
-                    let selected = idx == app.model_selected;
-                    let style = if selected {
-                        Style::default()
-                            .fg(Color::Black)
-                            .bg(COLOR_CODE)
-                            .add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::default().fg(COLOR_TEXT)
-                    };
-                    lines.push(Line::from(vec![
-                        Span::styled(if selected { "› " } else { "  " }, style),
-                        Span::styled(entry.name.clone(), style),
-                        Span::styled(format!(" ({})", entry.group), style),
-                    ]));
+                // Build display rows: interleave group headers with model entries.
+                // Headers are non-selectable; model_selected indexes into `filtered`.
+                let mut display_rows: Vec<(Option<usize>, String, bool)> = Vec::new(); // (model_idx, text, is_header)
+                let mut last_group: Option<&str> = None;
+                for (idx, entry) in filtered.iter().enumerate() {
+                    if last_group.map(|g| g != entry.group.as_str()).unwrap_or(true) {
+                        display_rows.push((None, entry.group.clone(), true));
+                        last_group = Some(&entry.group);
+                    }
+                    display_rows.push((Some(idx), entry.name.clone(), false));
+                }
+
+                // Compute viewport offset based on where the selected model
+                // falls in the display_rows list (accounting for headers).
+                let selected_display_idx = display_rows
+                    .iter()
+                    .position(|(m_idx, _, _)| *m_idx == Some(app.model_selected))
+                    .unwrap_or(0);
+                let viewport_size = 12usize;
+                let d_offset = if selected_display_idx >= viewport_size {
+                    // Try to keep selected near the middle
+                    selected_display_idx.saturating_sub(viewport_size / 2)
+                } else {
+                    0
+                };
+                let d_end = (d_offset + viewport_size).min(display_rows.len());
+
+                for (m_idx, text, is_header) in display_rows.iter().skip(d_offset).take(d_end - d_offset) {
+                    if *is_header {
+                        // Provider group header
+                        let header_style = Style::default()
+                            .fg(COLOR_CODE)
+                            .add_modifier(Modifier::BOLD);
+                        lines.push(Line::from(vec![
+                            Span::styled("  ", header_style),
+                            Span::styled(format!("── {} ", text), header_style),
+                            Span::styled("─".repeat(20usize.saturating_sub(text.len() + 4)), Style::default().fg(COLOR_TEXT_DIM)),
+                        ]));
+                    } else if let Some(idx) = m_idx {
+                        let selected = *idx == app.model_selected;
+                        let style = if selected {
+                            Style::default()
+                                .fg(Color::Black)
+                                .bg(COLOR_CODE)
+                                .add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default().fg(COLOR_TEXT)
+                        };
+                        let free_badge = if filtered.get(*idx).and_then(|e| e.free).unwrap_or(false) {
+                            Span::styled(" [free]", Style::default().fg(Color::Green))
+                        } else {
+                            Span::raw("")
+                        };
+                        lines.push(Line::from(vec![
+                            Span::styled(if selected { "  › " } else { "    " }, style),
+                            Span::styled(text.clone(), style),
+                            free_badge,
+                        ]));
+                    }
                 }
             }
             let custom_selected = app.model_selected == filtered.len();
@@ -856,12 +898,12 @@ fn build_inline_overlay(app: &App, _width: usize) -> Option<InlineOverlay> {
                 Style::default().fg(COLOR_TEXT)
             };
             lines.push(Line::from(vec![
-                Span::styled(if custom_selected { "› " } else { "  " }, custom_style),
+                Span::styled(if custom_selected { "  › " } else { "    " }, custom_style),
                 Span::styled("Custom model...", custom_style),
             ]));
             if app.custom_model_mode {
                 lines.push(Line::from(vec![
-                    Span::styled("› ", Style::default().fg(COLOR_CODE)),
+                    Span::styled("  › ", Style::default().fg(COLOR_CODE)),
                     Span::styled(
                         app.custom_model_input.clone(),
                         Style::default().fg(COLOR_TEXT),

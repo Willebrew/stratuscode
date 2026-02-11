@@ -19,7 +19,7 @@ export const StratusCodeConfigSchema = z.object({
       expires: z.number(),
       accountId: z.string().optional(),
     }).optional(),
-    baseUrl: z.string().default('https://api.openai.com/v1'),
+    baseUrl: z.string().default('https://chatgpt.com/backend-api/codex'),
     type: z.enum(['responses-api', 'chat-completions']).optional(),
     headers: z.record(z.string(), z.string()).optional(),
   }).default({}),
@@ -162,7 +162,8 @@ export function defineConfig(config: Partial<StratusCodeConfigInput> & { hooks?:
 export const DEFAULT_CONFIG: StratusCodeConfig = {
   model: 'gpt-5.2-codex',
   provider: {
-    baseUrl: 'https://api.openai.com/v1',
+    baseUrl: 'https://chatgpt.com/backend-api/codex',
+    type: 'responses-api',
   },
   agent: {
     name: 'stratuscode',
