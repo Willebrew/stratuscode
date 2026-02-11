@@ -86,6 +86,18 @@ Read the plan file first, then work through each task, updating status as you go
 </system-reminder>`;
 }
 
+// ─── Sandbox credentials ───
+
+function getSandboxCredentials() {
+  const token = process.env.VERCEL_TOKEN;
+  const projectId = process.env.VERCEL_PROJECT_ID;
+  const teamId = process.env.VERCEL_TEAM_ID;
+  if (!token || !projectId || !teamId) {
+    throw new Error("Missing VERCEL_TOKEN, VERCEL_PROJECT_ID, or VERCEL_TEAM_ID");
+  }
+  return { token, projectId, teamId };
+}
+
 // ─── Sandbox helpers ───
 
 async function createFreshSandbox(
@@ -96,6 +108,7 @@ async function createFreshSandbox(
   sessionBranch: string
 ): Promise<Sandbox> {
   const sandbox = await Sandbox.create({
+    ...getSandboxCredentials(),
     runtime: "node22",
     timeout: 800_000,
   });
@@ -237,6 +250,7 @@ export const sendMessage = internalAction({
         // Resume from snapshot
         try {
           sandbox = await Sandbox.create({
+            ...getSandboxCredentials(),
             source: { type: "snapshot", snapshotId: session.snapshotId },
             timeout: 800_000,
           });
@@ -249,7 +263,7 @@ export const sendMessage = internalAction({
       if (!sandbox && session.sandboxId) {
         // Try to reconnect to existing sandbox
         try {
-          sandbox = await Sandbox.get({ sandboxId: session.sandboxId });
+          sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId: session.sandboxId });
           if (sandbox.status !== "running") sandbox = null;
         } catch {
           sandbox = null;
