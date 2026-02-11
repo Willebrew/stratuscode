@@ -435,6 +435,11 @@ export const sendMessage = internalAction({
         sandboxId: sandbox.sandboxId,
       });
 
+      // Ensure the git remote has a fresh token (token from initial clone may
+      // have expired when resuming from a snapshot)
+      const freshRepoUrl = `https://x-access-token:${githubToken}@github.com/${session.owner}/${session.repo}.git`;
+      await sandbox.runCommand("bash", ["-c", `cd '${workDir}' && git remote set-url origin '${freshRepoUrl}'`]);
+
       // ── 2. Load agent state for resume ──
 
       const agentState = await ctx.runQuery(internal.agent_state.get, {
