@@ -165,6 +165,13 @@ export const updateTokenUsage = internalMutation({
   },
 });
 
+export const remove = mutation({
+  args: { id: v.id("sessions") },
+  handler: async (ctx, args) => {
+    await ctx.db.delete(args.id);
+  },
+});
+
 export const updateAgent = internalMutation({
   args: { id: v.id("sessions"), agent: v.string() },
   handler: async (ctx, args) => {

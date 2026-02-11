@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import { GitBranch, GitPullRequest, GitCommitHorizontal, ChevronLeft, ChevronDown, Settings, Menu } from 'lucide-react';
+import { GitBranch, GitPullRequest, GitCommitHorizontal, ChevronLeft, ChevronDown, Settings, Menu, PanelLeftOpen } from 'lucide-react';
 import { StratusLogo } from './stratus-logo';
 import { useSidebar } from './sidebar-context';
 
@@ -25,7 +25,7 @@ export function ChatHeader({
 }: ChatHeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  const { toggle } = useSidebar();
+  const { toggle, desktopCollapsed, toggleDesktop } = useSidebar();
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -48,6 +48,16 @@ export function ChatHeader({
           >
             <Menu className="w-5 h-5" />
           </button>
+          {/* Desktop sidebar toggle (visible when collapsed) */}
+          {desktopCollapsed && (
+            <button
+              onClick={toggleDesktop}
+              className="hidden md:flex p-2 -ml-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors items-center justify-center"
+              title="Show sidebar"
+            >
+              <PanelLeftOpen className="w-4 h-4" />
+            </button>
+          )}
           <Link
             href="/chat"
             className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors duration-200 flex-shrink-0"

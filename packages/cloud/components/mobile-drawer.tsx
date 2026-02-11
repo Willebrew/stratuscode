@@ -26,16 +26,16 @@ export function MobileDrawer({ children }: MobileDrawerProps) {
             initial={{ x: '-100%' }}
             animate={{ x: 0 }}
             exit={{ x: '-100%' }}
-            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+            transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
             drag="x"
-            dragConstraints={{ left: 0, right: 0 }}
-            dragElastic={0.1}
+            dragConstraints={{ left: -288, right: 0 }}
+            dragElastic={0}
             onDragEnd={(_, info) => {
               if (info.offset.x < -80 || info.velocity.x < -500) {
                 close();
               }
             }}
-            className="fixed inset-y-0 left-0 w-72 z-50 md:hidden"
+            className="fixed inset-y-0 left-0 w-72 z-50 md:hidden overflow-hidden"
           >
             {children}
           </motion.div>

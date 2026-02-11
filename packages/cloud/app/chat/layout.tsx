@@ -9,8 +9,7 @@ import type { Id } from '@/convex/_generated/dataModel';
 function ChatLayoutInner({ children }: { children: React.ReactNode }) {
   const params = useParams();
   const router = useRouter();
-  const { close } = useSidebar();
-
+  const { close, desktopCollapsed } = useSidebar();
   const sessionId = params.sessionId as Id<'sessions'> | undefined;
 
   const handleSelectSession = (id: Id<'sessions'>) => {
@@ -24,9 +23,13 @@ function ChatLayoutInner({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="h-dvh flex">
+    <div className="h-dvh flex bg-[#0a0e14]">
       {/* Desktop sidebar */}
-      <div className="hidden md:block flex-shrink-0">
+      <div
+        className={`hidden md:block flex-shrink-0 transition-[width] duration-200 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden ${
+          desktopCollapsed ? 'w-0' : 'w-72'
+        }`}
+      >
         <SessionSidebar
           userId="owner"
           currentSessionId={sessionId ?? null}
@@ -48,7 +51,9 @@ function ChatLayoutInner({ children }: { children: React.ReactNode }) {
       </MobileDrawer>
 
       {/* Main content */}
-      <main className="flex-1 min-w-0">{children}</main>
+      <main className={`flex-1 min-w-0 bg-background overflow-hidden transition-[border-radius] duration-200 ${desktopCollapsed ? '' : 'md:rounded-tl-2xl md:rounded-bl-2xl'}`}>
+        {children}
+      </main>
     </div>
   );
 }

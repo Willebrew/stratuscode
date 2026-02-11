@@ -323,7 +323,7 @@ export function ChatInput({
               <button
                 type="button"
                 onClick={onCancel}
-                className="w-8 h-8 rounded-full bg-white flex items-center justify-center hover:bg-white/90 transition-colors min-w-[44px] min-h-[44px]"
+                className="w-8 h-8 rounded-full bg-white flex items-center justify-center hover:bg-white/90 transition-colors"
                 title="Stop"
               >
                 <Square className="w-3.5 h-3.5 text-black" />
@@ -332,7 +332,7 @@ export function ChatInput({
               <button
                 type="submit"
                 disabled={!message.trim()}
-                className="w-8 h-8 rounded-full bg-white flex items-center justify-center hover:bg-white/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed min-w-[44px] min-h-[44px]"
+                className="w-8 h-8 rounded-full bg-white flex items-center justify-center hover:bg-white/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 <ArrowUp className="w-4 h-4 text-black" />
               </button>
