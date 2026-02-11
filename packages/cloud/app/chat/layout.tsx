@@ -3,13 +3,16 @@
 import { useParams, useRouter } from 'next/navigation';
 import { SessionSidebar } from '@/components/session-sidebar';
 import { MobileDrawer } from '@/components/mobile-drawer';
+import { AppHeader } from '@/components/app-header';
 import { SidebarProvider, useSidebar } from '@/components/sidebar-context';
+import { SendFnProvider, useSendFn } from '@/components/send-fn-context';
 import type { Id } from '@/convex/_generated/dataModel';
 
 function ChatLayoutInner({ children }: { children: React.ReactNode }) {
   const params = useParams();
   const router = useRouter();
   const { close, desktopCollapsed } = useSidebar();
+  const { sendFn } = useSendFn();
   const sessionId = params.sessionId as Id<'sessions'> | undefined;
 
   const handleSelectSession = (id: Id<'sessions'>) => {
@@ -51,8 +54,15 @@ function ChatLayoutInner({ children }: { children: React.ReactNode }) {
       </MobileDrawer>
 
       {/* Main content */}
-      <main className={`flex-1 min-w-0 bg-background overflow-hidden transition-all duration-200 rounded-2xl m-2 ${desktopCollapsed ? '' : 'md:ml-0'}`}>
-        {children}
+      <main className={`flex-1 min-w-0 bg-background overflow-hidden transition-all duration-200 rounded-2xl m-2 ${desktopCollapsed ? '' : 'md:ml-0'} flex flex-col`}>
+        {/* Persistent header — never unmounts */}
+        <AppHeader
+          sessionId={sessionId ?? null}
+          onSend={sendFn ?? undefined}
+        />
+        <div className="flex-1 min-h-0 overflow-hidden">
+          {children}
+        </div>
       </main>
     </div>
   );
@@ -61,7 +71,9 @@ function ChatLayoutInner({ children }: { children: React.ReactNode }) {
 export default function ChatLayout({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
-      <ChatLayoutInner>{children}</ChatLayoutInner>
+      <SendFnProvider>
+        <ChatLayoutInner>{children}</ChatLayoutInner>
+      </SendFnProvider>
     </SidebarProvider>
   );
 }

@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { ChatHeader } from '@/components/chat-header';
+import { useState, useCallback, useEffect } from 'react';
 import { ChatInput } from '@/components/chat-input';
 import { MessageList } from '@/components/message-list';
 import { useConvexChat } from '@/hooks/use-convex-chat';
+import { useSendFn } from '@/components/send-fn-context';
 import type { Id } from '@/convex/_generated/dataModel';
 
 interface ChatInterfaceProps {
@@ -13,6 +13,7 @@ interface ChatInterfaceProps {
 
 export function ChatInterface({ sessionId: sessionIdStr }: ChatInterfaceProps) {
   const convexSessionId = sessionIdStr as Id<'sessions'>;
+  const { registerSendFn } = useSendFn();
 
   const {
     messages,
@@ -30,10 +31,6 @@ export function ChatInterface({ sessionId: sessionIdStr }: ChatInterfaceProps) {
   const [agentMode, setAgentMode] = useState<'build' | 'plan'>('build');
   const [reasoningEffort, setReasoningEffort] = useState<'low' | 'medium' | 'high'>('medium');
 
-  const owner = session?.owner ?? '';
-  const repo = session?.repo ?? '';
-  const branch = session?.branch ?? '';
-
   const handleSend = useCallback(
     async (message: string) => {
       await sendMessage(message, {
@@ -44,17 +41,14 @@ export function ChatInterface({ sessionId: sessionIdStr }: ChatInterfaceProps) {
     [sendMessage, alphaMode, reasoningEffort]
   );
 
+  // Register send function with layout so AppHeader's Ship It button can use it
+  useEffect(() => {
+    registerSendFn(handleSend);
+    return () => registerSendFn(null);
+  }, [handleSend, registerSendFn]);
+
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      <ChatHeader
-        owner={owner}
-        repo={repo}
-        branch={branch}
-        sessionId={convexSessionId}
-        hasChanges={session?.hasChanges === true}
-        onSend={handleSend}
-      />
-
       <MessageList
         messages={messages}
         sandboxStatus={sandboxStatus}
