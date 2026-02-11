@@ -185,56 +185,51 @@ export function toSageConfig(
     };
   }
 
-  // Auto-resolve provider for Codex models when no explicit override is set.
-  // Without this, the default baseUrl (api.openai.com) would be used for Codex
-  // models, sending requests to the wrong API.
+  // Auto-resolve the named provider from the model when no explicit override
+  // is set.  This ensures Codex models always use the openai-codex provider
+  // (with its OAuth access token), OpenRouter models use the openrouter
+  // provider, etc., even when the default config.provider points elsewhere.
   const effectiveModel = modelOverride || config.model;
-  if (
-    effectiveModel.toLowerCase().includes('codex') &&
-    !effectiveProvider.baseUrl?.includes('chatgpt.com/backend-api/codex')
-  ) {
-    const codexProvider = config.providers?.['openai-codex'];
-    if (codexProvider) {
-      effectiveProvider = {
-        apiKey: codexProvider.apiKey || (codexProvider as any).auth?.access,
-        baseUrl: codexProvider.baseUrl,
-        type: codexProvider.type as 'responses-api' | 'chat-completions' | undefined,
-        headers: codexProvider.headers,
-      };
-    }
-  }
+  if (!providerOverride && config.providers) {
+    const m = effectiveModel.toLowerCase();
 
-  // Auto-resolve provider for OpenRouter models (vendor/model format)
-  if (
-    effectiveModel.includes('/') &&
-    !providerOverride &&
-    !effectiveProvider.baseUrl?.includes('openrouter')
-  ) {
-    const orProvider = config.providers?.['openrouter'];
-    if (orProvider) {
-      effectiveProvider = {
-        apiKey: orProvider.apiKey,
-        baseUrl: orProvider.baseUrl,
-        type: orProvider.type as 'responses-api' | 'chat-completions' | undefined,
-        headers: orProvider.headers,
-      };
+    // Codex models → openai-codex provider (OAuth tokens)
+    if (m.includes('codex')) {
+      const codexProvider = config.providers['openai-codex'];
+      if (codexProvider) {
+        effectiveProvider = {
+          apiKey: codexProvider.apiKey || (codexProvider as any).auth?.access,
+          baseUrl: codexProvider.baseUrl,
+          type: codexProvider.type as 'responses-api' | 'chat-completions' | undefined,
+          headers: codexProvider.headers,
+        };
+      }
     }
-  }
 
-  // Auto-resolve provider for OpenCode Zen free models
-  if (
-    (effectiveModel.toLowerCase().includes('-free') || effectiveModel.toLowerCase() === 'big-pickle') &&
-    !providerOverride &&
-    !effectiveProvider.baseUrl?.includes('opencode.ai/zen')
-  ) {
-    const zenProvider = config.providers?.['opencode-zen'];
-    if (zenProvider) {
-      effectiveProvider = {
-        apiKey: zenProvider.apiKey,
-        baseUrl: zenProvider.baseUrl,
-        type: zenProvider.type as 'responses-api' | 'chat-completions' | undefined,
-        headers: zenProvider.headers,
-      };
+    // OpenRouter models (vendor/model format, e.g. "anthropic/claude-sonnet-4")
+    else if (effectiveModel.includes('/')) {
+      const orProvider = config.providers['openrouter'];
+      if (orProvider) {
+        effectiveProvider = {
+          apiKey: orProvider.apiKey,
+          baseUrl: orProvider.baseUrl,
+          type: orProvider.type as 'responses-api' | 'chat-completions' | undefined,
+          headers: orProvider.headers,
+        };
+      }
+    }
+
+    // OpenCode Zen free models
+    else if (m.includes('-free') || m === 'big-pickle') {
+      const zenProvider = config.providers['opencode-zen'];
+      if (zenProvider) {
+        effectiveProvider = {
+          apiKey: zenProvider.apiKey,
+          baseUrl: zenProvider.baseUrl,
+          type: zenProvider.type as 'responses-api' | 'chat-completions' | undefined,
+          headers: zenProvider.headers,
+        };
+      }
     }
   }
 
