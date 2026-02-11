@@ -79,7 +79,7 @@ export function ChatInput({
   const effortSegments: Array<'low' | 'medium' | 'high'> = ['low', 'medium', 'high'];
 
   return (
-    <form onSubmit={handleSubmit} className="py-3 sm:py-4 pt-8 sm:pt-10 bg-gradient-to-t from-background via-background to-transparent pb-[env(safe-area-inset-bottom,12px)]">
+    <form onSubmit={handleSubmit} className="py-3 sm:py-4 pt-8 sm:pt-10 bg-gradient-to-t from-background via-background to-transparent pb-4">
       <div className="max-w-3xl mx-auto px-3 sm:px-4">
         <div
           className={clsx(

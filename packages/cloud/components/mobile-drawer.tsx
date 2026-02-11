@@ -35,7 +35,7 @@ export function MobileDrawer({ children }: MobileDrawerProps) {
                 close();
               }
             }}
-            className="fixed inset-y-0 left-0 w-72 z-50 md:hidden overflow-hidden"
+            className="fixed top-2 bottom-2 left-2 w-72 z-50 md:hidden overflow-hidden rounded-2xl"
           >
             {children}
           </motion.div>
