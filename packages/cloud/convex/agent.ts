@@ -13,8 +13,11 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { Sandbox } from "@vercel/sandbox";
 import { processDirectly, createToolRegistry } from "@willebrew/sage-core";
-import { buildSystemPrompt, BUILT_IN_AGENTS, modelSupportsReasoning } from "@stratuscode/shared";
+import { buildSystemPrompt, BUILT_IN_AGENTS, modelSupportsReasoning, patchGlobalFetch } from "@stratuscode/shared";
 import { registerSandboxToolsConvex, type ConvexSandboxInfo } from "./lib/tools";
+
+// Ensure Codex fetch patch is applied in the Convex action runtime
+patchGlobalFetch();
 
 // ─── Context window lookup (mirrors cloud-session.ts) ───
 
@@ -208,6 +211,48 @@ function buildSageConfig(
   };
 }
 
+// ─── Codex OAuth token refresh ───
+
+const CODEX_ISSUER = "https://auth.openai.com";
+const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
+
+/** In-memory cache of refreshed Codex access token for this action invocation */
+let cachedCodexToken: { access: string; expires: number } | null = null;
+
+async function refreshCodexAccessToken(): Promise<string | null> {
+  // If we have a cached token that hasn't expired, use it
+  if (cachedCodexToken && cachedCodexToken.expires > Date.now() + 60_000) {
+    return cachedCodexToken.access;
+  }
+
+  const refreshToken = process.env.CODEX_REFRESH_TOKEN;
+  if (!refreshToken) return null;
+
+  try {
+    const resp = await fetch(`${CODEX_ISSUER}/oauth/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: CODEX_CLIENT_ID,
+      }).toString(),
+    });
+    if (!resp.ok) return null;
+    const data = (await resp.json()) as {
+      access_token: string;
+      expires_in?: number;
+    };
+    cachedCodexToken = {
+      access: data.access_token,
+      expires: Date.now() + (data.expires_in ?? 3600) * 1000,
+    };
+    return data.access_token;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Provider resolution ───
 
 /**
@@ -216,18 +261,20 @@ function buildSageConfig(
  * previous hard-coded OpenAI-only logic so Codex, OpenRouter, Anthropic,
  * and OpenCode Zen models all route to the correct API.
  */
-function resolveProviderForModel(model: string): {
+async function resolveProviderForModel(model: string): Promise<{
   apiKey: string;
   baseUrl: string;
   providerType: string;
   headers?: Record<string, string>;
-} {
+}> {
   const m = model.toLowerCase();
 
   // Codex models → ChatGPT Codex Responses API
   if (m.includes("codex")) {
+    // Try to refresh the access token if we have a refresh token
+    const freshToken = await refreshCodexAccessToken();
     return {
-      apiKey: process.env.CODEX_ACCESS_TOKEN || "",
+      apiKey: freshToken || process.env.CODEX_ACCESS_TOKEN || "",
       baseUrl: "https://chatgpt.com/backend-api/codex",
       providerType: "responses-api",
       headers: process.env.CODEX_ACCOUNT_ID
@@ -303,7 +350,7 @@ export const sendMessage = internalAction({
     const model = args.model || session.model || "gpt-5-mini";
 
     // Resolve provider from explicit args or auto-detect from model
-    const resolved = resolveProviderForModel(model);
+    const resolved = await resolveProviderForModel(model);
     const apiKey = args.apiKey || resolved.apiKey;
     const baseUrl = args.baseUrl || resolved.baseUrl;
     const providerType = args.providerType || resolved.providerType;
@@ -451,7 +498,15 @@ export const sendMessage = internalAction({
         })),
         projectDir: workDir,
         modelId: model,
-      });
+      }) + `\n\n<repository>
+GitHub Repository: ${session.owner}/${session.repo}
+Branch: ${session.branch}
+Session Branch: ${sessionBranch}
+Remote URL: https://github.com/${session.owner}/${session.repo}.git
+Working Directory: ${workDir}
+The repository has already been cloned into the working directory. When pushing, use the session branch "${sessionBranch}".
+Git is configured with user "StratusCode" <stratuscode@users.noreply.github.com>.
+</repository>`;
 
       const sageConfig = buildSageConfig(
         model,
@@ -762,7 +817,7 @@ export const send = action({
     const model = args.model || session?.model || "gpt-5-mini";
 
     // Auto-resolve provider from model ID + environment variables
-    const resolved = resolveProviderForModel(model);
+    const resolved = await resolveProviderForModel(model);
 
     // User message is already persisted by the frontend via messages.sendUserMessage
     // mutation (instant subscription update). We just need to set up session state.
