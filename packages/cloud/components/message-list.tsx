@@ -26,9 +26,10 @@ export function MessageList({ messages, sandboxStatus = 'idle', todos, onSend, o
   const hasScrolledRef = useRef(false);
 
   useEffect(() => {
-    // Jump instantly on first render, smooth-scroll for subsequent updates
+    if (!bottomRef.current) return;
+    // Jump instantly on initial load, smooth-scroll for subsequent updates
     const behavior = hasScrolledRef.current ? 'smooth' : 'instant';
-    bottomRef.current?.scrollIntoView({ behavior });
+    bottomRef.current.scrollIntoView({ behavior });
     hasScrolledRef.current = true;
   }, [messages, sandboxStatus]);
 
