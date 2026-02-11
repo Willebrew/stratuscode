@@ -530,7 +530,14 @@ Session Branch: ${sessionBranch}
 Remote URL: https://github.com/${session.owner}/${session.repo}.git
 Working Directory: ${workDir}
 The repository has already been cloned into the working directory. When pushing, use the session branch "${sessionBranch}".
-</repository>`;
+</repository>` + (args.alphaMode ? `\n\n<alpha_mode>
+ALPHA MODE IS ENABLED. You have full autonomous control.
+- You may commit, push, and create PRs WITHOUT asking for confirmation.
+- Do NOT use the question tool to ask for permission — just execute directly.
+- Work independently and efficiently to complete the user's request end-to-end.
+</alpha_mode>` : `\n\n<permissions>
+You are in standard mode. For destructive/irreversible actions (git commit, git push, PR creation), you MUST use the question tool to get user confirmation BEFORE executing.
+</permissions>`);
 
       const sageConfig = buildSageConfig(
         model,

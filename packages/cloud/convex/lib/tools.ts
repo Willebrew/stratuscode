@@ -76,7 +76,7 @@ export function registerSandboxToolsConvex(
   // Session tools (Convex-dependent)
   registry.register(createTodoReadTool(convex));
   registry.register(createTodoWriteTool(convex));
-  registry.register(createQuestionTool(convex));
+  registry.register(createQuestionTool(convex, info));
   registry.register(createPlanEnterTool());
   registry.register(createPlanExitTool(convex));
 }
@@ -480,12 +480,14 @@ function createWebFetchTool(): Tool {
 function createGitCommitTool(info: ConvexSandboxInfo): Tool {
   return {
     name: "git_commit",
-    description: "Stage all changes and create a git commit. When not in alpha mode, you MUST first ask the user to confirm using the question tool before calling this.",
+    description: info.alphaMode
+      ? "Stage all changes and create a git commit. You may call this directly without confirmation."
+      : "Stage all changes and create a git commit. You MUST first ask the user to confirm using the question tool before calling this.",
     parameters: {
       type: "object",
       properties: {
         message: { type: "string", description: "The commit message" },
-        confirmed: { type: "boolean", description: "Set to true only after the user has explicitly confirmed this action via the question tool" },
+        confirmed: { type: "boolean", description: info.alphaMode ? "Not needed in alpha mode" : "Set to true only after the user has explicitly confirmed this action via the question tool" },
       },
       required: ["message"],
     },
@@ -513,11 +515,13 @@ function createGitCommitTool(info: ConvexSandboxInfo): Tool {
 function createGitPushTool(info: ConvexSandboxInfo): Tool {
   return {
     name: "git_push",
-    description: "Push commits to the remote. When not in alpha mode, you MUST first ask the user to confirm using the question tool before calling this.",
+    description: info.alphaMode
+      ? "Push commits to the remote. You may call this directly without confirmation."
+      : "Push commits to the remote. You MUST first ask the user to confirm using the question tool before calling this.",
     parameters: {
       type: "object",
       properties: {
-        confirmed: { type: "boolean", description: "Set to true only after the user has explicitly confirmed this action via the question tool" },
+        confirmed: { type: "boolean", description: info.alphaMode ? "Not needed in alpha mode" : "Set to true only after the user has explicitly confirmed this action via the question tool" },
       },
       required: [],
     },
@@ -543,7 +547,9 @@ function createGitPushTool(info: ConvexSandboxInfo): Tool {
 function createPRCreateTool(info: ConvexSandboxInfo): Tool {
   return {
     name: "pr_create",
-    description: "Create a GitHub pull request for the current branch. When not in alpha mode, you MUST first ask the user to confirm using the question tool before calling this.",
+    description: info.alphaMode
+      ? "Create a GitHub pull request for the current branch. You may call this directly without confirmation."
+      : "Create a GitHub pull request for the current branch. You MUST first ask the user to confirm using the question tool before calling this.",
     parameters: {
       type: "object",
       properties: {
@@ -655,15 +661,24 @@ TASK STATES: pending, in_progress, completed. Only ONE task should be in_progres
 
 // ─── Question (Convex polling) ───
 
-function createQuestionTool(convex: ConvexToolContext): Tool {
+function createQuestionTool(convex: ConvexToolContext, info?: ConvexSandboxInfo): Tool {
+  const alphaMode = info?.alphaMode ?? false;
   return {
     name: "question",
-    description: `Ask the user a question when you need clarification or want them to choose between options. This tool will BLOCK and wait for the user to respond.
+    description: alphaMode
+      ? `Ask the user a question when you need clarification or want them to choose between options. This tool will BLOCK and wait for the user to respond.
 
 CRITICAL RULES:
 - You MUST use this tool for ALL questions. NEVER ask questions as regular text.
 - Always provide clear options when possible.
-- Use this for confirmations before destructive actions when not in alpha mode.
+- Alpha mode is ON — you do NOT need to ask for confirmation before commits, pushes, or PRs. Only use this tool when you genuinely need user input or clarification.
+- Do NOT use this for plan approval — use plan_exit instead.`
+      : `Ask the user a question when you need clarification or want them to choose between options. This tool will BLOCK and wait for the user to respond.
+
+CRITICAL RULES:
+- You MUST use this tool for ALL questions. NEVER ask questions as regular text.
+- Always provide clear options when possible.
+- Use this for confirmations before destructive actions (git commit, git push, PR creation).
 - Do NOT use this for plan approval — use plan_exit instead.`,
     parameters: {
       type: "object",
