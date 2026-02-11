@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSidebar } from './sidebar-context';
 
@@ -9,6 +10,17 @@ interface MobileDrawerProps {
 
 export function MobileDrawer({ children }: MobileDrawerProps) {
   const { isOpen, close } = useSidebar();
+
+  // Lock background scroll when drawer is open (prevents content from
+  // scrolling behind the sidebar and misaligning the inverted corners)
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [isOpen]);
 
   return (
     <AnimatePresence>
