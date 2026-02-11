@@ -116,11 +116,6 @@ export function ChatHeader({
               )}
             </div>
           )}
-          {sessionId && !hasChanges && (
-            <div className="text-xs text-muted-foreground/60 hidden sm:block">
-              No changes yet
-            </div>
-          )}
           <Link
             href="/settings"
             className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground transition-all duration-200"
