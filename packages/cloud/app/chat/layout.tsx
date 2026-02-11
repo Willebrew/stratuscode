@@ -51,7 +51,7 @@ function ChatLayoutInner({ children }: { children: React.ReactNode }) {
       </MobileDrawer>
 
       {/* Main content */}
-      <main className={`flex-1 min-w-0 bg-background overflow-hidden transition-[border-radius] duration-200 ${desktopCollapsed ? '' : 'md:rounded-tl-2xl md:rounded-bl-2xl'}`}>
+      <main className={`flex-1 min-w-0 bg-background overflow-hidden transition-all duration-200 ${desktopCollapsed ? '' : 'md:rounded-l-2xl md:my-2 md:mr-2'}`}>
         {children}
       </main>
     </div>
