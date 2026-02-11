@@ -35,7 +35,7 @@ export function MobileDrawer({ children }: MobileDrawerProps) {
                 close();
               }
             }}
-            className="fixed inset-y-0 left-0 w-72 z-50 md:hidden"
+            className="fixed inset-y-0 left-0 w-72 z-50 md:hidden will-change-transform"
           >
             <div className="h-full overflow-hidden">
               {children}
