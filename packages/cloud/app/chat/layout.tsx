@@ -57,18 +57,6 @@ function ChatLayoutInner({ children }: { children: React.ReactNode }) {
         />
       </motion.div>
 
-      {/* Mobile drawer */}
-      <MobileDrawer>
-        <SessionSidebar
-          userId="owner"
-          currentSessionId={sessionId ?? null}
-          onSelectSession={handleSelectSession}
-          onNewSession={handleNewSession}
-          onClose={close}
-          isMobileDrawer
-        />
-      </MobileDrawer>
-
       {/* Main content */}
       <motion.main
         className={`flex-1 min-w-0 bg-background overflow-hidden rounded-2xl m-2 ${desktopCollapsed ? '' : 'lg:ml-0'} flex flex-col`}
@@ -89,6 +77,18 @@ function ChatLayoutInner({ children }: { children: React.ReactNode }) {
           {children}
         </div>
       </motion.main>
+
+      {/* Mobile drawer — rendered last so backdrop overlays everything including header */}
+      <MobileDrawer>
+        <SessionSidebar
+          userId="owner"
+          currentSessionId={sessionId ?? null}
+          onSelectSession={handleSelectSession}
+          onNewSession={handleNewSession}
+          onClose={close}
+          isMobileDrawer
+        />
+      </MobileDrawer>
     </motion.div>
   );
 }

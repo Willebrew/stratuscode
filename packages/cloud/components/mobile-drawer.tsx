@@ -40,14 +40,14 @@ export function MobileDrawer({ children }: MobileDrawerProps) {
             <div className="h-full overflow-hidden">
               {children}
             </div>
-            {/* Inverted corners on right edge — concave curves matching desktop */}
+            {/* Inverted corners on right edge — concave curves matching main content rounding */}
             <div
               className="absolute top-2 -right-4 w-4 h-4 pointer-events-none"
-              style={{ background: 'radial-gradient(circle at 100% 0, transparent 16px, #0a0e14 16px)' }}
+              style={{ background: 'radial-gradient(circle at 100% 100%, transparent 16px, #0a0e14 16px)' }}
             />
             <div
               className="absolute bottom-2 -right-4 w-4 h-4 pointer-events-none"
-              style={{ background: 'radial-gradient(circle at 100% 100%, transparent 16px, #0a0e14 16px)' }}
+              style={{ background: 'radial-gradient(circle at 100% 0, transparent 16px, #0a0e14 16px)' }}
             />
           </motion.div>
         </>
