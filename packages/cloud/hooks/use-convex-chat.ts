@@ -39,6 +39,7 @@ export interface UseConvexChatOptions {
 
 export interface UseConvexChatReturn {
   messages: ChatMessage[];
+  messagesLoading: boolean;
   isLoading: boolean;
   error: string | null;
   sessionId: Id<'sessions'> | null;
@@ -86,6 +87,7 @@ export function useConvexChat(
 
   // ─── Derived state ───
 
+  const messagesLoading = dbMessages === undefined;
   const isLoading = session?.status === 'running' || session?.status === 'booting';
   const error = session?.status === 'error' ? (session.errorMessage || 'An error occurred') : null;
 
@@ -209,6 +211,7 @@ export function useConvexChat(
 
   return {
     messages,
+    messagesLoading,
     isLoading,
     error,
     sessionId,

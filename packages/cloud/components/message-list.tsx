@@ -9,6 +9,7 @@ type SandboxStatus = 'idle' | 'initializing' | 'ready';
 
 interface MessageListProps {
   messages: ChatMessage[];
+  messagesLoading?: boolean;
   sandboxStatus?: SandboxStatus;
   todos?: TodoItem[];
   onSend?: (message: string) => void;
@@ -21,7 +22,7 @@ const SANDBOX_LABELS: Record<SandboxStatus, string> = {
   ready: '',
 };
 
-export function MessageList({ messages, sandboxStatus = 'idle', todos, onSend, onAnswer }: MessageListProps) {
+export function MessageList({ messages, messagesLoading, sandboxStatus = 'idle', todos, onSend, onAnswer }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const hasScrolledRef = useRef(false);
 
@@ -32,6 +33,15 @@ export function MessageList({ messages, sandboxStatus = 'idle', todos, onSend, o
     bottomRef.current.scrollIntoView({ behavior });
     hasScrolledRef.current = true;
   }, [messages, sandboxStatus]);
+
+  // Show loading spinner while Convex query is still fetching (prevents "Ready to build" flash)
+  if (messagesLoading) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <Loader2 className="w-5 h-5 text-muted-foreground animate-spin" />
+      </div>
+    );
+  }
 
   if (messages.length === 0 && sandboxStatus !== 'initializing') {
     return (
