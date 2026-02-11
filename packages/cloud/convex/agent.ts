@@ -108,6 +108,20 @@ function getSandboxCredentials() {
 
 // ─── Sandbox helpers ───
 
+/** Fetch the authenticated GitHub user's login and ID for git config */
+async function getGitHubUser(token: string): Promise<{ login: string; id: number; name: string | null }> {
+  try {
+    const resp = await fetch("https://api.github.com/user", {
+      headers: { Authorization: `token ${token}`, "User-Agent": "StratusCode" },
+    });
+    if (resp.ok) {
+      const data = (await resp.json()) as { login: string; id: number; name: string | null };
+      return data;
+    }
+  } catch {}
+  return { login: "stratuscode", id: 0, name: "StratusCode" };
+}
+
 async function createFreshSandbox(
   owner: string,
   repo: string,
@@ -133,9 +147,15 @@ async function createFreshSandbox(
     throw new Error(`Failed to clone repository: ${stderr}`);
   }
 
+  // Use the actual GitHub user's identity so Vercel recognizes the author
+  // as a contributor (required for Vercel auto-deployments)
+  const ghUser = await getGitHubUser(githubToken);
+  const gitName = ghUser.name || ghUser.login;
+  const gitEmail = `${ghUser.id}+${ghUser.login}@users.noreply.github.com`;
+
   await sandbox.runCommand("bash", ["-c", `cd '${workDir}' && git checkout -b '${sessionBranch}'`]);
-  await sandbox.runCommand("bash", ["-c", `cd '${workDir}' && git config user.email 'stratuscode@users.noreply.github.com'`]);
-  await sandbox.runCommand("bash", ["-c", `cd '${workDir}' && git config user.name 'StratusCode'`]);
+  await sandbox.runCommand("bash", ["-c", `cd '${workDir}' && git config user.email '${gitEmail}'`]);
+  await sandbox.runCommand("bash", ["-c", `cd '${workDir}' && git config user.name '${gitName}'`]);
 
   return sandbox;
 }
