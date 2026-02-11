@@ -655,6 +655,10 @@ export const send = action({
     const apiKey = process.env.OPENAI_API_KEY || "";
     const baseUrl = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
 
+    // Force chat-completions mode — the Responses API tracks state via
+    // response IDs that expire between Convex action invocations.
+    const providerType = "chat-completions";
+
     // Schedule the internal action (fire-and-forget, runs in background)
     await ctx.scheduler.runAfter(0, internal.agent.sendMessage, {
       sessionId: args.sessionId,
@@ -662,6 +666,7 @@ export const send = action({
       model: args.model,
       apiKey,
       baseUrl,
+      providerType,
       alphaMode: args.alphaMode,
       reasoningEffort: args.reasoningEffort,
     });
