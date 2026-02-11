@@ -5,7 +5,7 @@ import { ChevronRight, Loader2, Check, X, Wrench, HelpCircle, FileCode, Rocket }
 import { motion, AnimatePresence } from 'framer-motion';
 import { MarkdownRenderer } from './markdown-renderer';
 import { InlineDiff } from './inline-diff';
-import type { ChatMessage, ToolCallInfo, MessagePart, TodoItem } from '@/hooks/use-chat-stream';
+import type { ChatMessage, ToolCallInfo, MessagePart, TodoItem } from '@/hooks/use-convex-chat';
 
 interface MessageBubbleProps {
   message: ChatMessage;

@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { ArrowUp, Loader2, Paperclip, Plus, Zap, Brain, X, Hammer, Map, AlertCircle } from 'lucide-react';
+import { ArrowUp, Square, Paperclip, Plus, Zap, Brain, X, Hammer, Map, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import clsx from 'clsx';
 import { TodoPanel } from './todo-panel';
-import type { TodoItem } from '@/hooks/use-chat-stream';
+import type { TodoItem } from '@/hooks/use-convex-chat';
 
 interface ChatInputProps {
   onSend: (message: string) => void;
@@ -20,6 +20,7 @@ interface ChatInputProps {
   todos?: TodoItem[];
   error?: string | null;
   onDismissError?: () => void;
+  onCancel?: () => void;
 }
 
 export function ChatInput({
@@ -35,6 +36,7 @@ export function ChatInput({
   todos = [],
   error,
   onDismissError,
+  onCancel,
 }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -77,7 +79,7 @@ export function ChatInput({
   const effortSegments: Array<'low' | 'medium' | 'high'> = ['low', 'medium', 'high'];
 
   return (
-    <form onSubmit={handleSubmit} className="py-3 sm:py-4 pt-8 sm:pt-10 bg-gradient-to-t from-background via-background to-transparent">
+    <form onSubmit={handleSubmit} className="py-3 sm:py-4 pt-8 sm:pt-10 bg-gradient-to-t from-background via-background to-transparent pb-[env(safe-area-inset-bottom,12px)]">
       <div className="max-w-3xl mx-auto px-3 sm:px-4">
         <div
           className={clsx(
@@ -317,17 +319,24 @@ export function ChatInput({
               </AnimatePresence>
             </div>
 
-            <button
-              type="submit"
-              disabled={!message.trim() || isLoading}
-              className="w-8 h-8 rounded-full bg-white flex items-center justify-center hover:bg-white/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              {isLoading ? (
-                <Loader2 className="w-4 h-4 text-black animate-spin" />
-              ) : (
+            {isLoading ? (
+              <button
+                type="button"
+                onClick={onCancel}
+                className="w-8 h-8 rounded-full bg-white flex items-center justify-center hover:bg-white/90 transition-colors min-w-[44px] min-h-[44px]"
+                title="Stop"
+              >
+                <Square className="w-3.5 h-3.5 text-black" />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={!message.trim()}
+                className="w-8 h-8 rounded-full bg-white flex items-center justify-center hover:bg-white/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed min-w-[44px] min-h-[44px]"
+              >
                 <ArrowUp className="w-4 h-4 text-black" />
-              )}
-            </button>
+              </button>
+            )}
           </div>
         </div>
       </div>

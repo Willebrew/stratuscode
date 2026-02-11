@@ -69,13 +69,34 @@ enum Commands {
     },
 }
 
-fn main() -> Result<()> {
-    let cli = Cli::parse();
+fn resolve_root() -> Result<PathBuf> {
+    // 1. Explicit env var (set by bin/stratuscode launcher)
+    if let Ok(val) = std::env::var("STRATUSCODE_ROOT") {
+        let p = PathBuf::from(val);
+        if p.join("packages").exists() {
+            return Ok(p);
+        }
+    }
+    // 2. Resolve from executable location: <root>/target/{debug,release}/stratuscode
+    if let Ok(exe) = std::env::current_exe().and_then(|p| p.canonicalize()) {
+        if let Some(root) = exe.parent().and_then(|p| p.parent()).and_then(|p| p.parent()) {
+            if root.join("packages").exists() {
+                return Ok(root.to_path_buf());
+            }
+        }
+    }
+    // 3. Compile-time fallback
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(|p| p.parent())
         .unwrap()
         .to_path_buf();
+    Ok(root)
+}
+
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+    let root = resolve_root()?;
 
     if let Some(Commands::Auth {
         key,

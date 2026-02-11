@@ -1,0 +1,198 @@
+import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
+import { v } from "convex/values";
+
+export const get = query({
+  args: { sessionId: v.id("sessions") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("streaming_state")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
+      .unique();
+  },
+});
+
+export const getInternal = internalQuery({
+  args: { sessionId: v.id("sessions") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("streaming_state")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
+      .unique();
+  },
+});
+
+export const start = internalMutation({
+  args: { sessionId: v.id("sessions") },
+  handler: async (ctx, args) => {
+    // Delete any existing streaming state for this session
+    const existing = await ctx.db
+      .query("streaming_state")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
+      .unique();
+    if (existing) {
+      await ctx.db.delete(existing._id);
+    }
+    await ctx.db.insert("streaming_state", {
+      sessionId: args.sessionId,
+      content: "",
+      reasoning: "",
+      toolCalls: "[]",
+      isStreaming: true,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const appendToken = internalMutation({
+  args: { sessionId: v.id("sessions"), content: v.string() },
+  handler: async (ctx, args) => {
+    const state = await ctx.db
+      .query("streaming_state")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
+      .unique();
+    if (!state) return;
+    await ctx.db.patch(state._id, {
+      content: state.content + args.content,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const appendReasoning = internalMutation({
+  args: { sessionId: v.id("sessions"), content: v.string() },
+  handler: async (ctx, args) => {
+    const state = await ctx.db
+      .query("streaming_state")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
+      .unique();
+    if (!state) return;
+    await ctx.db.patch(state._id, {
+      reasoning: state.reasoning + args.content,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const addToolCall = internalMutation({
+  args: {
+    sessionId: v.id("sessions"),
+    toolCallId: v.string(),
+    toolName: v.string(),
+    toolArgs: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const state = await ctx.db
+      .query("streaming_state")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
+      .unique();
+    if (!state) return;
+    const toolCalls = JSON.parse(state.toolCalls);
+    toolCalls.push({
+      id: args.toolCallId,
+      name: args.toolName,
+      args: args.toolArgs,
+      status: "running",
+    });
+    await ctx.db.patch(state._id, {
+      toolCalls: JSON.stringify(toolCalls),
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const updateToolResult = internalMutation({
+  args: {
+    sessionId: v.id("sessions"),
+    toolCallId: v.string(),
+    result: v.string(),
+    toolArgs: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const state = await ctx.db
+      .query("streaming_state")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
+      .unique();
+    if (!state) return;
+    const toolCalls = JSON.parse(state.toolCalls);
+    const tc = toolCalls.find((t: any) => t.id === args.toolCallId);
+    if (tc) {
+      tc.result = args.result;
+      tc.status = "completed";
+      if (args.toolArgs) tc.args = args.toolArgs;
+    }
+    await ctx.db.patch(state._id, {
+      toolCalls: JSON.stringify(toolCalls),
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const setQuestion = internalMutation({
+  args: {
+    sessionId: v.id("sessions"),
+    question: v.string(), // JSON of question data
+  },
+  handler: async (ctx, args) => {
+    const state = await ctx.db
+      .query("streaming_state")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
+      .unique();
+    if (!state) return;
+    await ctx.db.patch(state._id, {
+      pendingQuestion: args.question,
+      pendingAnswer: undefined,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+// Called by the frontend when user answers a question
+export const answerQuestion = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+    answer: v.string(), // JSON of answer data
+  },
+  handler: async (ctx, args) => {
+    const state = await ctx.db
+      .query("streaming_state")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
+      .unique();
+    if (!state) return;
+    await ctx.db.patch(state._id, {
+      pendingAnswer: args.answer,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+// Called by the action after reading the answer
+export const clearQuestion = internalMutation({
+  args: { sessionId: v.id("sessions") },
+  handler: async (ctx, args) => {
+    const state = await ctx.db
+      .query("streaming_state")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
+      .unique();
+    if (!state) return;
+    await ctx.db.patch(state._id, {
+      pendingQuestion: undefined,
+      pendingAnswer: undefined,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const finish = internalMutation({
+  args: { sessionId: v.id("sessions") },
+  handler: async (ctx, args) => {
+    const state = await ctx.db
+      .query("streaming_state")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
+      .unique();
+    if (!state) return;
+    await ctx.db.patch(state._id, {
+      isStreaming: false,
+      updatedAt: Date.now(),
+    });
+  },
+});

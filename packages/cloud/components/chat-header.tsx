@@ -2,8 +2,9 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import { GitBranch, GitPullRequest, GitCommitHorizontal, ChevronLeft, ChevronDown, Settings } from 'lucide-react';
+import { GitBranch, GitPullRequest, GitCommitHorizontal, ChevronLeft, ChevronDown, Settings, Menu } from 'lucide-react';
 import { StratusLogo } from './stratus-logo';
+import { useSidebar } from './sidebar-context';
 
 interface ChatHeaderProps {
   owner: string;
@@ -24,6 +25,7 @@ export function ChatHeader({
 }: ChatHeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const { toggle } = useSidebar();
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -39,11 +41,18 @@ export function ChatHeader({
     <header className="border-b border-border/50 glass sticky top-0 z-40">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 sm:gap-4 min-w-0">
-          <Link 
-            href="/chat" 
+          {/* Mobile sidebar toggle */}
+          <button
+            onClick={toggle}
+            className="p-2 -ml-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors md:hidden min-w-[44px] min-h-[44px] flex items-center justify-center"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+          <Link
+            href="/chat"
             className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors duration-200 flex-shrink-0"
           >
-            <ChevronLeft className="w-4 h-4" />
+            <ChevronLeft className="w-4 h-4 hidden md:block" />
             <div className="w-7 h-7 rounded-lg bg-foreground flex items-center justify-center">
               <StratusLogo className="w-3.5 h-3.5 text-background" />
             </div>

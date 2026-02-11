@@ -19,6 +19,8 @@ fi
 
 ROOT_DIR="$(cd "$(dirname "$SOURCE_PATH")/.." && pwd)"
 
+export STRATUSCODE_ROOT="${ROOT_DIR}"
+
 if [[ -x "${ROOT_DIR}/target/release/stratuscode" ]]; then
   exec "${ROOT_DIR}/target/release/stratuscode" "$@"
 fi

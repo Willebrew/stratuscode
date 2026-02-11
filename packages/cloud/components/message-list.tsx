@@ -3,20 +3,21 @@
 import { useEffect, useRef } from 'react';
 import { Loader2, FileCode, Terminal, GitPullRequest } from 'lucide-react';
 import { MessageBubble } from './message-bubble';
-import type { ChatMessage, SandboxState, TodoItem } from '@/hooks/use-chat-stream';
+import type { ChatMessage, TodoItem } from '@/hooks/use-convex-chat';
+
+type SandboxStatus = 'idle' | 'initializing' | 'ready';
 
 interface MessageListProps {
   messages: ChatMessage[];
-  sandboxStatus?: SandboxState;
+  sandboxStatus?: SandboxStatus;
   todos?: TodoItem[];
   onSend?: (message: string) => void;
   onAnswer?: (answer: string) => void;
 }
 
-const SANDBOX_LABELS: Record<SandboxState, string> = {
+const SANDBOX_LABELS: Record<SandboxStatus, string> = {
   idle: '',
   initializing: 'Booting up the VM',
-  cloning: 'Cloning repository',
   ready: '',
 };
 
@@ -27,7 +28,7 @@ export function MessageList({ messages, sandboxStatus = 'idle', todos, onSend, o
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, sandboxStatus]);
 
-  if (messages.length === 0 && (sandboxStatus === 'idle' || sandboxStatus === 'ready')) {
+  if (messages.length === 0 && sandboxStatus !== 'initializing') {
     return (
       <div className="flex-1 flex items-center justify-center p-4 sm:p-8 pb-40 relative">
         <div className="absolute inset-0 grid-pattern opacity-30" />
@@ -56,7 +57,7 @@ export function MessageList({ messages, sandboxStatus = 'idle', todos, onSend, o
     );
   }
 
-  const showBootStatus = sandboxStatus === 'initializing' || sandboxStatus === 'cloning';
+  const showBootStatus = sandboxStatus === 'initializing';
 
   return (
     <div className="flex-1 overflow-y-auto chat-scroll-area">

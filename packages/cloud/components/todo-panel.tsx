@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { CheckCircle2, Circle, Loader2, ListTodo, ChevronUp, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { TodoItem } from '@/hooks/use-chat-stream';
+import type { TodoItem } from '@/hooks/use-convex-chat';
 
 interface TodoPanelProps {
   todos: TodoItem[];
