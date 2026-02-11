@@ -62,11 +62,11 @@ export function SessionSidebar({
 
   return (
     <div className={clsx(
-      'flex flex-col h-full bg-[#0a0e14]',
+      'flex flex-col h-full bg-[#0a0e14] pt-2',
       isMobileDrawer ? 'w-full' : 'w-72'
     )}>
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06]">
+      {/* Header — h-14 + pt-2 aligns with main header (m-2 + h-14) */}
+      <div className="flex items-center justify-between px-4 h-14 border-b border-white/[0.06]">
         <span className="text-sm font-medium text-zinc-300">Sessions</span>
         <div className="flex items-center gap-1">
           <button
