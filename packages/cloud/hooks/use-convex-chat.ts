@@ -118,15 +118,19 @@ export function useConvexChat(
       streaming: false,
     }));
 
-    // Add optimistic user message if not yet in DB
+    // Add optimistic user message only if the DB hasn't caught up yet
     if (optimisticMessage) {
-      completed.push({
-        id: `optimistic-${optimisticIdRef.current}`,
-        role: 'user',
-        content: optimisticMessage,
-        parts: [{ type: 'text', content: optimisticMessage }],
-        streaming: false,
-      });
+      const lastDb = (dbMessages || []).at(-1) as any;
+      const dbHasIt = lastDb?.role === 'user' && lastDb?.content === optimisticMessage;
+      if (!dbHasIt) {
+        completed.push({
+          id: `optimistic-${optimisticIdRef.current}`,
+          role: 'user',
+          content: optimisticMessage,
+          parts: [{ type: 'text', content: optimisticMessage }],
+          streaming: false,
+        });
+      }
     }
 
     // If streaming, add a live assistant message

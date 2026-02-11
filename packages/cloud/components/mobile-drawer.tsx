@@ -11,15 +11,22 @@ interface MobileDrawerProps {
 export function MobileDrawer({ children }: MobileDrawerProps) {
   const { isOpen, close } = useSidebar();
 
-  // Lock background scroll when drawer is open (prevents content from
-  // scrolling behind the sidebar and misaligning the inverted corners)
+  // Lock ALL scrolling when drawer is open — both body and internal scroll containers
   useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
+    if (!isOpen) return;
+    document.body.style.overflow = 'hidden';
+    // iOS requires touch-level prevention since overflow:hidden doesn't stop inertial scroll
+    const preventScroll = (e: TouchEvent) => {
+      // Allow scrolling inside the drawer itself
+      const drawer = document.getElementById('mobile-drawer');
+      if (drawer?.contains(e.target as Node)) return;
+      e.preventDefault();
+    };
+    document.addEventListener('touchmove', preventScroll, { passive: false });
+    return () => {
       document.body.style.overflow = '';
-    }
-    return () => { document.body.style.overflow = ''; };
+      document.removeEventListener('touchmove', preventScroll);
+    };
   }, [isOpen]);
 
   return (
@@ -32,6 +39,7 @@ export function MobileDrawer({ children }: MobileDrawerProps) {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
             className="fixed inset-0 bg-black/60 z-40 lg:hidden"
+            style={{ touchAction: 'none' }}
             onClick={close}
           />
           <motion.div
@@ -47,6 +55,7 @@ export function MobileDrawer({ children }: MobileDrawerProps) {
                 close();
               }
             }}
+            id="mobile-drawer"
             className="fixed inset-y-0 left-0 w-72 z-50 lg:hidden will-change-transform"
           >
             <div className="h-full overflow-hidden">
