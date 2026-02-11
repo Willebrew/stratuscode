@@ -22,7 +22,7 @@ export function AppHeader({ sessionId, onSend }: AppHeaderProps) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  const { toggle, desktopCollapsed, toggleDesktop } = useSidebar();
+  const { toggle, desktopCollapsed, toggleDesktop, triggerExit } = useSidebar();
 
   const session = useQuery(
     api.sessions.get,
@@ -50,7 +50,10 @@ export function AppHeader({ sessionId, onSend }: AppHeaderProps) {
   }, []);
 
   const handleLogout = async () => {
+    triggerExit();
     await fetch('/api/auth/logout', { method: 'POST' });
+    // Wait for exit animation to finish
+    await new Promise((r) => setTimeout(r, 300));
     router.push('/');
   };
 

@@ -86,8 +86,15 @@ export function RepoSelector({ onSelect }: RepoSelectorProps) {
 
       {/* Repo list */}
       <div className="border border-border/50 rounded-2xl overflow-hidden bg-background">
+        <AnimatePresence mode="wait">
         {isLoading ? (
-          <div className="divide-y divide-border/50">
+          <motion.div
+            key="skeleton"
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="divide-y divide-border/50"
+          >
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="flex items-center gap-3 px-5 py-4 animate-pulse">
                 <div className="w-9 h-9 rounded-xl bg-secondary" />
@@ -98,15 +105,35 @@ export function RepoSelector({ onSelect }: RepoSelectorProps) {
                 <div className="h-6 w-14 bg-secondary rounded-full flex-shrink-0" />
               </div>
             ))}
-          </div>
+          </motion.div>
         ) : error ? (
-          <div className="text-center py-20 text-red-500 text-sm">{error}</div>
+          <motion.div
+            key="error"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.2 }}
+            className="text-center py-20 text-red-500 text-sm"
+          >
+            {error}
+          </motion.div>
         ) : repos.length === 0 ? (
-          <div className="text-center py-20 text-muted-foreground text-sm">
+          <motion.div
+            key="empty"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.2 }}
+            className="text-center py-20 text-muted-foreground text-sm"
+          >
             No repositories found
-          </div>
+          </motion.div>
         ) : (
-          <div className="max-h-[32rem] overflow-y-auto divide-y divide-border/50">
+          <motion.div
+            key="repos"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.25 }}
+            className="max-h-[32rem] overflow-y-auto divide-y divide-border/50"
+          >
             {repos.map((repo) => {
               const isExpanded = expandedRepoId === repo.id;
               return (
@@ -174,8 +201,9 @@ export function RepoSelector({ onSelect }: RepoSelectorProps) {
                 </div>
               );
             })}
-          </div>
+          </motion.div>
         )}
+        </AnimatePresence>
       </div>
     </div>
   );

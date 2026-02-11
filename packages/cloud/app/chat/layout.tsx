@@ -1,6 +1,7 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
+import { motion } from 'framer-motion';
 import { SessionSidebar } from '@/components/session-sidebar';
 import { MobileDrawer } from '@/components/mobile-drawer';
 import { AppHeader } from '@/components/app-header';
@@ -8,10 +9,12 @@ import { SidebarProvider, useSidebar } from '@/components/sidebar-context';
 import { SendFnProvider, useSendFn } from '@/components/send-fn-context';
 import type { Id } from '@/convex/_generated/dataModel';
 
+const ease = [0.4, 0, 0.2, 1] as const;
+
 function ChatLayoutInner({ children }: { children: React.ReactNode }) {
   const params = useParams();
   const router = useRouter();
-  const { close, desktopCollapsed } = useSidebar();
+  const { close, desktopCollapsed, isExiting } = useSidebar();
   const { sendFn } = useSendFn();
   const sessionId = params.sessionId as Id<'sessions'> | undefined;
 
@@ -26,12 +29,24 @@ function ChatLayoutInner({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="h-dvh flex bg-[#0a0e14]">
+    <motion.div
+      className="h-dvh flex bg-[#0a0e14]"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: isExiting ? 0 : 1 }}
+      transition={{ duration: 0.3, ease }}
+    >
       {/* Desktop sidebar */}
-      <div
-        className={`hidden md:block flex-shrink-0 transition-[width] duration-200 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden ${
+      <motion.div
+        className={`hidden md:block flex-shrink-0 overflow-hidden ${
           desktopCollapsed ? 'w-0' : 'w-72'
         }`}
+        initial={{ x: -288, opacity: 0 }}
+        animate={{
+          x: isExiting ? -288 : 0,
+          opacity: isExiting ? 0 : 1,
+        }}
+        transition={{ duration: 0.35, ease }}
+        style={{ transition: desktopCollapsed !== undefined ? 'width 200ms cubic-bezier(0.4,0,0.2,1)' : undefined }}
       >
         <SessionSidebar
           userId="owner"
@@ -39,7 +54,7 @@ function ChatLayoutInner({ children }: { children: React.ReactNode }) {
           onSelectSession={handleSelectSession}
           onNewSession={handleNewSession}
         />
-      </div>
+      </motion.div>
 
       {/* Mobile drawer */}
       <MobileDrawer>
@@ -54,7 +69,16 @@ function ChatLayoutInner({ children }: { children: React.ReactNode }) {
       </MobileDrawer>
 
       {/* Main content */}
-      <main className={`flex-1 min-w-0 bg-background overflow-hidden transition-all duration-200 rounded-2xl m-2 ${desktopCollapsed ? '' : 'md:ml-0'} flex flex-col`}>
+      <motion.main
+        className={`flex-1 min-w-0 bg-background overflow-hidden rounded-2xl m-2 ${desktopCollapsed ? '' : 'md:ml-0'} flex flex-col`}
+        initial={{ opacity: 0, scale: 0.97 }}
+        animate={{
+          opacity: isExiting ? 0 : 1,
+          scale: isExiting ? 0.97 : 1,
+        }}
+        transition={{ duration: 0.3, ease, delay: isExiting ? 0 : 0.05 }}
+        style={{ transition: `margin 200ms cubic-bezier(0.4,0,0.2,1)` }}
+      >
         {/* Persistent header — never unmounts */}
         <AppHeader
           sessionId={sessionId ?? null}
@@ -63,8 +87,8 @@ function ChatLayoutInner({ children }: { children: React.ReactNode }) {
         <div className="flex-1 min-h-0 overflow-hidden">
           {children}
         </div>
-      </main>
-    </div>
+      </motion.main>
+    </motion.div>
   );
 }
 
