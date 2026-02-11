@@ -38,7 +38,7 @@ function ChatLayoutInner({ children }: { children: React.ReactNode }) {
     >
       {/* Desktop sidebar */}
       <motion.div
-        className={`hidden md:block flex-shrink-0 overflow-hidden ${
+        className={`hidden lg:block flex-shrink-0 overflow-hidden ${
           desktopCollapsed ? 'w-0' : 'w-72'
         }`}
         initial={{ x: -288, opacity: 0 }}
@@ -71,7 +71,7 @@ function ChatLayoutInner({ children }: { children: React.ReactNode }) {
 
       {/* Main content */}
       <motion.main
-        className={`flex-1 min-w-0 bg-background overflow-hidden rounded-2xl m-2 ${desktopCollapsed ? '' : 'md:ml-0'} flex flex-col`}
+        className={`flex-1 min-w-0 bg-background overflow-hidden rounded-2xl m-2 ${desktopCollapsed ? '' : 'lg:ml-0'} flex flex-col`}
         initial={{ opacity: 0, scale: 0.97 }}
         animate={{
           opacity: isExiting ? 0 : 1,

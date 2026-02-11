@@ -35,7 +35,7 @@ export function MessageList({ messages, sandboxStatus = 'idle', todos, onSend, o
 
   if (messages.length === 0 && sandboxStatus !== 'initializing') {
     return (
-      <div className="flex-1 flex items-center justify-center p-4 sm:p-8 relative">
+      <div className="h-full flex items-center justify-center p-4 sm:p-8 relative">
         <div className="absolute inset-0 grid-pattern opacity-30" />
         <div className="text-center max-w-lg relative z-10 animate-fade-in-up">
           <h2 className="font-serif text-2xl sm:text-3xl font-normal mb-3">Ready to build</h2>
@@ -65,8 +65,8 @@ export function MessageList({ messages, sandboxStatus = 'idle', todos, onSend, o
   const showBootStatus = sandboxStatus === 'initializing';
 
   return (
-    <div className="flex-1 overflow-y-auto chat-scroll-area">
-      <div className="max-w-3xl mx-auto px-3 sm:px-4 space-y-4 sm:space-y-6 py-2 sm:py-4">
+    <div className="h-full overflow-y-auto chat-scroll-area">
+      <div className="max-w-3xl mx-auto px-3 sm:px-4 space-y-4 sm:space-y-6 py-2 sm:py-4 pb-44">
         {messages.map((message) => (
           <MessageBubble key={message.id} message={message} todos={todos} onSend={onSend} onAnswer={onAnswer} />
         ))}
@@ -77,8 +77,6 @@ export function MessageList({ messages, sandboxStatus = 'idle', todos, onSend, o
             <span className="tracking-widest animate-pulse">...</span>
           </div>
         )}
-        {/* Small bottom spacer */}
-        <div className="h-4" aria-hidden="true" />
         <div ref={bottomRef} />
       </div>
     </div>

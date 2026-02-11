@@ -3,8 +3,11 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { motion } from 'framer-motion';
 import { ChevronLeft, LogOut, Moon, Sun, Monitor, Link2, Loader2, Settings } from 'lucide-react';
 import { StratusLogo } from '@/components/stratus-logo';
+
+const ease = [0.4, 0, 0.2, 1] as const;
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -24,8 +27,18 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="h-dvh flex bg-[#0a0e14]">
-      <main className="flex-1 min-w-0 bg-background overflow-hidden rounded-2xl m-2 flex flex-col">
+    <motion.div
+      className="h-dvh flex bg-[#0a0e14]"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.3, ease }}
+    >
+      <motion.main
+        className="flex-1 min-w-0 bg-background overflow-hidden rounded-2xl m-2 flex flex-col"
+        initial={{ opacity: 0, scale: 0.97 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.3, ease, delay: 0.05 }}
+      >
         {/* Header */}
         <header className="border-b border-border/50 glass sticky top-0 z-40 flex-shrink-0">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-3">
@@ -33,23 +46,41 @@ export default function SettingsPage() {
               href="/chat"
               className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors duration-200 flex-shrink-0"
             >
-              <ChevronLeft className="w-4 h-4" />
+              {/* Back arrow — animates in */}
+              <motion.div
+                className="overflow-hidden"
+                initial={{ width: 0, opacity: 0 }}
+                animate={{ width: 16, opacity: 1 }}
+                transition={{ duration: 0.25, ease, delay: 0.15 }}
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </motion.div>
               <div className="w-8 h-8 rounded-lg bg-foreground flex items-center justify-center">
                 <StratusLogo className="w-4 h-4 text-background" />
               </div>
               <span className="font-semibold tracking-tight text-sm">StratusCode</span>
             </Link>
             <div className="ml-auto flex items-center gap-2">
-              <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-secondary text-foreground">
+              <motion.div
+                className="flex items-center justify-center w-8 h-8 rounded-lg bg-secondary text-foreground"
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.2, ease, delay: 0.2 }}
+              >
                 <Settings className="w-4 h-4" />
-              </div>
+              </motion.div>
             </div>
           </div>
         </header>
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-md mx-auto px-6 py-8 sm:py-12">
+          <motion.div
+            className="max-w-md mx-auto px-6 py-8 sm:py-12"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, ease, delay: 0.1 }}
+          >
             <div className="flex items-center gap-3 mb-8">
               <h1 className="font-serif text-3xl font-normal">Settings</h1>
             </div>
@@ -183,9 +214,9 @@ export default function SettingsPage() {
                 </p>
               </div>
             </div>
-          </div>
+          </motion.div>
         </div>
-      </main>
-    </div>
+      </motion.main>
+    </motion.div>
   );
 }

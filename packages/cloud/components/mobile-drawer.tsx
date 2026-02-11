@@ -19,7 +19,7 @@ export function MobileDrawer({ children }: MobileDrawerProps) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="fixed inset-0 bg-black/60 z-40 md:hidden"
+            className="fixed inset-0 bg-black/60 z-40 lg:hidden"
             onClick={close}
           />
           <motion.div
@@ -35,7 +35,7 @@ export function MobileDrawer({ children }: MobileDrawerProps) {
                 close();
               }
             }}
-            className="fixed inset-y-0 left-0 w-72 z-50 md:hidden will-change-transform"
+            className="fixed inset-y-0 left-0 w-72 z-50 lg:hidden will-change-transform"
           >
             <div className="h-full overflow-hidden">
               {children}
@@ -43,11 +43,11 @@ export function MobileDrawer({ children }: MobileDrawerProps) {
             {/* Inverted corners on right edge — concave curves matching desktop */}
             <div
               className="absolute top-2 -right-4 w-4 h-4 pointer-events-none"
-              style={{ background: 'radial-gradient(circle at 0 0, transparent 16px, #0a0e14 16px)' }}
+              style={{ background: 'radial-gradient(circle at 100% 0, transparent 16px, #0a0e14 16px)' }}
             />
             <div
               className="absolute bottom-2 -right-4 w-4 h-4 pointer-events-none"
-              style={{ background: 'radial-gradient(circle at 0 100%, transparent 16px, #0a0e14 16px)' }}
+              style={{ background: 'radial-gradient(circle at 100% 100%, transparent 16px, #0a0e14 16px)' }}
             />
           </motion.div>
         </>

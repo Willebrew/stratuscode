@@ -165,7 +165,7 @@ export function SessionSidebar({
                   className={clsx(
                     'absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md',
                     'text-zinc-600 hover:text-red-400 hover:bg-red-500/10',
-                    'opacity-0 group-hover:opacity-100 transition-all',
+                    'opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-all',
                     'focus:opacity-100'
                   )}
                   title="Delete session"

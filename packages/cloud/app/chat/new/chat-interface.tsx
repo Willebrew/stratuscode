@@ -48,7 +48,7 @@ export function ChatInterface({ sessionId: sessionIdStr }: ChatInterfaceProps) {
   }, [handleSend, registerSendFn]);
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
+    <div className="h-full relative overflow-hidden">
       <MessageList
         messages={messages}
         sandboxStatus={sandboxStatus}
@@ -57,20 +57,22 @@ export function ChatInterface({ sessionId: sessionIdStr }: ChatInterfaceProps) {
         onAnswer={answerQuestion}
       />
 
-      <div className="flex-shrink-0">
-        <ChatInput
-          onSend={handleSend}
-          isLoading={isLoading}
-          alphaMode={alphaMode}
-          onAlphaModeChange={setAlphaMode}
-          agentMode={agentMode}
-          onAgentModeChange={setAgentMode}
-          reasoningEffort={reasoningEffort}
-          onReasoningEffortChange={setReasoningEffort}
-          todos={todos}
-          error={error}
-          onCancel={requestCancel}
-        />
+      <div className="absolute bottom-0 left-0 right-0 z-10 pointer-events-none">
+        <div className="pointer-events-auto">
+          <ChatInput
+            onSend={handleSend}
+            isLoading={isLoading}
+            alphaMode={alphaMode}
+            onAlphaModeChange={setAlphaMode}
+            agentMode={agentMode}
+            onAgentModeChange={setAgentMode}
+            reasoningEffort={reasoningEffort}
+            onReasoningEffortChange={setReasoningEffort}
+            todos={todos}
+            error={error}
+            onCancel={requestCancel}
+          />
+        </div>
       </div>
     </div>
   );

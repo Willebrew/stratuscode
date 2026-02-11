@@ -25,7 +25,7 @@ export function ChatPageRouter() {
     <div className="h-full flex flex-col relative">
       <div className="absolute inset-0 grid-pattern opacity-30" />
 
-      <main className="relative z-10 flex-1 overflow-y-auto">
+      <main className="relative z-10 flex-1 min-h-0 overflow-hidden">
         <AnimatePresence mode="wait">
           <motion.div
             key={mode}
@@ -35,8 +35,10 @@ export function ChatPageRouter() {
             transition={{ duration: 0.15 }}
             className={
               mode === 'select'
-                ? 'min-h-full flex items-center justify-center px-6 py-8'
-                : 'py-12 px-6'
+                ? 'h-full flex items-center justify-center px-6 py-8 overflow-y-auto'
+                : mode === 'select-repo'
+                  ? 'h-full px-6 pt-8 pb-4'
+                  : 'h-full py-12 px-6 overflow-y-auto'
             }
           >
             {mode === 'select' && <ProjectSelectionPage />}

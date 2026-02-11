@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import type { Id } from '../convex/_generated/dataModel';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState, useEffect, useRef } from 'react';
 
 export type MessagePart =
   | { type: 'reasoning'; content: string }
@@ -77,6 +77,21 @@ export function useConvexChat(
     sessionId ? { sessionId } : 'skip'
   );
 
+  // ─── Optimistic user message ───
+
+  const [optimisticMessage, setOptimisticMessage] = useState<string | null>(null);
+  const optimisticIdRef = useRef(0);
+
+  // Clear optimistic message once it appears in the DB
+  useEffect(() => {
+    if (optimisticMessage && dbMessages && dbMessages.length > 0) {
+      const lastMsg = dbMessages[dbMessages.length - 1] as any;
+      if (lastMsg.role === 'user') {
+        setOptimisticMessage(null);
+      }
+    }
+  }, [dbMessages, optimisticMessage]);
+
   // ─── Actions and mutations ───
 
   const sendAction = useAction(api.agent.send);
@@ -93,7 +108,7 @@ export function useConvexChat(
     return 'idle' as const;
   }, [session?.status]);
 
-  // Merge completed messages with live streaming state
+  // Merge completed messages with live streaming state + optimistic message
   const messages: ChatMessage[] = useMemo(() => {
     const completed: ChatMessage[] = (dbMessages || []).map((msg: any) => ({
       id: msg._id,
@@ -102,6 +117,17 @@ export function useConvexChat(
       parts: msg.parts as MessagePart[],
       streaming: false,
     }));
+
+    // Add optimistic user message if not yet in DB
+    if (optimisticMessage) {
+      completed.push({
+        id: `optimistic-${optimisticIdRef.current}`,
+        role: 'user',
+        content: optimisticMessage,
+        parts: [{ type: 'text', content: optimisticMessage }],
+        streaming: false,
+      });
+    }
 
     // If streaming, add a live assistant message
     if (streamingState?.isStreaming) {
@@ -141,7 +167,7 @@ export function useConvexChat(
     }
 
     return completed;
-  }, [dbMessages, streamingState]);
+  }, [dbMessages, streamingState, optimisticMessage]);
 
   const todos: TodoItem[] = useMemo(() => {
     return (dbTodos || []).map((t: any) => ({
@@ -169,6 +195,9 @@ export function useConvexChat(
       opts?: { alphaMode?: boolean; model?: string; reasoningEffort?: string }
     ) => {
       if (!sessionId || isLoading) return;
+      // Show user message immediately
+      optimisticIdRef.current += 1;
+      setOptimisticMessage(message);
       await sendAction({
         sessionId,
         message,

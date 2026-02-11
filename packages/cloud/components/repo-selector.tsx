@@ -64,8 +64,8 @@ export function RepoSelector({ onSelect }: RepoSelectorProps) {
   };
 
   return (
-    <div className="max-w-2xl mx-auto w-full">
-      <div className="mb-8">
+    <div className="max-w-2xl mx-auto w-full h-full flex flex-col">
+      <div className="mb-6 flex-shrink-0">
         <h1 className="font-serif text-3xl md:text-4xl font-normal mb-2">Select a repository</h1>
         <p className="text-muted-foreground text-sm">
           Choose a repository, then pick a branch to start your session.
@@ -73,19 +73,19 @@ export function RepoSelector({ onSelect }: RepoSelectorProps) {
       </div>
 
       {/* Search */}
-      <div className="relative mb-6">
+      <div className="relative mb-4 flex-shrink-0">
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search repositories..."
-          className="w-full pl-11 pr-4 py-3.5 rounded-2xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-foreground/10 focus:border-foreground/20 text-base transition-all duration-200"
+          className="w-full pl-11 pr-4 py-3 rounded-2xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-foreground/10 focus:border-foreground/20 text-base transition-all duration-200"
         />
       </div>
 
-      {/* Repo list */}
-      <div className="border border-border/50 rounded-2xl overflow-hidden bg-background">
+      {/* Repo list — fills remaining space, scrolls internally */}
+      <div className="border border-border/50 rounded-2xl overflow-hidden bg-background flex-1 min-h-0 flex flex-col">
         <AnimatePresence mode="wait">
         {isLoading ? (
           <motion.div
@@ -132,7 +132,7 @@ export function RepoSelector({ onSelect }: RepoSelectorProps) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.25 }}
-            className="max-h-[32rem] overflow-y-auto divide-y divide-border/50"
+            className="overflow-y-auto divide-y divide-border/50 flex-1"
           >
             {repos.map((repo) => {
               const isExpanded = expandedRepoId === repo.id;

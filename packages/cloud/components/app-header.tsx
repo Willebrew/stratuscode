@@ -65,7 +65,7 @@ export function AppHeader({ sessionId, onSend }: AppHeaderProps) {
           {/* Mobile sidebar toggle */}
           <button
             onClick={toggle}
-            className="p-2 -ml-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors md:hidden flex items-center justify-center"
+            className="p-2 -ml-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors lg:hidden flex items-center justify-center"
           >
             <Menu className="w-5 h-5" />
           </button>
@@ -73,7 +73,7 @@ export function AppHeader({ sessionId, onSend }: AppHeaderProps) {
           {desktopCollapsed && (
             <button
               onClick={toggleDesktop}
-              className="hidden md:flex p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors items-center justify-center"
+              className="hidden lg:flex p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors items-center justify-center"
               title="Show sidebar"
             >
               <PanelLeftOpen className="w-4 h-4" />
