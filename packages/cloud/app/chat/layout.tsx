@@ -30,11 +30,9 @@ function ChatLayoutInner({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <motion.div
+    <div
       className="h-dvh flex bg-[#0a0e14]"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: isExiting ? 0 : 1 }}
-      transition={{ duration: 0.3, ease }}
+      style={{ opacity: isExiting ? 0 : 1, transition: `opacity 0.3s cubic-bezier(0.4,0,0.2,1)` }}
     >
       {/* Desktop sidebar */}
       <motion.div
@@ -89,7 +87,7 @@ function ChatLayoutInner({ children }: { children: React.ReactNode }) {
           isMobileDrawer
         />
       </MobileDrawer>
-    </motion.div>
+    </div>
   );
 }
 
