@@ -129,10 +129,25 @@ export const setSessionBranch = internalMutation({
 export const requestCancel = mutation({
   args: { id: v.id("sessions") },
   handler: async (ctx, args) => {
+    // Set cancel flag AND immediately update status so UI responds instantly.
+    // The background action will stop at its next cancellation check.
     await ctx.db.patch(args.id, {
       cancelRequested: true,
+      status: "idle",
       updatedAt: Date.now(),
     });
+
+    // Also finish streaming so the UI stops showing the streaming indicator
+    const streamingState = await ctx.db
+      .query("streaming_state")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", args.id))
+      .unique();
+    if (streamingState && streamingState.isStreaming) {
+      await ctx.db.patch(streamingState._id, {
+        isStreaming: false,
+        updatedAt: Date.now(),
+      });
+    }
   },
 });
 

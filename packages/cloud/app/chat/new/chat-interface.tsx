@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { ChatInput } from '@/components/chat-input';
 import { MessageList } from '@/components/message-list';
 import { useConvexChat } from '@/hooks/use-convex-chat';
@@ -47,6 +47,23 @@ export function ChatInterface({ sessionId: sessionIdStr }: ChatInterfaceProps) {
     return () => registerSendFn(null);
   }, [handleSend, registerSendFn]);
 
+  // Adjust input position when mobile keyboard appears
+  const inputWrapperRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onResize = () => {
+      if (inputWrapperRef.current) {
+        // When keyboard opens, visualViewport.height shrinks while window.innerHeight stays the same.
+        // Translate the input container up by the difference.
+        const offset = window.innerHeight - vv.height;
+        inputWrapperRef.current.style.transform = offset > 0 ? `translateY(-${offset}px)` : '';
+      }
+    };
+    vv.addEventListener('resize', onResize);
+    return () => vv.removeEventListener('resize', onResize);
+  }, []);
+
   return (
     <div className="h-full relative overflow-hidden">
       <MessageList
@@ -57,14 +74,13 @@ export function ChatInterface({ sessionId: sessionIdStr }: ChatInterfaceProps) {
         onAnswer={answerQuestion}
       />
 
-      {/* Bottom fade — content fades out behind the input */}
-      <div
-        className="absolute bottom-0 left-0 right-0 h-48 pointer-events-none z-[5]"
-        style={{ background: 'linear-gradient(to top, var(--background) 30%, transparent)' }}
-      />
-
-      <div className="absolute bottom-0 left-0 right-0 z-10 pointer-events-none">
-        <div className="pointer-events-auto">
+      <div ref={inputWrapperRef} className="absolute bottom-0 left-0 right-0 z-10 pointer-events-none">
+        {/* Bottom fade — content fades out behind the input */}
+        <div
+          className="absolute bottom-0 left-0 right-0 h-48 pointer-events-none"
+          style={{ background: 'linear-gradient(to top, var(--background) 30%, transparent)' }}
+        />
+        <div className="relative pointer-events-auto">
           <ChatInput
             onSend={handleSend}
             isLoading={isLoading}

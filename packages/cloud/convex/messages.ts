@@ -1,4 +1,4 @@
-import { query, internalMutation } from "./_generated/server";
+import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 
 export const list = query({
@@ -27,6 +27,24 @@ export const create = internalMutation({
       role: args.role,
       content: args.content,
       parts: args.parts,
+      createdAt: Date.now(),
+    });
+    return id;
+  },
+});
+
+// Public mutation for user messages — called from frontend for instant subscription updates
+export const sendUserMessage = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+    content: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const id = await ctx.db.insert("messages", {
+      sessionId: args.sessionId,
+      role: "user",
+      content: args.content,
+      parts: [{ type: "text", content: args.content }],
       createdAt: Date.now(),
     });
     return id;

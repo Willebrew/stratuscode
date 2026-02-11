@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { ChevronLeft, LogOut, Moon, Sun, Monitor, Link2, Loader2, Settings } from 'lucide-react';
@@ -32,24 +31,16 @@ export default function SettingsPage() {
         {/* Header */}
         <header className="border-b border-border/50 glass sticky top-0 z-40 flex-shrink-0">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-3">
-            <Link
-              href="/chat"
+            <button
+              onClick={() => router.back()}
               className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors duration-200 flex-shrink-0"
             >
-              {/* Back arrow — animates in */}
-              <motion.div
-                className="overflow-hidden"
-                initial={{ width: 0, opacity: 0 }}
-                animate={{ width: 16, opacity: 1 }}
-                transition={{ duration: 0.25, ease, delay: 0.15 }}
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </motion.div>
+              <ChevronLeft className="w-4 h-4" />
               <div className="w-8 h-8 rounded-lg bg-foreground flex items-center justify-center">
                 <StratusLogo className="w-4 h-4 text-background" />
               </div>
               <span className="font-semibold tracking-tight text-sm">StratusCode</span>
-            </Link>
+            </button>
             <div className="ml-auto flex items-center gap-2">
               <motion.div
                 className="flex items-center justify-center w-8 h-8 rounded-lg bg-secondary text-foreground"

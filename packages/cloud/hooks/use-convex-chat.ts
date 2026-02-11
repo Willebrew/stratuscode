@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import type { Id } from '../convex/_generated/dataModel';
-import { useCallback, useMemo, useState, useEffect, useRef } from 'react';
+import { useCallback, useMemo } from 'react';
 
 export type MessagePart =
   | { type: 'reasoning'; content: string }
@@ -77,23 +77,9 @@ export function useConvexChat(
     sessionId ? { sessionId } : 'skip'
   );
 
-  // ─── Optimistic user message ───
-
-  const [optimisticMessage, setOptimisticMessage] = useState<string | null>(null);
-  const optimisticIdRef = useRef(0);
-
-  // Clear optimistic message once it appears in the DB
-  useEffect(() => {
-    if (optimisticMessage && dbMessages && dbMessages.length > 0) {
-      const lastMsg = dbMessages[dbMessages.length - 1] as any;
-      if (lastMsg.role === 'user') {
-        setOptimisticMessage(null);
-      }
-    }
-  }, [dbMessages, optimisticMessage]);
-
   // ─── Actions and mutations ───
 
+  const sendUserMessageMutation = useMutation(api.messages.sendUserMessage);
   const sendAction = useAction(api.agent.send);
   const cancelMutation = useMutation(api.sessions.requestCancel);
   const answerMutation = useMutation(api.streaming.answerQuestion);
@@ -117,21 +103,6 @@ export function useConvexChat(
       parts: msg.parts as MessagePart[],
       streaming: false,
     }));
-
-    // Add optimistic user message only if the DB hasn't caught up yet
-    if (optimisticMessage) {
-      const lastDb = (dbMessages || []).at(-1) as any;
-      const dbHasIt = lastDb?.role === 'user' && lastDb?.content === optimisticMessage;
-      if (!dbHasIt) {
-        completed.push({
-          id: `optimistic-${optimisticIdRef.current}`,
-          role: 'user',
-          content: optimisticMessage,
-          parts: [{ type: 'text', content: optimisticMessage }],
-          streaming: false,
-        });
-      }
-    }
 
     // If streaming, add a live assistant message
     if (streamingState?.isStreaming) {
@@ -171,7 +142,7 @@ export function useConvexChat(
     }
 
     return completed;
-  }, [dbMessages, streamingState, optimisticMessage]);
+  }, [dbMessages, streamingState]);
 
   const todos: TodoItem[] = useMemo(() => {
     return (dbTodos || []).map((t: any) => ({
@@ -199,18 +170,28 @@ export function useConvexChat(
       opts?: { alphaMode?: boolean; model?: string; reasoningEffort?: string }
     ) => {
       if (!sessionId || isLoading) return;
-      // Show user message immediately
-      optimisticIdRef.current += 1;
-      setOptimisticMessage(message);
-      await sendAction({
-        sessionId,
-        message,
-        model: opts?.model,
-        alphaMode: opts?.alphaMode,
-        reasoningEffort: opts?.reasoningEffort,
-      });
+      // Persist user message via mutation — updates subscription instantly (no flicker).
+      // This is durable: even if the action below fails, the message stays in the DB.
+      await sendUserMessageMutation({ sessionId, content: message });
+      try {
+        // Fire the agent action (user message already in DB)
+        await sendAction({
+          sessionId,
+          message,
+          model: opts?.model,
+          alphaMode: opts?.alphaMode,
+          reasoningEffort: opts?.reasoningEffort,
+        });
+      } catch (e) {
+        // If the action fails (expired sandbox, network error, etc.), reset session
+        // so it doesn't get stuck in "running" with no agent.
+        console.error('[sendMessage] Action failed, resetting session:', e);
+        try {
+          await cancelMutation({ id: sessionId });
+        } catch { /* best effort */ }
+      }
     },
-    [sessionId, isLoading, sendAction]
+    [sessionId, isLoading, sendUserMessageMutation, sendAction, cancelMutation]
   );
 
   const answerQuestion = useCallback(

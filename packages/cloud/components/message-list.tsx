@@ -66,7 +66,7 @@ export function MessageList({ messages, sandboxStatus = 'idle', todos, onSend, o
 
   return (
     <div className="h-full overflow-y-auto chat-scroll-area">
-      <div className="max-w-3xl mx-auto px-3 sm:px-4 space-y-4 sm:space-y-6 pt-2 sm:pt-4 pb-80">
+      <div className="max-w-3xl mx-auto px-3 sm:px-4 space-y-4 sm:space-y-6 pt-2 sm:pt-4 pb-52">
         {messages.map((message) => (
           <MessageBubble key={message.id} message={message} todos={todos} onSend={onSend} onAnswer={onAnswer} />
         ))}

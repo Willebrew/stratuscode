@@ -236,6 +236,28 @@ export const sendMessage = internalAction({
     const sessionBranch = session.sessionBranch || `stratuscode/${session._id}`;
 
     let sandbox: Sandbox | null = null;
+    let tokenBuffer = "";
+    let reasoningBuffer = "";
+    let flushTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const flushTokens = async () => {
+      if (tokenBuffer) {
+        const batch = tokenBuffer;
+        tokenBuffer = "";
+        await ctx.runMutation(internal.streaming.appendToken, {
+          sessionId: args.sessionId,
+          content: batch,
+        });
+      }
+      if (reasoningBuffer) {
+        const batch = reasoningBuffer;
+        reasoningBuffer = "";
+        await ctx.runMutation(internal.streaming.appendReasoning, {
+          sessionId: args.sessionId,
+          content: batch,
+        });
+      }
+    };
 
     try {
       // ── 1. Create or resume sandbox ──
@@ -363,36 +385,14 @@ export const sendMessage = internalAction({
       );
 
       // ── 6. Run processDirectly with batched callbacks ──
-      // (streaming state + user message already persisted by `send` action)
+      // (streaming state + user message already persisted before this action)
 
-      let tokenBuffer = "";
-      let reasoningBuffer = "";
-      let flushTimeout: ReturnType<typeof setTimeout> | null = null;
       let lastAgentError: Error | null = null;
       let hasMarkedChanges = false;
 
       const FILE_CHANGING_TOOLS = new Set([
         "write", "edit", "create", "multi_edit",
       ]);
-
-      const flushTokens = async () => {
-        if (tokenBuffer) {
-          const batch = tokenBuffer;
-          tokenBuffer = "";
-          await ctx.runMutation(internal.streaming.appendToken, {
-            sessionId: args.sessionId,
-            content: batch,
-          });
-        }
-        if (reasoningBuffer) {
-          const batch = reasoningBuffer;
-          reasoningBuffer = "";
-          await ctx.runMutation(internal.streaming.appendReasoning, {
-            sessionId: args.sessionId,
-            content: batch,
-          });
-        }
-      };
 
       const result: any = await processDirectly({
         systemPrompt,
@@ -622,7 +622,42 @@ export const sendMessage = internalAction({
         }
       }
 
+      // Flush any remaining buffered tokens
+      if (flushTimeout) clearTimeout(flushTimeout);
+      try { await flushTokens(); } catch { /* best effort */ }
+
       await ctx.runMutation(internal.streaming.finish, { sessionId: args.sessionId });
+
+      // Save partial assistant message on cancel so work isn't lost
+      if (isCancelled) {
+        try {
+          const streamState = await ctx.runQuery(internal.streaming.getInternal, {
+            sessionId: args.sessionId,
+          });
+          if (streamState && (streamState.content || streamState.toolCalls !== "[]")) {
+            const parts: any[] = [];
+            if (streamState.reasoning) {
+              parts.push({ type: "reasoning", content: streamState.reasoning });
+            }
+            const tcs = streamState.toolCalls ? JSON.parse(streamState.toolCalls) : [];
+            for (const tc of tcs) {
+              parts.push({
+                type: "tool_call",
+                toolCall: { id: tc.id, name: tc.name, args: tc.args, result: tc.result, status: tc.status || "completed" },
+              });
+            }
+            if (streamState.content) {
+              parts.push({ type: "text", content: streamState.content });
+            }
+            await ctx.runMutation(internal.messages.create, {
+              sessionId: args.sessionId,
+              role: "assistant",
+              content: streamState.content || "(cancelled)",
+              parts,
+            });
+          }
+        } catch { /* best effort */ }
+      }
 
       await ctx.runMutation(internal.sessions.updateStatus, {
         id: args.sessionId,
@@ -652,21 +687,14 @@ export const send = action({
     // response IDs that expire between Convex action invocations.
     const providerType = "chat-completions";
 
-    // ── Persist user message IMMEDIATELY so the UI updates instantly ──
+    // User message is already persisted by the frontend via messages.sendUserMessage
+    // mutation (instant subscription update). We just need to set up session state.
 
     // Clear any previous cancel and set status to running
     await ctx.runMutation(internal.sessions.clearCancel, { id: args.sessionId });
     await ctx.runMutation(internal.sessions.updateStatus, {
       id: args.sessionId,
       status: "running",
-    });
-
-    // Store user message so it appears in the chat right away
-    await ctx.runMutation(internal.messages.create, {
-      sessionId: args.sessionId,
-      role: "user",
-      content: args.message,
-      parts: [{ type: "text", content: args.message }],
     });
 
     // Initialize streaming state
