@@ -63,8 +63,8 @@ export function ChatHeader({
             className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors duration-200 flex-shrink-0"
           >
             <ChevronLeft className="w-4 h-4 hidden md:block" />
-            <div className="w-7 h-7 rounded-lg bg-foreground flex items-center justify-center">
-              <StratusLogo className="w-3.5 h-3.5 text-background" />
+            <div className="w-8 h-8 rounded-lg bg-foreground flex items-center justify-center">
+              <StratusLogo className="w-4 h-4 text-background" />
             </div>
           </Link>
           <div className="h-4 w-px bg-border/50 hidden sm:block" />

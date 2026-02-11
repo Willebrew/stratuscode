@@ -51,7 +51,7 @@ export function ChatInterface({ sessionId: sessionIdStr }: ChatInterfaceProps) {
         repo={repo}
         branch={branch}
         sessionId={convexSessionId}
-        hasChanges
+        hasChanges={session?.hasChanges === true}
         onSend={handleSend}
       />
 

@@ -20,6 +20,7 @@ export default defineSchema({
       output: v.number(),
     }),
     cancelRequested: v.boolean(),
+    hasChanges: v.optional(v.boolean()),
     errorMessage: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),

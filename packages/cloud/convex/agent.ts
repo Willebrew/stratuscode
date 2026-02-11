@@ -369,6 +369,11 @@ export const sendMessage = internalAction({
       let reasoningBuffer = "";
       let flushTimeout: ReturnType<typeof setTimeout> | null = null;
       let lastAgentError: Error | null = null;
+      let hasMarkedChanges = false;
+
+      const FILE_CHANGING_TOOLS = new Set([
+        "write", "edit", "create", "bash", "multi_edit",
+      ]);
 
       const flushTokens = async () => {
         if (tokenBuffer) {
@@ -439,6 +444,14 @@ export const sendMessage = internalAction({
               result: result.slice(0, 5000),
               toolArgs,
             });
+
+            // Track file-modifying tools to set hasChanges
+            if (!hasMarkedChanges && FILE_CHANGING_TOOLS.has(toolName)) {
+              hasMarkedChanges = true;
+              await ctx.runMutation(internal.sessions.markHasChanges, {
+                id: args.sessionId,
+              });
+            }
 
             // Handle todowrite updates
             if (toolName === "todowrite") {

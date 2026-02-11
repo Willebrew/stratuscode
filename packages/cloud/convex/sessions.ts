@@ -172,6 +172,16 @@ export const remove = mutation({
   },
 });
 
+export const markHasChanges = internalMutation({
+  args: { id: v.id("sessions") },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.id, {
+      hasChanges: true,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
 export const updateAgent = internalMutation({
   args: { id: v.id("sessions"), agent: v.string() },
   handler: async (ctx, args) => {
