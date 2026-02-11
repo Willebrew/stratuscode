@@ -59,7 +59,9 @@ export function ChatPageRouter({ mode }: ChatPageRouterProps) {
               </button>
             )}
             <Link href={showBack ? '/chat' : '/'} className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors duration-200 flex-shrink-0">
-              {showBack && <ChevronLeft className="w-4 h-4" />}
+              <div className="overflow-hidden transition-all duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]" style={{ width: showBack ? 16 : 0, opacity: showBack ? 1 : 0 }}>
+                <ChevronLeft className="w-4 h-4" />
+              </div>
               <div className="w-8 h-8 rounded-lg bg-foreground flex items-center justify-center">
                 <StratusLogo className="w-4 h-4 text-background" />
               </div>
@@ -77,7 +79,7 @@ export function ChatPageRouter({ mode }: ChatPageRouterProps) {
       </nav>
 
       {/* Content — fade-only transitions, no layout shift */}
-      <main className="relative z-10 flex-1 overflow-y-auto">
+      <main className={`relative z-10 flex-1 overflow-y-auto ${mode === 'select' ? 'flex items-center justify-center' : ''}`}>
         <AnimatePresence mode="wait">
           <motion.div
             key={mode}
@@ -85,7 +87,7 @@ export function ChatPageRouter({ mode }: ChatPageRouterProps) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className="py-12 px-6"
+            className={mode === 'select' ? 'w-full px-6' : 'py-12 px-6'}
           >
             {mode === 'select' && <ProjectSelectionPage />}
             {mode === 'select-repo' && <RepoSelector onSelect={handleRepoSelect} />}
