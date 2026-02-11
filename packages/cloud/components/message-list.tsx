@@ -30,7 +30,7 @@ export function MessageList({ messages, sandboxStatus = 'idle', todos, onSend, o
 
   if (messages.length === 0 && sandboxStatus !== 'initializing') {
     return (
-      <div className="flex-1 flex items-center justify-center p-4 sm:p-8 pb-40 relative">
+      <div className="flex-1 flex items-center justify-center p-4 sm:p-8 relative">
         <div className="absolute inset-0 grid-pattern opacity-30" />
         <div className="text-center max-w-lg relative z-10 animate-fade-in-up">
           <h2 className="font-serif text-2xl sm:text-3xl font-normal mb-3">Ready to build</h2>
@@ -72,8 +72,8 @@ export function MessageList({ messages, sandboxStatus = 'idle', todos, onSend, o
             <span className="tracking-widest animate-pulse">...</span>
           </div>
         )}
-        {/* Spacer so content scrolls above the fixed input box */}
-        <div style={{ height: '300px' }} aria-hidden="true" />
+        {/* Small bottom spacer */}
+        <div className="h-4" aria-hidden="true" />
         <div ref={bottomRef} />
       </div>
     </div>

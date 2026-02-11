@@ -5,7 +5,6 @@ import { ChatHeader } from '@/components/chat-header';
 import { ChatInput } from '@/components/chat-input';
 import { MessageList } from '@/components/message-list';
 import { useConvexChat } from '@/hooks/use-convex-chat';
-import { useSidebar } from '@/components/sidebar-context';
 import type { Id } from '@/convex/_generated/dataModel';
 
 interface ChatInterfaceProps {
@@ -27,7 +26,6 @@ export function ChatInterface({ sessionId: sessionIdStr }: ChatInterfaceProps) {
     requestCancel,
   } = useConvexChat(convexSessionId);
 
-  const { desktopCollapsed } = useSidebar();
   const [alphaMode, setAlphaMode] = useState(false);
   const [agentMode, setAgentMode] = useState<'build' | 'plan'>('build');
   const [reasoningEffort, setReasoningEffort] = useState<'low' | 'medium' | 'high'>('medium');
@@ -47,7 +45,7 @@ export function ChatInterface({ sessionId: sessionIdStr }: ChatInterfaceProps) {
   );
 
   return (
-    <div className="h-dvh flex flex-col">
+    <div className="h-full flex flex-col overflow-hidden">
       <ChatHeader
         owner={owner}
         repo={repo}
@@ -65,7 +63,7 @@ export function ChatInterface({ sessionId: sessionIdStr }: ChatInterfaceProps) {
         onAnswer={answerQuestion}
       />
 
-      <div className={`fixed bottom-0 left-0 right-0 z-20 transition-all duration-200 ${desktopCollapsed ? 'md:left-2 md:right-2 md:bottom-2' : 'md:left-72 md:right-2 md:bottom-2'}`}>
+      <div className="flex-shrink-0">
         <ChatInput
           onSend={handleSend}
           isLoading={isLoading}
