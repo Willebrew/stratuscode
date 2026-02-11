@@ -11,21 +11,30 @@ interface MobileDrawerProps {
 export function MobileDrawer({ children }: MobileDrawerProps) {
   const { isOpen, close } = useSidebar();
 
-  // Lock ALL scrolling when drawer is open — both body and internal scroll containers
+  // Lock ALL scrolling when drawer is open — body, internal containers, mouse wheel, and touch
   useEffect(() => {
     if (!isOpen) return;
     document.body.style.overflow = 'hidden';
-    // iOS requires touch-level prevention since overflow:hidden doesn't stop inertial scroll
-    const preventScroll = (e: TouchEvent) => {
-      // Allow scrolling inside the drawer itself
-      const drawer = document.getElementById('mobile-drawer');
-      if (drawer?.contains(e.target as Node)) return;
-      e.preventDefault();
+
+    const drawer = document.getElementById('mobile-drawer');
+    const isInsideDrawer = (target: EventTarget | null) =>
+      drawer?.contains(target as Node);
+
+    // Block mouse wheel scrolling on content behind the drawer (desktop in narrow mode)
+    const preventWheel = (e: WheelEvent) => {
+      if (!isInsideDrawer(e.target)) e.preventDefault();
     };
-    document.addEventListener('touchmove', preventScroll, { passive: false });
+    // Block touch scrolling on content behind the drawer (iOS)
+    const preventTouch = (e: TouchEvent) => {
+      if (!isInsideDrawer(e.target)) e.preventDefault();
+    };
+
+    document.addEventListener('wheel', preventWheel, { passive: false });
+    document.addEventListener('touchmove', preventTouch, { passive: false });
     return () => {
       document.body.style.overflow = '';
-      document.removeEventListener('touchmove', preventScroll);
+      document.removeEventListener('wheel', preventWheel);
+      document.removeEventListener('touchmove', preventTouch);
     };
   }, [isOpen]);
 
