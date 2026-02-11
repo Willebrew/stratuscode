@@ -23,9 +23,13 @@ const SANDBOX_LABELS: Record<SandboxStatus, string> = {
 
 export function MessageList({ messages, sandboxStatus = 'idle', todos, onSend, onAnswer }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const hasScrolledRef = useRef(false);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Jump instantly on first render, smooth-scroll for subsequent updates
+    const behavior = hasScrolledRef.current ? 'smooth' : 'instant';
+    bottomRef.current?.scrollIntoView({ behavior });
+    hasScrolledRef.current = true;
   }, [messages, sandboxStatus]);
 
   if (messages.length === 0 && sandboxStatus !== 'initializing') {
