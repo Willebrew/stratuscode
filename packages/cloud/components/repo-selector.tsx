@@ -64,7 +64,7 @@ export function RepoSelector({ onSelect }: RepoSelectorProps) {
   };
 
   return (
-    <div className="max-w-2xl mx-auto w-full px-6">
+    <div className="max-w-2xl mx-auto w-full">
       <div className="mb-8">
         <h1 className="font-serif text-3xl md:text-4xl font-normal mb-2">Select a repository</h1>
         <p className="text-muted-foreground text-sm">

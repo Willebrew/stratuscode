@@ -76,47 +76,21 @@ export function ChatPageRouter({ mode }: ChatPageRouterProps) {
         </div>
       </nav>
 
-      {/* Content — animated transitions */}
+      {/* Content — fade-only transitions, no layout shift */}
       <main className="relative z-10 flex-1 overflow-y-auto">
         <AnimatePresence mode="wait">
-          {mode === 'select' && (
-            <motion.div
-              key="select"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-              className="flex-1 flex items-center justify-center py-12 min-h-full"
-            >
-              <ProjectSelectionPage />
-            </motion.div>
-          )}
-
-          {mode === 'select-repo' && (
-            <motion.div
-              key="select-repo"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-              className="flex-1 flex items-center justify-center py-12 min-h-full"
-            >
-              <RepoSelector onSelect={handleRepoSelect} />
-            </motion.div>
-          )}
-
-          {mode === 'new-project' && (
-            <motion.div
-              key="new-project"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-              className="flex-1 flex items-center justify-center py-12 px-6 min-h-full"
-            >
-              <NewProjectForm />
-            </motion.div>
-          )}
+          <motion.div
+            key={mode}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="py-12 px-6"
+          >
+            {mode === 'select' && <ProjectSelectionPage />}
+            {mode === 'select-repo' && <RepoSelector onSelect={handleRepoSelect} />}
+            {mode === 'new-project' && <NewProjectForm />}
+          </motion.div>
         </AnimatePresence>
       </main>
     </div>
