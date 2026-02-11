@@ -372,7 +372,7 @@ export const sendMessage = internalAction({
       let hasMarkedChanges = false;
 
       const FILE_CHANGING_TOOLS = new Set([
-        "write", "edit", "create", "bash", "multi_edit",
+        "write", "edit", "create", "multi_edit",
       ]);
 
       const flushTokens = async () => {
