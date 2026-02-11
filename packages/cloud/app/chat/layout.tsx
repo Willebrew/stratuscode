@@ -19,13 +19,14 @@ function ChatLayoutInner({ children }: { children: React.ReactNode }) {
   const sessionId = params.sessionId as Id<'sessions'> | undefined;
 
   const handleSelectSession = (id: Id<'sessions'>) => {
-    close();
     router.push(`/chat/${id}`);
+    // Delay close so navigation starts before sidebar unmounts
+    setTimeout(close, 50);
   };
 
   const handleNewSession = () => {
-    close();
     router.push('/chat');
+    setTimeout(close, 50);
   };
 
   return (

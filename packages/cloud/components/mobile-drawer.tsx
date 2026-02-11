@@ -35,9 +35,20 @@ export function MobileDrawer({ children }: MobileDrawerProps) {
                 close();
               }
             }}
-            className="fixed inset-y-0 left-0 w-72 z-50 md:hidden overflow-hidden rounded-r-2xl"
+            className="fixed inset-y-0 left-0 w-72 z-50 md:hidden"
           >
-            {children}
+            <div className="h-full overflow-hidden">
+              {children}
+            </div>
+            {/* Inverted corners on right edge — concave curves matching desktop */}
+            <div
+              className="absolute top-2 -right-4 w-4 h-4 pointer-events-none"
+              style={{ background: 'radial-gradient(circle at 0 0, transparent 16px, #0a0e14 16px)' }}
+            />
+            <div
+              className="absolute bottom-2 -right-4 w-4 h-4 pointer-events-none"
+              style={{ background: 'radial-gradient(circle at 0 100%, transparent 16px, #0a0e14 16px)' }}
+            />
           </motion.div>
         </>
       )}

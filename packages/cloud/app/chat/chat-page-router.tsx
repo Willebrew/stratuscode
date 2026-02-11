@@ -35,7 +35,7 @@ export function ChatPageRouter() {
             transition={{ duration: 0.15 }}
             className={
               mode === 'select'
-                ? 'min-h-full flex items-center justify-center px-6'
+                ? 'min-h-full flex items-center justify-center px-6 py-8'
                 : 'py-12 px-6'
             }
           >
