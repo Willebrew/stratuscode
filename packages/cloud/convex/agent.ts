@@ -530,7 +530,6 @@ Session Branch: ${sessionBranch}
 Remote URL: https://github.com/${session.owner}/${session.repo}.git
 Working Directory: ${workDir}
 The repository has already been cloned into the working directory. When pushing, use the session branch "${sessionBranch}".
-Git is configured with user "StratusCode" <stratuscode@users.noreply.github.com>.
 </repository>`;
 
       const sageConfig = buildSageConfig(
