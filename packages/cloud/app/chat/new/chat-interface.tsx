@@ -65,7 +65,7 @@ export function ChatInterface({ sessionId: sessionIdStr }: ChatInterfaceProps) {
         onAnswer={answerQuestion}
       />
 
-      <div className={`fixed bottom-0 left-0 right-0 z-20 transition-[left] duration-200 ${desktopCollapsed ? '' : 'md:left-72'}`}>
+      <div className={`fixed bottom-0 left-0 right-0 z-20 transition-all duration-200 ${desktopCollapsed ? 'md:left-2 md:right-2 md:bottom-2' : 'md:left-72 md:right-2 md:bottom-2'}`}>
         <ChatInput
           onSend={handleSend}
           isLoading={isLoading}

@@ -221,14 +221,8 @@ export const sendMessage = internalAction({
     const session = await ctx.runQuery(internal.sessions.getInternal, { id: args.sessionId });
     if (!session) throw new Error("Session not found");
 
-    // Clear any previous cancel request
-    await ctx.runMutation(internal.sessions.clearCancel, { id: args.sessionId });
-
-    // Set status to running
-    await ctx.runMutation(internal.sessions.updateStatus, {
-      id: args.sessionId,
-      status: "running",
-    });
+    // Status already set to 'running' and user message already persisted
+    // by the public `send` action before scheduling this internal action.
 
     const githubToken = process.env.GITHUB_TOKEN;
     if (!githubToken) throw new Error("GITHUB_TOKEN not configured");
@@ -368,33 +362,13 @@ export const sendMessage = internalAction({
         String(args.sessionId)
       );
 
-      // ── 6. Initialize streaming state ──
-
-      await ctx.runMutation(internal.streaming.start, { sessionId: args.sessionId });
-
-      // Store user message
-      await ctx.runMutation(internal.messages.create, {
-        sessionId: args.sessionId,
-        role: "user",
-        content: args.message,
-        parts: [{ type: "text", content: args.message }],
-      });
-
-      // Update title from first message
-      if (!previousMessages.length) {
-        const title = args.message.slice(0, 80) + (args.message.length > 80 ? "..." : "");
-        await ctx.runMutation(internal.sessions.updateTitle, { id: args.sessionId, title });
-      }
-      await ctx.runMutation(internal.sessions.updateLastMessage, {
-        id: args.sessionId,
-        lastMessage: args.message.slice(0, 200),
-      });
-
-      // ── 7. Run processDirectly with batched callbacks ──
+      // ── 6. Run processDirectly with batched callbacks ──
+      // (streaming state + user message already persisted by `send` action)
 
       let tokenBuffer = "";
       let reasoningBuffer = "";
       let flushTimeout: ReturnType<typeof setTimeout> | null = null;
+      let lastAgentError: Error | null = null;
 
       const flushTokens = async () => {
         if (tokenBuffer) {
@@ -510,6 +484,7 @@ export const sendMessage = internalAction({
           },
           onError: async (err: Error) => {
             console.error("[agent] Error:", err.message);
+            lastAgentError = err;
           },
         },
       });
@@ -518,7 +493,12 @@ export const sendMessage = internalAction({
       if (flushTimeout) clearTimeout(flushTimeout);
       await flushTokens();
 
-      // ── 8. Finalize ──
+      // If processDirectly reported an error and produced no content, surface it
+      if (lastAgentError && !result?.content && !tokenBuffer) {
+        throw lastAgentError;
+      }
+
+      // ── 7. Finalize ──
 
       await ctx.runMutation(internal.streaming.finish, { sessionId: args.sessionId });
 
@@ -658,6 +638,42 @@ export const send = action({
     // Force chat-completions mode — the Responses API tracks state via
     // response IDs that expire between Convex action invocations.
     const providerType = "chat-completions";
+
+    // ── Persist user message IMMEDIATELY so the UI updates instantly ──
+
+    // Clear any previous cancel and set status to running
+    await ctx.runMutation(internal.sessions.clearCancel, { id: args.sessionId });
+    await ctx.runMutation(internal.sessions.updateStatus, {
+      id: args.sessionId,
+      status: "running",
+    });
+
+    // Store user message so it appears in the chat right away
+    await ctx.runMutation(internal.messages.create, {
+      sessionId: args.sessionId,
+      role: "user",
+      content: args.message,
+      parts: [{ type: "text", content: args.message }],
+    });
+
+    // Initialize streaming state
+    await ctx.runMutation(internal.streaming.start, { sessionId: args.sessionId });
+
+    // Update title from first message
+    const session = await ctx.runQuery(internal.sessions.getInternal, { id: args.sessionId });
+    const agentState = await ctx.runQuery(internal.agent_state.get, { sessionId: args.sessionId });
+    const hasPreviousMessages = agentState?.sageMessages
+      ? JSON.parse(agentState.sageMessages).length > 0
+      : false;
+
+    if (!hasPreviousMessages) {
+      const title = args.message.slice(0, 80) + (args.message.length > 80 ? "..." : "");
+      await ctx.runMutation(internal.sessions.updateTitle, { id: args.sessionId, title });
+    }
+    await ctx.runMutation(internal.sessions.updateLastMessage, {
+      id: args.sessionId,
+      lastMessage: args.message.slice(0, 200),
+    });
 
     // Schedule the internal action (fire-and-forget, runs in background)
     await ctx.scheduler.runAfter(0, internal.agent.sendMessage, {
