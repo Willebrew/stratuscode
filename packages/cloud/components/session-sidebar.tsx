@@ -62,7 +62,7 @@ export function SessionSidebar({
 
   return (
     <div className={clsx(
-      'flex flex-col h-full bg-[#0a0e14] pt-2',
+      'flex flex-col h-full bg-[#0a0e14] pt-[10px]',
       isMobileDrawer ? 'w-full' : 'w-72'
     )}>
       {/* Header — h-14 + pt-2 aligns with main header (m-2 + h-14) */}

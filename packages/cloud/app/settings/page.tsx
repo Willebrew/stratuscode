@@ -27,18 +27,8 @@ export default function SettingsPage() {
   };
 
   return (
-    <motion.div
-      className="h-dvh flex bg-[#0a0e14]"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.3, ease }}
-    >
-      <motion.main
-        className="flex-1 min-w-0 bg-background overflow-hidden rounded-2xl m-2 flex flex-col"
-        initial={{ opacity: 0, scale: 0.97 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.3, ease, delay: 0.05 }}
-      >
+    <div className="h-dvh flex bg-[#0a0e14]">
+      <main className="flex-1 min-w-0 bg-background overflow-hidden rounded-2xl m-2 flex flex-col">
         {/* Header */}
         <header className="border-b border-border/50 glass sticky top-0 z-40 flex-shrink-0">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-3">
@@ -216,7 +206,7 @@ export default function SettingsPage() {
             </div>
           </motion.div>
         </div>
-      </motion.main>
-    </motion.div>
+      </main>
+    </div>
   );
 }
