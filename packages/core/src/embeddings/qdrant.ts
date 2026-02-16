@@ -73,7 +73,9 @@ export class QdrantClient {
    */
   async isAvailable(): Promise<boolean> {
     try {
-      const response = await fetch(`${this.url}/collections`);
+      const response = await fetch(`${this.url}/collections`, {
+        signal: AbortSignal.timeout(2000),
+      });
       return response.ok;
     } catch {
       return false;
