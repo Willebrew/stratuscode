@@ -113,6 +113,7 @@ export function createSession(options: SessionOptions): SessionManager {
   const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
     'gpt-5-mini': 128_000,
     'o3-mini': 128_000,
+    'gpt-5.3-codex': 272_000,
     'gpt-5.2-codex': 272_000,
     'gpt-5.1-codex': 128_000,
     'gpt-5.1-codex-max': 128_000,
@@ -267,3 +268,4 @@ export function listAgents(): AgentInfo[] {
 export function getAgentByName(name: string): AgentInfo | undefined {
   return BUILT_IN_AGENTS[name];
 }
+

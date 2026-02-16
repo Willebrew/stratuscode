@@ -484,7 +484,7 @@ describe('modelSupportsReasoning', () => {
 describe('defineConfig', () => {
   test('returns default config for empty input', () => {
     const config = defineConfig({});
-    expect(config.model).toBe('gpt-5.2-codex');
+    expect(config.model).toBe('gpt-5.3-codex');
     expect(config.provider.baseUrl).toBe('https://api.openai.com/v1');
     expect(config.agent.maxDepth).toBe(300);
   });
@@ -508,8 +508,9 @@ describe('defineConfig', () => {
 
 describe('DEFAULT_CONFIG', () => {
   test('has expected shape', () => {
-    expect(DEFAULT_CONFIG.model).toBe('gpt-5.2-codex');
+    expect(DEFAULT_CONFIG.model).toBe('gpt-5.3-codex');
     expect(DEFAULT_CONFIG.provider.baseUrl).toBe('https://api.openai.com/v1');
     expect(DEFAULT_CONFIG.parallelToolCalls).toBe(true);
   });
 });
+

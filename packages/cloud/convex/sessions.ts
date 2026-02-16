@@ -48,7 +48,7 @@ export const create = mutation({
       branch: args.branch,
       sessionBranch: "",
       agent: args.agent ?? "build",
-      model: args.model ?? "gpt-5-mini",
+      model: args.model ?? "gpt-5.3-codex",
       status: "idle",
       title: `${args.owner}/${args.repo}`,
       lastMessage: "",
@@ -216,3 +216,4 @@ export const updateModel = mutation({
     });
   },
 });
+
