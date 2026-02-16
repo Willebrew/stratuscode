@@ -22,7 +22,7 @@ const SANDBOX_LABELS: Record<SandboxStatus, string> = {
   ready: '',
 };
 
-export function MessageList({ messages, messagesLoading, sandboxStatus = 'idle', todos, onSend, onAnswer }: MessageListProps) {
+export function MessageList({ messages, messagesLoading, sandboxStatus = 'idle', todos, onSend, onAnswer, inputBottomInset = 0 }: MessageListProps & { inputBottomInset?: number }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const hasScrolledRef = useRef(false);
 
@@ -76,7 +76,7 @@ export function MessageList({ messages, messagesLoading, sandboxStatus = 'idle',
 
   return (
     <div className="h-full overflow-y-auto chat-scroll-area">
-      <div className="max-w-3xl mx-auto px-3 sm:px-4 space-y-4 sm:space-y-6 pt-2 sm:pt-4 pb-52">
+      <div className="max-w-3xl mx-auto px-3 sm:px-4 space-y-4 sm:space-y-6 pt-2 sm:pt-4" style={{ paddingBottom: `calc(16rem + ${inputBottomInset}px)` }}>
         {messages.map((message) => (
           <MessageBubble key={message.id} message={message} todos={todos} onSend={onSend} onAnswer={onAnswer} />
         ))}
@@ -92,3 +92,5 @@ export function MessageList({ messages, messagesLoading, sandboxStatus = 'idle',
     </div>
   );
 }
+
+
