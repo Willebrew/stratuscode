@@ -1,5 +1,11 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalEnv": [
+    "AUTH_PASSWORD",
+    "AUTH_SECRET",
+    "OPENAI_API_KEY",
+    "STRATUSCODE_MODEL"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
@@ -23,3 +29,4 @@
     }
   }
 }
+
