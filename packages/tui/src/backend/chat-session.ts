@@ -185,6 +185,54 @@ export function toSageConfig(
     };
   }
 
+  // Auto-resolve the named provider from the model when no explicit override
+  // is set.  This ensures Codex models always use the openai-codex provider
+  // (with its OAuth access token), OpenRouter models use the openrouter
+  // provider, etc., even when the default config.provider points elsewhere.
+  const effectiveModel = modelOverride || config.model;
+  if (!providerOverride && config.providers) {
+    const m = effectiveModel.toLowerCase();
+
+    // Codex models → openai-codex provider (OAuth tokens)
+    if (m.includes('codex')) {
+      const codexProvider = config.providers['openai-codex'];
+      if (codexProvider) {
+        effectiveProvider = {
+          apiKey: codexProvider.apiKey || (codexProvider as any).auth?.access,
+          baseUrl: codexProvider.baseUrl,
+          type: codexProvider.type as 'responses-api' | 'chat-completions' | undefined,
+          headers: codexProvider.headers,
+        };
+      }
+    }
+
+    // OpenRouter models (vendor/model format, e.g. "anthropic/claude-sonnet-4")
+    else if (effectiveModel.includes('/')) {
+      const orProvider = config.providers['openrouter'];
+      if (orProvider) {
+        effectiveProvider = {
+          apiKey: orProvider.apiKey,
+          baseUrl: orProvider.baseUrl,
+          type: orProvider.type as 'responses-api' | 'chat-completions' | undefined,
+          headers: orProvider.headers,
+        };
+      }
+    }
+
+    // OpenCode Zen free models
+    else if (m.includes('-free') || m === 'big-pickle') {
+      const zenProvider = config.providers['opencode-zen'];
+      if (zenProvider) {
+        effectiveProvider = {
+          apiKey: zenProvider.apiKey,
+          baseUrl: zenProvider.baseUrl,
+          type: zenProvider.type as 'responses-api' | 'chat-completions' | undefined,
+          headers: zenProvider.headers,
+        };
+      }
+    }
+  }
+
   if (
     (effectiveProvider.baseUrl?.includes('localhost') ||
      effectiveProvider.baseUrl?.includes('127.0.0.1')) &&
@@ -222,7 +270,6 @@ export function toSageConfig(
     };
   }
 
-  const effectiveModel = modelOverride || config.model;
   const supportsReasoning = modelSupportsReasoning(effectiveModel);
   const reasoningEffort = reasoningEffortOverride === 'off'
     ? undefined

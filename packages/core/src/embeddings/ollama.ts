@@ -70,7 +70,9 @@ export class OllamaEmbeddings {
    */
   async isAvailable(): Promise<boolean> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/tags`);
+      const response = await fetch(`${this.baseUrl}/api/tags`, {
+        signal: AbortSignal.timeout(2000),
+      });
       return response.ok;
     } catch {
       return false;

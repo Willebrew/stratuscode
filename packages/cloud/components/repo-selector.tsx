@@ -1,9 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Search, Lock, Globe, GitBranch, Loader2, ChevronRight, ArrowLeft } from 'lucide-react';
+import { Search, Lock, Globe, GitBranch, Loader2, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useRouter } from 'next/navigation';
 import { useRepos, useBranches } from '@/hooks/use-repos';
 import type { RepoInfo } from '@/app/api/repos/route';
 
@@ -53,7 +52,6 @@ function BranchList({ owner, name, defaultBranch, onBranchSelect }: {
 }
 
 export function RepoSelector({ onSelect }: RepoSelectorProps) {
-  const router = useRouter();
   const { repos, isLoading, error, search, setSearch } = useRepos();
   const [expandedRepoId, setExpandedRepoId] = useState<number | null>(null);
 
@@ -66,16 +64,8 @@ export function RepoSelector({ onSelect }: RepoSelectorProps) {
   };
 
   return (
-    <div className="max-w-2xl mx-auto w-full px-6">
-      <div className="mb-8 animate-fade-in-up">
-        <button
-          onClick={() => router.push('/chat')}
-          className="text-sm text-muted-foreground hover:text-foreground transition-colors mb-6 flex items-center gap-1"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to selection
-        </button>
-        
+    <div className="max-w-2xl mx-auto w-full h-full flex flex-col">
+      <div className="mb-6 flex-shrink-0">
         <h1 className="font-serif text-3xl md:text-4xl font-normal mb-2">Select a repository</h1>
         <p className="text-muted-foreground text-sm">
           Choose a repository, then pick a branch to start your session.
@@ -83,31 +73,67 @@ export function RepoSelector({ onSelect }: RepoSelectorProps) {
       </div>
 
       {/* Search */}
-      <div className="relative mb-6 animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
+      <div className="relative mb-4 flex-shrink-0">
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search repositories..."
-          className="w-full pl-11 pr-4 py-3.5 rounded-2xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-foreground/10 focus:border-foreground/20 text-base transition-all duration-200"
+          className="w-full pl-11 pr-4 py-3 rounded-2xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-foreground/10 focus:border-foreground/20 text-base transition-all duration-200"
         />
       </div>
 
-      {/* Repo list */}
-      <div className="border border-border/50 rounded-2xl overflow-hidden bg-background animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
+      {/* Repo list — fills remaining space, scrolls internally */}
+      <div className="border border-border/50 rounded-2xl overflow-hidden bg-background flex-1 min-h-0 flex flex-col">
+        <AnimatePresence mode="wait">
         {isLoading ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-          </div>
+          <motion.div
+            key="skeleton"
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="divide-y divide-border/50"
+          >
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 px-5 py-4 animate-pulse">
+                <div className="w-9 h-9 rounded-xl bg-secondary" />
+                <div className="flex-1 min-w-0 space-y-2">
+                  <div className="h-4 bg-secondary rounded-lg w-2/3" />
+                  <div className="h-3 bg-secondary/60 rounded-lg w-1/3" />
+                </div>
+                <div className="h-6 w-14 bg-secondary rounded-full flex-shrink-0" />
+              </div>
+            ))}
+          </motion.div>
         ) : error ? (
-          <div className="text-center py-20 text-red-500 text-sm">{error}</div>
+          <motion.div
+            key="error"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.2 }}
+            className="text-center py-20 text-red-500 text-sm"
+          >
+            {error}
+          </motion.div>
         ) : repos.length === 0 ? (
-          <div className="text-center py-20 text-muted-foreground text-sm">
+          <motion.div
+            key="empty"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.2 }}
+            className="text-center py-20 text-muted-foreground text-sm"
+          >
             No repositories found
-          </div>
+          </motion.div>
         ) : (
-          <div className="max-h-[32rem] overflow-y-auto divide-y divide-border/50">
+          <motion.div
+            key="repos"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.25 }}
+            className="overflow-y-auto divide-y divide-border/50 flex-1"
+          >
             {repos.map((repo) => {
               const isExpanded = expandedRepoId === repo.id;
               return (
@@ -175,8 +201,9 @@ export function RepoSelector({ onSelect }: RepoSelectorProps) {
                 </div>
               );
             })}
-          </div>
+          </motion.div>
         )}
+        </AnimatePresence>
       </div>
     </div>
   );

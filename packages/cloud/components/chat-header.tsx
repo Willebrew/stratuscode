@@ -2,8 +2,9 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import { GitBranch, GitPullRequest, GitCommitHorizontal, ChevronLeft, ChevronDown, Settings } from 'lucide-react';
+import { GitBranch, GitPullRequest, GitCommitHorizontal, ChevronLeft, ChevronDown, Settings, Menu, PanelLeftOpen } from 'lucide-react';
 import { StratusLogo } from './stratus-logo';
+import { useSidebar } from './sidebar-context';
 
 interface ChatHeaderProps {
   owner: string;
@@ -24,6 +25,7 @@ export function ChatHeader({
 }: ChatHeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const { toggle, desktopCollapsed, toggleDesktop } = useSidebar();
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -39,13 +41,30 @@ export function ChatHeader({
     <header className="border-b border-border/50 glass sticky top-0 z-40">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 sm:gap-4 min-w-0">
-          <Link 
-            href="/chat" 
+          {/* Mobile sidebar toggle */}
+          <button
+            onClick={toggle}
+            className="p-2 -ml-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors md:hidden min-w-[44px] min-h-[44px] flex items-center justify-center"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+          {/* Desktop sidebar toggle (visible when collapsed) */}
+          {desktopCollapsed && (
+            <button
+              onClick={toggleDesktop}
+              className="hidden md:flex p-2 -ml-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors items-center justify-center"
+              title="Show sidebar"
+            >
+              <PanelLeftOpen className="w-4 h-4" />
+            </button>
+          )}
+          <Link
+            href="/chat"
             className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors duration-200 flex-shrink-0"
           >
-            <ChevronLeft className="w-4 h-4" />
-            <div className="w-7 h-7 rounded-lg bg-foreground flex items-center justify-center">
-              <StratusLogo className="w-3.5 h-3.5 text-background" />
+            <ChevronLeft className="w-4 h-4 hidden md:block" />
+            <div className="w-8 h-8 rounded-lg bg-foreground flex items-center justify-center">
+              <StratusLogo className="w-4 h-4 text-background" />
             </div>
           </Link>
           <div className="h-4 w-px bg-border/50 hidden sm:block" />
@@ -95,11 +114,6 @@ export function ChatHeader({
                   </button>
                 </div>
               )}
-            </div>
-          )}
-          {sessionId && !hasChanges && (
-            <div className="text-xs text-muted-foreground/60 hidden sm:block">
-              No changes yet
             </div>
           )}
           <Link

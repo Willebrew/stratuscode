@@ -3,33 +3,49 @@
 import { useEffect, useRef } from 'react';
 import { Loader2, FileCode, Terminal, GitPullRequest } from 'lucide-react';
 import { MessageBubble } from './message-bubble';
-import type { ChatMessage, SandboxState, TodoItem } from '@/hooks/use-chat-stream';
+import type { ChatMessage, TodoItem } from '@/hooks/use-convex-chat';
+
+type SandboxStatus = 'idle' | 'initializing' | 'ready';
 
 interface MessageListProps {
   messages: ChatMessage[];
-  sandboxStatus?: SandboxState;
+  messagesLoading?: boolean;
+  sandboxStatus?: SandboxStatus;
   todos?: TodoItem[];
   onSend?: (message: string) => void;
   onAnswer?: (answer: string) => void;
 }
 
-const SANDBOX_LABELS: Record<SandboxState, string> = {
+const SANDBOX_LABELS: Record<SandboxStatus, string> = {
   idle: '',
   initializing: 'Booting up the VM',
-  cloning: 'Cloning repository',
   ready: '',
 };
 
-export function MessageList({ messages, sandboxStatus = 'idle', todos, onSend, onAnswer }: MessageListProps) {
+export function MessageList({ messages, messagesLoading, sandboxStatus = 'idle', todos, onSend, onAnswer }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const hasScrolledRef = useRef(false);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!bottomRef.current) return;
+    // Jump instantly on initial load, smooth-scroll for subsequent updates
+    const behavior = hasScrolledRef.current ? 'smooth' : 'instant';
+    bottomRef.current.scrollIntoView({ behavior });
+    hasScrolledRef.current = true;
   }, [messages, sandboxStatus]);
 
-  if (messages.length === 0 && (sandboxStatus === 'idle' || sandboxStatus === 'ready')) {
+  // Show loading spinner while Convex query is still fetching (prevents "Ready to build" flash)
+  if (messagesLoading) {
     return (
-      <div className="flex-1 flex items-center justify-center p-4 sm:p-8 pb-40 relative">
+      <div className="h-full flex items-center justify-center">
+        <Loader2 className="w-5 h-5 text-muted-foreground animate-spin" />
+      </div>
+    );
+  }
+
+  if (messages.length === 0 && sandboxStatus !== 'initializing') {
+    return (
+      <div className="h-full flex items-center justify-center p-4 sm:p-8 relative">
         <div className="absolute inset-0 grid-pattern opacity-30" />
         <div className="text-center max-w-lg relative z-10 animate-fade-in-up">
           <h2 className="font-serif text-2xl sm:text-3xl font-normal mb-3">Ready to build</h2>
@@ -56,11 +72,11 @@ export function MessageList({ messages, sandboxStatus = 'idle', todos, onSend, o
     );
   }
 
-  const showBootStatus = sandboxStatus === 'initializing' || sandboxStatus === 'cloning';
+  const showBootStatus = sandboxStatus === 'initializing';
 
   return (
-    <div className="flex-1 overflow-y-auto chat-scroll-area">
-      <div className="max-w-3xl mx-auto px-3 sm:px-4 space-y-4 sm:space-y-6 py-2 sm:py-4">
+    <div className="h-full overflow-y-auto chat-scroll-area">
+      <div className="max-w-3xl mx-auto px-3 sm:px-4 space-y-4 sm:space-y-6 pt-2 sm:pt-4 pb-52">
         {messages.map((message) => (
           <MessageBubble key={message.id} message={message} todos={todos} onSend={onSend} onAnswer={onAnswer} />
         ))}
@@ -71,8 +87,6 @@ export function MessageList({ messages, sandboxStatus = 'idle', todos, onSend, o
             <span className="tracking-widest animate-pulse">...</span>
           </div>
         )}
-        {/* Spacer so content scrolls above the fixed input box */}
-        <div style={{ height: '300px' }} aria-hidden="true" />
         <div ref={bottomRef} />
       </div>
     </div>

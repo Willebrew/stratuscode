@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation';
 import { isAuthenticated } from '@/lib/simple-auth';
-import { ChatInterface } from './chat-interface';
+import { CreateSession } from './create-session';
+
+export const dynamic = 'force-dynamic';
 
 interface NewChatPageProps {
   searchParams: Promise<{ owner?: string; repo?: string; branch?: string }>;
@@ -21,7 +23,7 @@ export default async function NewChatPage({ searchParams }: NewChatPageProps) {
   }
 
   return (
-    <ChatInterface
+    <CreateSession
       owner={owner}
       repo={repo}
       branch={branch}

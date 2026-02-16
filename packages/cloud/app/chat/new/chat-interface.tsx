@@ -1,106 +1,85 @@
 'use client';
 
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { ChatHeader } from '@/components/chat-header';
+import { useState, useCallback, useEffect } from 'react';
 import { ChatInput } from '@/components/chat-input';
 import { MessageList } from '@/components/message-list';
-import { useChatStream } from '@/hooks/use-chat-stream';
+import { useConvexChat } from '@/hooks/use-convex-chat';
+import { useSendFn } from '@/components/send-fn-context';
+import type { Id } from '@/convex/_generated/dataModel';
 
 interface ChatInterfaceProps {
-  owner: string;
-  repo: string;
-  branch: string;
+  sessionId: string;
 }
 
-export function ChatInterface({ owner, repo, branch }: ChatInterfaceProps) {
+export function ChatInterface({ sessionId: sessionIdStr }: ChatInterfaceProps) {
+  const convexSessionId = sessionIdStr as Id<'sessions'>;
+  const { registerSendFn } = useSendFn();
+
   const {
     messages,
+    messagesLoading,
     isLoading,
     error,
-    sessionId,
+    session,
     sandboxStatus,
     todos,
     sendMessage,
     answerQuestion,
-  } = useChatStream({
-    onModeSwitch: (newMode) => {
-      if (newMode === 'build' || newMode === 'plan') {
-        setAgentMode(newMode);
-      }
-    },
-  });
+    requestCancel,
+  } = useConvexChat(convexSessionId);
 
-  const [hasChanges, setHasChanges] = useState(false);
   const [alphaMode, setAlphaMode] = useState(false);
   const [agentMode, setAgentMode] = useState<'build' | 'plan'>('build');
   const [reasoningEffort, setReasoningEffort] = useState<'low' | 'medium' | 'high'>('medium');
 
-  // Keep a ref to sessionId so async callbacks always see the latest value
-  const sessionIdRef = useRef(sessionId);
-  useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
-
-  const checkForChanges = useCallback(async () => {
-    const sid = sessionIdRef.current;
-    if (!sid) return;
-    try {
-      const res = await fetch(`/api/pr?sessionId=${sid}`);
-      if (!res.ok) return; // Session may not exist yet or was cleared by hot reload
-      const data = await res.json();
-      setHasChanges(data.hasChanges);
-    } catch {
-      // Ignore network errors
-    }
-  }, []);
-
-  // Re-check for changes whenever the agent finishes a response
-  const prevLoadingRef = useRef(isLoading);
-  useEffect(() => {
-    if (prevLoadingRef.current && !isLoading) {
-      checkForChanges();
-    }
-    prevLoadingRef.current = isLoading;
-  }, [isLoading, checkForChanges]);
-
   const handleSend = useCallback(
     async (message: string) => {
       await sendMessage(message, {
-        repoOwner: owner,
-        repoName: repo,
-        branch,
         alphaMode,
-        agent: agentMode,
         reasoningEffort,
       });
     },
-    [sendMessage, owner, repo, branch, alphaMode, agentMode, reasoningEffort]
+    [sendMessage, alphaMode, reasoningEffort]
   );
 
+  // Register send function with layout so AppHeader's Ship It button can use it
+  useEffect(() => {
+    registerSendFn(handleSend);
+    return () => registerSendFn(null);
+  }, [handleSend, registerSendFn]);
+
   return (
-    <div className="h-dvh flex flex-col">
-      <ChatHeader
-        owner={owner}
-        repo={repo}
-        branch={branch}
-        sessionId={sessionId}
-        hasChanges={hasChanges}
+    <div className="h-full relative overflow-hidden">
+      <MessageList
+        messages={messages}
+        messagesLoading={messagesLoading}
+        sandboxStatus={sandboxStatus}
+        todos={todos}
         onSend={handleSend}
+        onAnswer={answerQuestion}
       />
 
-      <MessageList messages={messages} sandboxStatus={sandboxStatus} todos={todos} onSend={handleSend} onAnswer={answerQuestion} />
-
-      <div className="fixed bottom-0 left-0 right-0 z-20">
-        <ChatInput
-          onSend={handleSend}
-          isLoading={isLoading}
-          alphaMode={alphaMode}
-          onAlphaModeChange={setAlphaMode}
-          agentMode={agentMode}
-          onAgentModeChange={setAgentMode}
-          reasoningEffort={reasoningEffort}
-          onReasoningEffortChange={setReasoningEffort}
-          todos={todos}
-          error={error}
+      <div className="absolute bottom-0 left-0 right-0 z-10 pointer-events-none">
+        {/* Bottom fade — content fades out behind the input */}
+        <div
+          className="absolute bottom-0 left-0 right-0 h-48 pointer-events-none"
+          style={{ background: 'linear-gradient(to top, var(--background) 30%, transparent)' }}
         />
+        <div className="relative pointer-events-auto">
+          <ChatInput
+            onSend={handleSend}
+            isLoading={isLoading}
+            alphaMode={alphaMode}
+            onAlphaModeChange={setAlphaMode}
+            agentMode={agentMode}
+            onAgentModeChange={setAgentMode}
+            reasoningEffort={reasoningEffort}
+            onReasoningEffortChange={setReasoningEffort}
+            todos={todos}
+            error={error}
+            onCancel={requestCancel}
+          />
+        </div>
       </div>
     </div>
   );

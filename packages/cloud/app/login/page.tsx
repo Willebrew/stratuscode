@@ -11,6 +11,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isNavigating, setIsNavigating] = useState(false);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -29,6 +31,8 @@ export default function LoginPage() {
         return;
       }
 
+      setIsNavigating(true);
+      await new Promise((r) => setTimeout(r, 250));
       router.push('/chat');
     } catch {
       setError('Login failed');
@@ -38,7 +42,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-dvh flex flex-col relative noise-texture">
+    <div className={`min-h-dvh flex flex-col relative noise-texture transition-opacity duration-300 ${isNavigating ? 'opacity-0' : 'opacity-100'}`}>
       <div className="absolute inset-0 grid-pattern opacity-[0.3]" />
       <div className="absolute inset-0 hero-glow" />
       <div className="absolute top-0 -right-32 w-[400px] h-[400px] rounded-full bg-accent/[0.06] blur-[120px]" />
