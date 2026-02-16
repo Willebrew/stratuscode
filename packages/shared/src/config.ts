@@ -7,7 +7,7 @@ import type { StratusCodeHooks, PermissionRuleset } from './types';
 
 export const StratusCodeConfigSchema = z.object({
   // Model - any string (unlocked for multi-provider support)
-  model: z.string().default('gpt-5.2-codex'),
+  model: z.string().default('gpt-5.3-codex'),
 
   // Provider configuration
   provider: z.object({
@@ -160,7 +160,7 @@ export function defineConfig(config: Partial<StratusCodeConfigInput> & { hooks?:
 // ============================================
 
 export const DEFAULT_CONFIG: StratusCodeConfig = {
-  model: 'gpt-5.2-codex',
+  model: 'gpt-5.3-codex',
   provider: {
     baseUrl: 'https://api.openai.com/v1',
   },
@@ -334,3 +334,4 @@ export function modelSupportsReasoning(modelId: string): boolean {
   const bare = id.includes('/') ? id.split('/').pop()! : id;
   return bare.includes('codex') || bare.startsWith('o1') || bare.startsWith('o3') || bare.startsWith('o4') || bare.startsWith('deepseek-r');
 }
+

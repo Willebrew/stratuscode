@@ -97,7 +97,7 @@ export default function SettingsPage() {
   const [linkingCodex, setLinkingCodex] = useState(false);
   const [codexError, setCodexError] = useState('');
   const [deviceCode, setDeviceCode] = useState<{ userCode: string; verificationUrl: string; deviceAuthId: string; interval: number } | null>(null);
-  const [selectedModel, setSelectedModel] = useState<string>('gpt-5-mini');
+  const [selectedModel, setSelectedModel] = useState<string>('gpt-5.3-codex');
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set());
 
   // Load saved model preference on mount
@@ -405,3 +405,4 @@ export default function SettingsPage() {
     </div>
   );
 }
+

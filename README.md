@@ -7,7 +7,7 @@ This README documents the functionality and usage for both the CLI and Web UI, c
 ## Key features
 
 - Agent orchestration powered by SAGE (planning, tool selection, retries, parallel execution, subagents)
-- Streaming model integration (OpenAI Responses API / gpt-5-mini by default)
+- Streaming model integration (OpenAI Responses API / gpt-5.3-codex by default)
 - CLI (TUI) for local, terminal-first workflows
 - Web UI for browser-based sessions and collaboration
 - Rich tool set: read, write, edit, multi_edit, bash, grep, glob, ls, task, and MCP-wrapped remote tools
@@ -118,7 +118,7 @@ Project-level configuration may be placed in `stratuscode.json` at the repositor
 
 ```json
 {
-  "model": "gpt-5-mini",
+  "model": "gpt-5.3-codex",
   "temperature": 0.7,
   "agent": {
     "maxDepth": 30,
@@ -197,4 +197,5 @@ Suggested workflow
 ## License
 
 MIT
+
 

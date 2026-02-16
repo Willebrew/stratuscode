@@ -137,7 +137,7 @@ export function loadConfig(projectDir: string): LoadedConfig {
 
   // Apply defaults
   const finalConfig: StratusCodeConfig = {
-    model: config.model || 'gpt-5.2-codex',
+    model: config.model || 'gpt-5.3-codex',
     provider: {
       apiKey: config.provider?.apiKey,
       auth: config.provider?.auth,
@@ -198,3 +198,4 @@ export function hasApiKey(config: StratusCodeConfig): boolean {
   }
   return false;
 }
+

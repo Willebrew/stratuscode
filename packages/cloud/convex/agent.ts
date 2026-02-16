@@ -367,7 +367,7 @@ export const sendMessage = internalAction({
     const githubToken = process.env.GITHUB_TOKEN;
     if (!githubToken) throw new Error("GITHUB_TOKEN not configured");
 
-    const model = args.model || session.model || "gpt-5-mini";
+    const model = args.model || session.model || "gpt-5.3-codex";
 
     // Resolve provider from explicit args or auto-detect from model
     const resolved = await resolveProviderForModel(model);
@@ -845,7 +845,7 @@ export const send = action({
   handler: async (ctx, args) => {
     // Resolve session and determine model
     const session = await ctx.runQuery(internal.sessions.getInternal, { id: args.sessionId });
-    const model = args.model || session?.model || "gpt-5-mini";
+    const model = args.model || session?.model || "gpt-5.3-codex";
 
     // Auto-resolve provider from model ID + environment variables
     const resolved = await resolveProviderForModel(model);
@@ -892,3 +892,4 @@ export const send = action({
     });
   },
 });
+
