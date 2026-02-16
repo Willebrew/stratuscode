@@ -14,6 +14,7 @@ interface ChatInterfaceProps {
 export function ChatInterface({ sessionId: sessionIdStr }: ChatInterfaceProps) {
   const convexSessionId = sessionIdStr as Id<'sessions'>;
   const { registerSendFn } = useSendFn();
+  const [inputHeight, setInputHeight] = useState(0);
 
   const {
     messages,
@@ -57,6 +58,7 @@ export function ChatInterface({ sessionId: sessionIdStr }: ChatInterfaceProps) {
         todos={todos}
         onSend={handleSend}
         onAnswer={answerQuestion}
+        inputBottomInset={inputHeight}
       />
 
       <div className="absolute bottom-0 left-0 right-0 z-10 pointer-events-none">
@@ -78,9 +80,11 @@ export function ChatInterface({ sessionId: sessionIdStr }: ChatInterfaceProps) {
             todos={todos}
             error={error}
             onCancel={requestCancel}
+            onResize={setInputHeight}
           />
         </div>
       </div>
     </div>
   );
 }
+
