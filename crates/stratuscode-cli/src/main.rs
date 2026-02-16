@@ -79,7 +79,11 @@ fn resolve_root() -> Result<PathBuf> {
     }
     // 2. Resolve from executable location: <root>/target/{debug,release}/stratuscode
     if let Ok(exe) = std::env::current_exe().and_then(|p| p.canonicalize()) {
-        if let Some(root) = exe.parent().and_then(|p| p.parent()).and_then(|p| p.parent()) {
+        if let Some(root) = exe
+            .parent()
+            .and_then(|p| p.parent())
+            .and_then(|p| p.parent())
+        {
             if root.join("packages").exists() {
                 return Ok(root.to_path_buf());
             }

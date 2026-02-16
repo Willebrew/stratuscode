@@ -1,7 +1,7 @@
 import { describe, test, expect, mock, beforeEach } from 'bun:test';
 
 // ─── Mock convex/react ───
-const mockUseQuery = mock(() => undefined as any);
+const mockUseQuery = mock((_ref: any, _args?: any) => undefined as any);
 const mockUseMutation = mock(() => mock(() => Promise.resolve()));
 const mockUseAction = mock(() => mock(() => Promise.resolve()));
 

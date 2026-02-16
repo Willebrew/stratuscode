@@ -832,7 +832,10 @@ fn build_inline_overlay(app: &App, _width: usize) -> Option<InlineOverlay> {
                 let mut display_rows: Vec<(Option<usize>, String, bool)> = Vec::new(); // (model_idx, text, is_header)
                 let mut last_group: Option<&str> = None;
                 for (idx, entry) in filtered.iter().enumerate() {
-                    if last_group.map(|g| g != entry.group.as_str()).unwrap_or(true) {
+                    if last_group
+                        .map(|g| g != entry.group.as_str())
+                        .unwrap_or(true)
+                    {
                         display_rows.push((None, entry.group.clone(), true));
                         last_group = Some(&entry.group);
                     }
@@ -854,16 +857,20 @@ fn build_inline_overlay(app: &App, _width: usize) -> Option<InlineOverlay> {
                 };
                 let d_end = (d_offset + viewport_size).min(display_rows.len());
 
-                for (m_idx, text, is_header) in display_rows.iter().skip(d_offset).take(d_end - d_offset) {
+                for (m_idx, text, is_header) in
+                    display_rows.iter().skip(d_offset).take(d_end - d_offset)
+                {
                     if *is_header {
                         // Provider group header
-                        let header_style = Style::default()
-                            .fg(COLOR_CODE)
-                            .add_modifier(Modifier::BOLD);
+                        let header_style =
+                            Style::default().fg(COLOR_CODE).add_modifier(Modifier::BOLD);
                         lines.push(Line::from(vec![
                             Span::styled("  ", header_style),
                             Span::styled(format!("── {} ", text), header_style),
-                            Span::styled("─".repeat(20usize.saturating_sub(text.len() + 4)), Style::default().fg(COLOR_TEXT_DIM)),
+                            Span::styled(
+                                "─".repeat(20usize.saturating_sub(text.len() + 4)),
+                                Style::default().fg(COLOR_TEXT_DIM),
+                            ),
                         ]));
                     } else if let Some(idx) = m_idx {
                         let selected = *idx == app.model_selected;
@@ -875,7 +882,8 @@ fn build_inline_overlay(app: &App, _width: usize) -> Option<InlineOverlay> {
                         } else {
                             Style::default().fg(COLOR_TEXT)
                         };
-                        let free_badge = if filtered.get(*idx).and_then(|e| e.free).unwrap_or(false) {
+                        let free_badge = if filtered.get(*idx).and_then(|e| e.free).unwrap_or(false)
+                        {
                             Span::styled(" [free]", Style::default().fg(Color::Green))
                         } else {
                             Span::raw("")
