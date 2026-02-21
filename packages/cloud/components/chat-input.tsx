@@ -48,8 +48,8 @@ export function ChatInput({
 
   useEffect(() => {
     if (textareaRef.current) {
-      const h = Math.min(textareaRef.current.scrollHeight, 200);
       textareaRef.current.style.height = 'auto';
+      const h = Math.min(textareaRef.current.scrollHeight, 200);
       textareaRef.current.style.height = `${h}px`;
       if (onResize) onResize(h + 24); // include padding/controls height estimate
     }
@@ -348,6 +348,5 @@ export function ChatInput({
     </form>
   );
 }
-
 
 
