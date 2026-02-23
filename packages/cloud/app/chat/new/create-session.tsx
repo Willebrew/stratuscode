@@ -21,10 +21,10 @@ export function CreateSession({ owner, repo, branch }: CreateSessionProps) {
     if (createdRef.current) return;
     createdRef.current = true;
 
-    // Use saved model preference from settings (if any)
+    // Use saved model preference from settings, falling back to default
     const savedModel = typeof window !== 'undefined'
-      ? localStorage.getItem('stratuscode_default_model') || undefined
-      : undefined;
+      ? localStorage.getItem('stratuscode_default_model') || 'gpt-5-mini'
+      : 'gpt-5-mini';
 
     createSession({
       userId: 'owner',

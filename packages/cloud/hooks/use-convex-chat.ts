@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import type { Id } from '../convex/_generated/dataModel';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 export type MessagePart =
   | { type: 'reasoning'; content: string }
@@ -84,6 +84,50 @@ export function useConvexChat(
   const sendAction = useAction(api.agent.send);
   const cancelMutation = useMutation(api.sessions.requestCancel);
   const answerMutation = useMutation(api.streaming.answerQuestion);
+  const recoverStaleMutation = useMutation(api.sessions.recoverStaleSession);
+
+  // ─── Stale session recovery ───
+  // When a Convex action crashes (transient error / OOM / timeout), the
+  // try/catch cleanup in agent.ts never runs, leaving the session stuck in
+  // "running" with isStreaming=true forever.  Detect this by checking the
+  // streaming_state heartbeat and auto-recover.
+
+  const STALE_THRESHOLD_MS = 3 * 60 * 1000; // 3 minutes
+  const recoveryAttempted = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!sessionId || session?.status !== 'running') {
+      recoveryAttempted.current = null;
+      return;
+    }
+    // Don't attempt recovery more than once per session run
+    if (recoveryAttempted.current === sessionId) return;
+
+    const lastActivity = streamingState?.updatedAt ?? session?.updatedAt;
+    if (!lastActivity) return;
+
+    const elapsed = Date.now() - lastActivity;
+    if (elapsed >= STALE_THRESHOLD_MS) {
+      // Already stale — recover immediately
+      console.warn(`[useConvexChat] Recovering stale session ${sessionId} (no activity for ${Math.round(elapsed / 1000)}s)`);
+      recoveryAttempted.current = sessionId;
+      recoverStaleMutation({ id: sessionId }).catch(() => { /* best effort */ });
+      return;
+    }
+
+    // Not stale yet — schedule recovery for when it would become stale.
+    // During normal operation, streamingState.updatedAt changes frequently
+    // (every token flush), which resets this timer via effect cleanup.
+    const checkAfter = STALE_THRESHOLD_MS - elapsed + 5000; // +5s buffer
+    const sid = sessionId; // capture for closure
+    const timer = setTimeout(() => {
+      console.warn(`[useConvexChat] Recovering stale session ${sid} (timer fired after ${Math.round(checkAfter / 1000)}s)`);
+      recoveryAttempted.current = sid;
+      // The mutation is idempotent — it re-checks staleness server-side
+      recoverStaleMutation({ id: sid }).catch(() => { /* best effort */ });
+    }, checkAfter);
+    return () => clearTimeout(timer);
+  }, [sessionId, session?.status, session?.updatedAt, streamingState?.updatedAt, recoverStaleMutation]);
 
   // ─── Derived state ───
 
@@ -106,39 +150,63 @@ export function useConvexChat(
       streaming: false,
     }));
 
+    // Build streaming parts helper — uses ordered parts array for correct interleaving
+    const buildStreamingParts = (): MessagePart[] => {
+      const result: MessagePart[] = [];
+      if (streamingState?.reasoning) {
+        result.push({ type: 'reasoning', content: streamingState.reasoning });
+      }
+
+      // Use ordered parts if available (new format), fall back to legacy grouping
+      const orderedParts = streamingState?.parts ? JSON.parse(streamingState.parts) : null;
+      if (orderedParts && orderedParts.length > 0) {
+        for (const part of orderedParts) {
+          if (part.type === 'text' && part.content) {
+            result.push({ type: 'text', content: part.content });
+          } else if (part.type === 'tool_call' && part.toolCall) {
+            result.push({
+              type: 'tool_call',
+              toolCall: {
+                id: part.toolCall.id,
+                name: part.toolCall.name,
+                args: part.toolCall.args,
+                result: part.toolCall.result,
+                status: part.toolCall.status || 'running',
+              },
+            });
+          }
+        }
+      } else {
+        // Legacy fallback: text then tool calls
+        if (streamingState?.content) {
+          result.push({ type: 'text', content: streamingState.content });
+        }
+        const toolCalls = streamingState?.toolCalls
+          ? JSON.parse(streamingState.toolCalls)
+          : [];
+        for (const tc of toolCalls) {
+          result.push({
+            type: 'tool_call',
+            toolCall: {
+              id: tc.id,
+              name: tc.name,
+              args: tc.args,
+              result: tc.result,
+              status: tc.status || 'running',
+            },
+          });
+        }
+      }
+      return result;
+    };
+
     // If streaming, add a live assistant message
     if (streamingState?.isStreaming) {
-      const parts: MessagePart[] = [];
-
-      if (streamingState.reasoning) {
-        parts.push({ type: 'reasoning', content: streamingState.reasoning });
-      }
-
-      const toolCalls = streamingState.toolCalls
-        ? JSON.parse(streamingState.toolCalls)
-        : [];
-      for (const tc of toolCalls) {
-        parts.push({
-          type: 'tool_call',
-          toolCall: {
-            id: tc.id,
-            name: tc.name,
-            args: tc.args,
-            result: tc.result,
-            status: tc.status || 'running',
-          },
-        });
-      }
-
-      if (streamingState.content) {
-        parts.push({ type: 'text', content: streamingState.content });
-      }
-
       completed.push({
         id: 'streaming',
         role: 'assistant',
         content: streamingState.content || '',
-        parts,
+        parts: buildStreamingParts(),
         streaming: true,
       });
     }

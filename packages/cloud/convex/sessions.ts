@@ -216,3 +216,102 @@ export const updateModel = mutation({
     });
   },
 });
+
+/**
+ * Recover a session stuck in "running" state due to a transient action failure.
+ *
+ * When a Convex action crashes (transient error, OOM, timeout), the try/catch
+ * cleanup in agent.ts never executes, leaving status="running" and
+ * isStreaming=true forever.  The frontend calls this when it detects staleness
+ * (no streaming activity for STALE_THRESHOLD_MS).
+ */
+const STALE_THRESHOLD_MS = 3 * 60 * 1000; // 3 minutes
+
+export const recoverStaleSession = mutation({
+  args: { id: v.id("sessions") },
+  handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.id);
+    if (!session || session.status !== "running") return false;
+
+    // Check streaming_state heartbeat
+    const streamingState = await ctx.db
+      .query("streaming_state")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", args.id))
+      .unique();
+
+    const lastActivity = streamingState?.updatedAt ?? session.updatedAt;
+    const elapsed = Date.now() - lastActivity;
+
+    if (elapsed < STALE_THRESHOLD_MS) return false; // not stale yet
+
+    // Reset session
+    await ctx.db.patch(args.id, {
+      status: "idle",
+      cancelRequested: false,
+      errorMessage: "Session recovered after agent timeout",
+      updatedAt: Date.now(),
+    });
+
+    // Finish streaming
+    if (streamingState && streamingState.isStreaming) {
+      await ctx.db.patch(streamingState._id, {
+        isStreaming: false,
+        updatedAt: Date.now(),
+      });
+    }
+
+    return true;
+  },
+});
+
+/**
+ * Cron-driven sweep that recovers ALL sessions stuck in "running".
+ *
+ * Uses the by_status index to efficiently find only running sessions,
+ * then checks the streaming_state heartbeat to confirm staleness.
+ * Runs every 2 minutes via convex/crons.ts — one invocation handles
+ * every stuck session regardless of message volume.
+ */
+export const sweepStaleSessions = internalMutation({
+  handler: async (ctx) => {
+    const runningSessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_status", (q) => q.eq("status", "running"))
+      .collect();
+
+    const now = Date.now();
+    let recovered = 0;
+
+    for (const session of runningSessions) {
+      const streamingState = await ctx.db
+        .query("streaming_state")
+        .withIndex("by_sessionId", (q) => q.eq("sessionId", session._id))
+        .unique();
+
+      const lastActivity = streamingState?.updatedAt ?? session.updatedAt;
+      const elapsed = now - lastActivity;
+
+      if (elapsed < STALE_THRESHOLD_MS) continue; // still active
+
+      await ctx.db.patch(session._id, {
+        status: "idle",
+        cancelRequested: false,
+        errorMessage: "Session recovered after agent timeout",
+        updatedAt: now,
+      });
+
+      if (streamingState?.isStreaming) {
+        await ctx.db.patch(streamingState._id, {
+          isStreaming: false,
+          updatedAt: now,
+        });
+      }
+
+      recovered++;
+    }
+
+    if (recovered > 0) {
+      console.log(`[sweepStaleSessions] Recovered ${recovered} stale session(s)`);
+    }
+  },
+});

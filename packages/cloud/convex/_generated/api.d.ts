@@ -10,6 +10,7 @@
 
 import type * as agent from "../agent.js";
 import type * as agent_state from "../agent_state.js";
+import type * as crons from "../crons.js";
 import type * as lib_tools from "../lib/tools.js";
 import type * as messages from "../messages.js";
 import type * as sessions from "../sessions.js";
@@ -25,6 +26,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   agent: typeof agent;
   agent_state: typeof agent_state;
+  crons: typeof crons;
   "lib/tools": typeof lib_tools;
   messages: typeof messages;
   sessions: typeof sessions;

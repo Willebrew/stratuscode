@@ -37,6 +37,7 @@ export const start = internalMutation({
       content: "",
       reasoning: "",
       toolCalls: "[]",
+      parts: "[]",
       isStreaming: true,
       updatedAt: Date.now(),
     });
@@ -51,8 +52,19 @@ export const appendToken = internalMutation({
       .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
       .unique();
     if (!state) return;
+
+    // Update ordered parts — append to last text part or create new one
+    const parts = state.parts ? JSON.parse(state.parts) : [];
+    const last = parts[parts.length - 1];
+    if (last && last.type === "text") {
+      last.content += args.content;
+    } else {
+      parts.push({ type: "text", content: args.content });
+    }
+
     await ctx.db.patch(state._id, {
       content: state.content + args.content,
+      parts: JSON.stringify(parts),
       updatedAt: Date.now(),
     });
   },
@@ -86,15 +98,24 @@ export const addToolCall = internalMutation({
       .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
       .unique();
     if (!state) return;
-    const toolCalls = JSON.parse(state.toolCalls);
-    toolCalls.push({
+
+    const toolCall = {
       id: args.toolCallId,
       name: args.toolName,
       args: args.toolArgs,
       status: "running",
-    });
+    };
+
+    const toolCalls = JSON.parse(state.toolCalls);
+    toolCalls.push(toolCall);
+
+    // Add to ordered parts
+    const parts = state.parts ? JSON.parse(state.parts) : [];
+    parts.push({ type: "tool_call", toolCall });
+
     await ctx.db.patch(state._id, {
       toolCalls: JSON.stringify(toolCalls),
+      parts: JSON.stringify(parts),
       updatedAt: Date.now(),
     });
   },
@@ -120,8 +141,21 @@ export const updateToolResult = internalMutation({
       tc.status = "completed";
       if (args.toolArgs) tc.args = args.toolArgs;
     }
+
+    // Also update in ordered parts
+    const parts = state.parts ? JSON.parse(state.parts) : [];
+    for (const part of parts) {
+      if (part.type === "tool_call" && part.toolCall?.id === args.toolCallId) {
+        part.toolCall.result = args.result;
+        part.toolCall.status = "completed";
+        if (args.toolArgs) part.toolCall.args = args.toolArgs;
+        break;
+      }
+    }
+
     await ctx.db.patch(state._id, {
       toolCalls: JSON.stringify(toolCalls),
+      parts: JSON.stringify(parts),
       updatedAt: Date.now(),
     });
   },

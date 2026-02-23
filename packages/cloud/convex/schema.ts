@@ -26,7 +26,8 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_userId", ["userId"])
-    .index("by_userId_updatedAt", ["userId", "updatedAt"]),
+    .index("by_userId_updatedAt", ["userId", "updatedAt"])
+    .index("by_status", ["status"]),
 
   messages: defineTable({
     sessionId: v.id("sessions"),
@@ -76,6 +77,7 @@ export default defineSchema({
     content: v.string(),
     reasoning: v.string(),
     toolCalls: v.string(), // JSON array of ToolCallInfo[]
+    parts: v.optional(v.string()), // JSON array of ordered MessagePart[] (text + tool_call interleaved)
     pendingQuestion: v.optional(v.string()), // JSON of question data
     pendingAnswer: v.optional(v.string()), // JSON of answer data
     isStreaming: v.boolean(),
