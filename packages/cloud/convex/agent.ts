@@ -13,7 +13,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { Sandbox } from "@vercel/sandbox";
 import { processDirectly, createToolRegistry } from "@willebrew/sage-core";
-import { buildSystemPrompt, BUILT_IN_AGENTS, modelSupportsReasoning, patchGlobalFetch } from "@stratuscode/shared";
+import { buildSystemPrompt, BUILT_IN_AGENTS, modelSupportsReasoning, patchGlobalFetch, getSubagentDefinitions } from "@stratuscode/shared";
 import { registerSandboxToolsConvex, type ConvexSandboxInfo } from "./lib/tools";
 
 // Ensure Codex fetch patch is applied in the Convex action runtime
@@ -524,6 +524,7 @@ export const sendMessage = internalAction({
         })),
         projectDir: workDir,
         modelId: model,
+        subagents: getSubagentDefinitions(),
       }) + `\n\n<repository>
 GitHub Repository: ${session.owner}/${session.repo}
 Branch: ${session.branch}
@@ -563,7 +564,10 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
         systemPrompt,
         messages,
         tools: registry,
-        config: sageConfig,
+        config: {
+          ...sageConfig,
+          subagents: getSubagentDefinitions(),
+        },
         sessionId: String(args.sessionId),
         existingSummary: agentState?.existingSummary
           ? JSON.parse(agentState.existingSummary)
@@ -663,6 +667,22 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
           onError: async (err: Error) => {
             console.error("[agent] Error:", err.message);
             lastAgentError = err;
+          },
+          onSubagentStart: async (agentName: string, task: string) => {
+            await flushTokens();
+            await ctx.runMutation(internal.streaming.addSubagentStart, {
+              sessionId: args.sessionId,
+              agentName,
+              task,
+            });
+          },
+          onSubagentEnd: async (agentName: string, result: string) => {
+            await flushTokens();
+            await ctx.runMutation(internal.streaming.addSubagentEnd, {
+              sessionId: args.sessionId,
+              agentName,
+              result,
+            });
           },
         },
       });

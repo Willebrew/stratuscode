@@ -8,11 +8,10 @@ import { api } from '../convex/_generated/api';
 import type { Id } from '../convex/_generated/dataModel';
 import {
   GitBranch, GitPullRequest, GitCommitHorizontal,
-  ChevronLeft, ChevronDown, Settings, Menu, PanelLeftOpen, LogOut, FolderOpen,
+  ChevronLeft, ChevronDown, Settings, Menu, PanelLeftOpen, LogOut,
 } from 'lucide-react';
 import { StratusLogo } from './stratus-logo';
 import { useSidebar } from './sidebar-context';
-import { WorkspaceBrowser } from './workspace-browser';
 
 interface AppHeaderProps {
   sessionId?: Id<'sessions'> | null;
@@ -22,7 +21,6 @@ interface AppHeaderProps {
 export function AppHeader({ sessionId, onSend }: AppHeaderProps) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [browserOpen, setBrowserOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { toggle, desktopCollapsed, toggleDesktop, triggerExit } = useSidebar();
 
@@ -134,18 +132,6 @@ export function AppHeader({ sessionId, onSend }: AppHeaderProps) {
 
         {/* Right side */}
         <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-          {/* Workspace browser — when in a session */}
-          {inSession && (
-            <button
-              onClick={() => setBrowserOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
-              title="Browse workspace files"
-            >
-              <FolderOpen className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Files</span>
-            </button>
-          )}
-
           {/* Ship It — only in session with changes */}
           {inSession && hasChanges && (
             <div className="relative" ref={menuRef}>
@@ -206,14 +192,6 @@ export function AppHeader({ sessionId, onSend }: AppHeaderProps) {
         </div>
       </div>
 
-      {/* Workspace file browser panel */}
-      {sessionId && (
-        <WorkspaceBrowser
-          sessionId={sessionId}
-          isOpen={browserOpen}
-          onClose={() => setBrowserOpen(false)}
-        />
-      )}
     </header>
   );
 }

@@ -234,7 +234,7 @@ export const setThinkingSeconds = internalMutation({
 export const addSubagentStart = internalMutation({
   args: {
     sessionId: v.id("sessions"),
-    agentId: v.string(),
+    agentName: v.string(),
     task: v.string(),
   },
   handler: async (ctx, args) => {
@@ -245,7 +245,7 @@ export const addSubagentStart = internalMutation({
     if (!state) return;
 
     const parts = state.parts ? JSON.parse(state.parts) : [];
-    parts.push({ type: "subagent_start", agentId: args.agentId, task: args.task });
+    parts.push({ type: "subagent_start", agentName: args.agentName, task: args.task });
 
     await ctx.db.patch(state._id, {
       parts: JSON.stringify(parts),
@@ -257,7 +257,7 @@ export const addSubagentStart = internalMutation({
 export const addSubagentEnd = internalMutation({
   args: {
     sessionId: v.id("sessions"),
-    agentId: v.string(),
+    agentName: v.string(),
     result: v.string(),
   },
   handler: async (ctx, args) => {
@@ -268,7 +268,7 @@ export const addSubagentEnd = internalMutation({
     if (!state) return;
 
     const parts = state.parts ? JSON.parse(state.parts) : [];
-    parts.push({ type: "subagent_end", agentId: args.agentId, result: args.result });
+    parts.push({ type: "subagent_end", agentName: args.agentName, result: args.result });
 
     await ctx.db.patch(state._id, {
       parts: JSON.stringify(parts),
