@@ -1,10 +1,12 @@
 'use client';
 
-import { useQuery, useMutation } from 'convex/react';
+import { useQuery, useAction } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import type { Id } from '../convex/_generated/dataModel';
 import { Plus, GitBranch, Loader2, CheckCircle2, Circle, AlertCircle, X, Trash2, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { clsx } from 'clsx';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useEffect, useRef } from 'react';
 import { useSidebar } from './sidebar-context';
 
 interface SessionSidebarProps {
@@ -43,6 +45,37 @@ function StatusIndicator({ status }: { status: string }) {
   }
 }
 
+function SessionTitle({ title, isGenerated }: { title: string, isGenerated?: boolean }) {
+  const [isTyping, setIsTyping] = useState(false);
+  const prevTitle = useRef(title);
+
+  useEffect(() => {
+    if (title !== prevTitle.current) {
+      if (prevTitle.current === "New Chat" && isGenerated) {
+        setIsTyping(true);
+      }
+      prevTitle.current = title;
+    }
+  }, [title, isGenerated]);
+
+  if (!isTyping) return <>{title}</>;
+
+  return (
+    <motion.span
+      initial="hidden"
+      animate="visible"
+      onAnimationComplete={() => setIsTyping(false)}
+      variants={{ visible: { transition: { staggerChildren: 0.03 } } }}
+    >
+      {title.split("").map((c, i) => (
+        <motion.span key={i} variants={{ hidden: { opacity: 0 }, visible: { opacity: 1 } }}>
+          {c}
+        </motion.span>
+      ))}
+    </motion.span>
+  );
+}
+
 export function SessionSidebar({
   userId,
   currentSessionId,
@@ -52,12 +85,27 @@ export function SessionSidebar({
   isMobileDrawer = false,
 }: SessionSidebarProps) {
   const sessions = useQuery(api.sessions.list, { userId });
-  const removeSession = useMutation(api.sessions.remove);
+  const deleteSession = useAction(api.session_actions.deleteSession);
   const { desktopCollapsed, toggleDesktop } = useSidebar();
+  const [deletingId, setDeletingId] = useState<Id<'sessions'> | null>(null);
 
   const handleDelete = async (e: React.MouseEvent, sessionId: Id<'sessions'>) => {
     e.stopPropagation();
-    await removeSession({ id: sessionId });
+    if (deletingId) return; // Prevent double clicks
+
+    setDeletingId(sessionId);
+    try {
+      await deleteSession({ id: sessionId });
+      // Navigate back to /chat if we just deleted the session we're viewing
+      if (sessionId === currentSessionId) {
+        onNewSession();
+      }
+    } finally {
+      // Clear after a small delay so the spinner doesn't flash back to a trash can while animating out
+      setTimeout(() => {
+        setDeletingId(null);
+      }, 300);
+    }
   };
 
   return (
@@ -113,68 +161,84 @@ export function SessionSidebar({
             </button>
           </div>
         ) : (
-          sessions.map((session: any) => {
-            const isActive = currentSessionId === session._id;
-            return (
-              <div
-                key={session._id}
-                className={clsx(
-                  'group relative',
-                  'mx-1'
-                )}
-              >
-                <button
-                  onClick={() => onSelectSession(session._id)}
+          <AnimatePresence initial={false}>
+            {sessions.map((session: any) => {
+              const isActive = currentSessionId === session._id;
+              return (
+                <motion.div
+                  key={session._id}
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0, marginTop: 0, marginBottom: 0 }}
+                  transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
                   className={clsx(
-                    'w-full text-left px-3 py-2.5 rounded-lg transition-colors',
-                    'hover:bg-white/[0.04]',
-                    'active:bg-white/[0.06]',
-                    'min-h-[44px]',
-                    isActive && 'bg-white/[0.06]'
+                    'group relative',
+                    'mx-1 overflow-hidden'
                   )}
                 >
-                  <div className="flex items-start gap-2.5 min-w-0">
-                    <StatusIndicator status={session.status} />
-                    <div className="flex-1 min-w-0 overflow-hidden">
-                      <span className={clsx(
-                        'text-sm font-medium block truncate',
-                        isActive ? 'text-white' : 'text-zinc-300'
-                      )}>
-                        {session.title || `${session.owner}/${session.repo}`}
-                      </span>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        <GitBranch className="w-3 h-3 text-zinc-600 flex-shrink-0" />
-                        <span className="text-xs text-zinc-500 truncate">
-                          {session.branch}
+                  <button
+                    onClick={() => onSelectSession(session._id)}
+                    className={clsx(
+                      'w-full text-left pl-3 pr-10 py-2.5 rounded-lg transition-colors',
+                      'hover:bg-white/[0.04]',
+                      'active:bg-white/[0.06]',
+                      'min-h-[44px]',
+                      isActive && 'bg-white/[0.06]'
+                    )}
+                  >
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      <StatusIndicator status={session.status} />
+                      <div className="flex-1 min-w-0 overflow-hidden">
+                        <span className={clsx(
+                          'text-sm font-medium block truncate',
+                          isActive ? 'text-white' : 'text-zinc-300'
+                        )}>
+                          <SessionTitle
+                            title={session.title || `${session.owner}/${session.repo}`}
+                            isGenerated={session.titleGenerated}
+                          />
                         </span>
-                        <span className="text-xs text-zinc-600 flex-shrink-0">
-                          &middot; {relativeTime(session.updatedAt)}
-                        </span>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          {session.branch && (
+                            <>
+                              <GitBranch className="w-3 h-3 text-zinc-600 flex-shrink-0" />
+                              <span className="text-xs text-zinc-500 truncate">
+                                {session.branch}
+                              </span>
+                              <span className="text-xs text-zinc-600 flex-shrink-0">&middot;</span>
+                            </>
+                          )}
+                          <span className="text-xs text-zinc-600 flex-shrink-0">
+                            {relativeTime(session.updatedAt)}
+                          </span>
+                        </div>
                       </div>
-                      {session.lastMessage && (
-                        <p className="text-xs text-zinc-500 mt-1 truncate">
-                          {session.lastMessage}
-                        </p>
-                      )}
                     </div>
-                  </div>
-                </button>
-                {/* Delete button - visible on hover */}
-                <button
-                  onClick={(e) => handleDelete(e, session._id)}
-                  className={clsx(
-                    'absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md',
-                    'text-zinc-600 hover:text-red-400 hover:bg-red-500/10',
-                    'opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-all',
-                    'focus:opacity-100'
-                  )}
-                  title="Delete session"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            );
-          })
+                  </button>
+                  {/* Delete button - visible on hover */}
+                  <button
+                    onClick={(e) => handleDelete(e, session._id)}
+                    disabled={deletingId === session._id}
+                    className={clsx(
+                      'absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md pointer-events-auto',
+                      'text-zinc-600 hover:text-red-400 hover:bg-red-500/10',
+                      deletingId === session._id
+                        ? 'opacity-100 lg:opacity-100 text-red-500 bg-red-500/10'
+                        : 'opacity-100 lg:opacity-0 lg:group-hover:opacity-100',
+                      'transition-all focus:opacity-100'
+                    )}
+                    title="Delete session"
+                  >
+                    {deletingId === session._id ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
         )}
       </div>
     </div>

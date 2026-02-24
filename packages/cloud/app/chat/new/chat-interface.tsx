@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { ChatInput } from '@/components/chat-input';
 import { MessageList } from '@/components/message-list';
 import { useConvexChat } from '@/hooks/use-convex-chat';
@@ -32,14 +32,23 @@ export function ChatInterface({ sessionId: sessionIdStr }: ChatInterfaceProps) {
   const [agentMode, setAgentMode] = useState<'build' | 'plan'>('build');
   const [reasoningEffort, setReasoningEffort] = useState<'low' | 'medium' | 'high'>('medium');
 
+  // Sync local agentMode with backend session.agent (updated by plan_enter/plan_exit tools)
+  useEffect(() => {
+    if (session?.agent === 'plan' || session?.agent === 'build') {
+      setAgentMode(session.agent);
+    }
+  }, [session?.agent]);
+
   const handleSend = useCallback(
-    async (message: string) => {
+    async (message: string, attachmentIds?: string[]) => {
       await sendMessage(message, {
         alphaMode,
         reasoningEffort,
+        attachmentIds,
+        agentMode,
       });
     },
-    [sendMessage, alphaMode, reasoningEffort]
+    [sendMessage, alphaMode, reasoningEffort, agentMode]
   );
 
   // Register send function with layout so AppHeader's Ship It button can use it
@@ -48,6 +57,20 @@ export function ChatInterface({ sessionId: sessionIdStr }: ChatInterfaceProps) {
     return () => registerSendFn(null);
   }, [handleSend, registerSendFn]);
 
+  // Measure input container height so the message list bottom padding stays in sync
+  const inputContainerRef = useRef<HTMLDivElement>(null);
+  const [inputHeight, setInputHeight] = useState(208); // default ~pb-52
+
+  useEffect(() => {
+    const el = inputContainerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setInputHeight(entry.contentRect.height + 48); // +48 for fade overlap
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <div className="h-full relative overflow-hidden">
       <MessageList
@@ -55,8 +78,10 @@ export function ChatInterface({ sessionId: sessionIdStr }: ChatInterfaceProps) {
         messagesLoading={messagesLoading}
         sandboxStatus={sandboxStatus}
         todos={todos}
+        sessionId={sessionIdStr}
         onSend={handleSend}
         onAnswer={answerQuestion}
+        bottomPadding={inputHeight}
       />
 
       <div className="absolute bottom-0 left-0 right-0 z-10 pointer-events-none">
@@ -65,7 +90,7 @@ export function ChatInterface({ sessionId: sessionIdStr }: ChatInterfaceProps) {
           className="absolute bottom-0 left-0 right-0 h-48 pointer-events-none"
           style={{ background: 'linear-gradient(to top, var(--background) 30%, transparent)' }}
         />
-        <div className="relative pointer-events-auto">
+        <div ref={inputContainerRef} className="relative pointer-events-auto">
           <ChatInput
             onSend={handleSend}
             isLoading={isLoading}
@@ -78,6 +103,7 @@ export function ChatInterface({ sessionId: sessionIdStr }: ChatInterfaceProps) {
             todos={todos}
             error={error}
             onCancel={requestCancel}
+            sessionId={convexSessionId}
           />
         </div>
       </div>

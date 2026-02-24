@@ -1,14 +1,16 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { ArrowUp, Square, Paperclip, Plus, Zap, Brain, X, Hammer, Map, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import clsx from 'clsx';
 import { TodoPanel } from './todo-panel';
+import { FileUpload, type AttachedFile, type FileUploadHandle } from './file-upload';
 import type { TodoItem } from '@/hooks/use-convex-chat';
+import type { Id } from '../convex/_generated/dataModel';
 
 interface ChatInputProps {
-  onSend: (message: string) => void;
+  onSend: (message: string, attachmentIds?: string[]) => void;
   isLoading: boolean;
   placeholder?: string;
   alphaMode: boolean;
@@ -21,6 +23,7 @@ interface ChatInputProps {
   error?: string | null;
   onDismissError?: () => void;
   onCancel?: () => void;
+  sessionId?: Id<'sessions'> | null;
 }
 
 export function ChatInput({
@@ -37,11 +40,16 @@ export function ChatInput({
   error,
   onDismissError,
   onCancel,
+  sessionId,
 }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const [dragging, setDragging] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const fileUploadRef = useRef<FileUploadHandle>(null);
+  const dragCounterRef = useRef(0);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -65,8 +73,12 @@ export function ChatInput({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!message.trim() || isLoading) return;
-    onSend(message.trim());
+    const ids = attachedFiles
+      .filter((f) => f.id && !f.uploading)
+      .map((f) => f.id as string);
+    onSend(message.trim(), ids.length > 0 ? ids : undefined);
     setMessage('');
+    setAttachedFiles([]);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -78,9 +90,59 @@ export function ChatInput({
 
   const effortSegments: Array<'low' | 'medium' | 'high'> = ['low', 'medium', 'high'];
 
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current++;
+    if (e.dataTransfer?.types.includes('Files')) setDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) setDragging(false);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = 0;
+    setDragging(false);
+    if (e.dataTransfer?.files?.length && sessionId) {
+      fileUploadRef.current?.addFiles(e.dataTransfer.files);
+    }
+  }, [sessionId]);
+
   return (
-    <form onSubmit={handleSubmit} className="pt-3 sm:pt-4 pb-4">
-      <div className="max-w-3xl mx-auto px-3 sm:px-4">
+    <form
+      onSubmit={handleSubmit}
+      className="pt-3 sm:pt-4 pb-4"
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      <div className="max-w-3xl mx-auto px-3 sm:px-4 relative">
+        {/* Drop zone overlay */}
+        <AnimatePresence>
+          {dragging && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="absolute inset-0 z-50 rounded-2xl border-2 border-dashed border-white/30 bg-white/[0.06] flex items-center justify-center pointer-events-none"
+            >
+              <span className="text-sm text-white/60 font-medium">Drop files to attach</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <div
           className={clsx(
             'dark-input-area transition-[box-shadow,ring-color] duration-300 !transform-none',
@@ -144,6 +206,17 @@ export function ChatInput({
             <div className="mb-2 border-b border-white/10 pb-2">
               <TodoPanel todos={todos} />
             </div>
+          )}
+
+          {/* Attached files display + hidden file input */}
+          {sessionId && (
+            <FileUpload
+              ref={fileUploadRef}
+              sessionId={sessionId}
+              attachedFiles={attachedFiles}
+              onFilesChange={setAttachedFiles}
+              disabled={isLoading}
+            />
           )}
 
           <div className="flex items-start gap-2 sm:gap-3">
@@ -221,12 +294,15 @@ export function ChatInput({
                     <button
                       type="button"
                       className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/5 transition-colors"
-                      onClick={() => setMenuOpen(false)}
+                      onClick={() => {
+                        setMenuOpen(false);
+                        fileUploadRef.current?.open();
+                      }}
                     >
                       <Paperclip className="w-4 h-4 text-white/50" />
                       <div>
                         <div className="text-sm text-white/80">Attachments</div>
-                        <div className="text-[10px] text-white/40">Coming soon</div>
+                        <div className="text-[10px] text-white/40">Files & documents</div>
                       </div>
                     </button>
 

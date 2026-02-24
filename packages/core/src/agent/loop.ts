@@ -62,9 +62,12 @@ export interface AgentContext {
 }
 
 export interface AgentLoopCallbacks {
-  onToken?: (token: string) => void;
+  onToken?: (text: string) => void;
   onReasoning?: (text: string) => void;
-  onToolCallStart?: (toolCall: { id: string; name: string }) => void;
+  onToolCallStart?: (toolCall: { id: string; name: string; type: string }) => void;
+  onToolCallChunk?: (chunk: { id: string; delta: string }) => void;
+  onToolCall?: (toolCall: any) => void;
+  onToolResult?: (toolResult: any) => void;
   onToolCallComplete?: (toolCall: ToolCall, result: string) => void;
   onStatusChange?: (status: string) => void;
   onStepComplete?: (step: number, accumulator: StreamAccumulator) => void;
@@ -265,7 +268,10 @@ export async function processWithToolLoop(
       handleNormalizedEvent(event, accumulator, {
         onToken: context.callbacks?.onToken,
         onReasoning: context.callbacks?.onReasoning,
-        onToolCallStart: context.callbacks?.onToolCallStart,
+        onToolCallStart: (tc) => {
+          context.callbacks?.onToolCallStart?.({ ...tc, type: 'function' });
+        },
+        onToolCallChunk: context.callbacks?.onToolCallChunk,
       });
     }
   } catch (fetchError) {

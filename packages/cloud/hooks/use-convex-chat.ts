@@ -16,6 +16,7 @@ export interface ChatMessage {
   content: string;
   parts: MessagePart[];
   streaming?: boolean;
+  thinkingSeconds?: number;
 }
 
 export interface ToolCallInfo {
@@ -47,7 +48,7 @@ export interface UseConvexChatReturn {
   sandboxStatus: 'idle' | 'initializing' | 'ready';
   todos: TodoItem[];
   pendingQuestion: { question: string; options?: string[] } | null;
-  sendMessage: (message: string, options?: { alphaMode?: boolean; model?: string; reasoningEffort?: string }) => Promise<void>;
+  sendMessage: (message: string, options?: { alphaMode?: boolean; model?: string; reasoningEffort?: string; attachmentIds?: string[]; agentMode?: string }) => Promise<void>;
   answerQuestion: (answer: string) => Promise<void>;
   requestCancel: () => Promise<void>;
 }
@@ -81,6 +82,7 @@ export function useConvexChat(
   // ─── Actions and mutations ───
 
   const sendUserMessageMutation = useMutation(api.messages.sendUserMessage);
+  const linkAttachmentsMutation = useMutation(api.attachments.linkToMessage);
   const sendAction = useAction(api.agent.send);
   const cancelMutation = useMutation(api.sessions.requestCancel);
   const answerMutation = useMutation(api.streaming.answerQuestion);
@@ -140,6 +142,10 @@ export function useConvexChat(
     return 'idle' as const;
   }, [session?.status]);
 
+  // Track the count of DB messages when streaming was active so we can detect
+  // when the persisted assistant message arrives after streaming ends.
+  const streamingDbCountRef = useRef<number>(0);
+
   // Merge completed messages with live streaming state + optimistic message
   const messages: ChatMessage[] = useMemo(() => {
     const completed: ChatMessage[] = (dbMessages || []).map((msg: any) => ({
@@ -148,6 +154,7 @@ export function useConvexChat(
       content: msg.content,
       parts: msg.parts as MessagePart[],
       streaming: false,
+      thinkingSeconds: msg.thinkingSeconds,
     }));
 
     // Build streaming parts helper — uses ordered parts array for correct interleaving
@@ -174,6 +181,10 @@ export function useConvexChat(
                 status: part.toolCall.status || 'running',
               },
             });
+          } else if (part.type === 'subagent_start' || part.type === 'subagent_end') {
+            // Pass through subagent markers so the UI grouping logic can
+            // properly nest subagent content inside its dropdown during streaming
+            result.push(part as any);
           }
         }
       } else {
@@ -200,14 +211,32 @@ export function useConvexChat(
       return result;
     };
 
-    // If streaming, add a live assistant message
+    const dbCount = (dbMessages || []).length;
+
     if (streamingState?.isStreaming) {
+      // Currently streaming — show live message and track DB count
+      streamingDbCountRef.current = dbCount;
       completed.push({
         id: 'streaming',
         role: 'assistant',
         content: streamingState.content || '',
         parts: buildStreamingParts(),
         streaming: true,
+        thinkingSeconds: typeof streamingState.thinkingSeconds === 'number' ? streamingState.thinkingSeconds : undefined,
+      });
+    } else if (
+      (streamingState?.content || streamingState?.reasoning)
+      && dbCount <= streamingDbCountRef.current
+    ) {
+      // Streaming just ended but the persisted assistant message hasn't arrived
+      // in dbMessages yet. Keep showing the last streamed content to prevent flicker.
+      completed.push({
+        id: 'streaming',
+        role: 'assistant',
+        content: streamingState.content || '',
+        parts: buildStreamingParts(),
+        streaming: false,
+        thinkingSeconds: typeof streamingState.thinkingSeconds === 'number' ? streamingState.thinkingSeconds : undefined,
       });
     }
 
@@ -237,12 +266,18 @@ export function useConvexChat(
   const sendMessage = useCallback(
     async (
       message: string,
-      opts?: { alphaMode?: boolean; model?: string; reasoningEffort?: string }
+      opts?: { alphaMode?: boolean; model?: string; reasoningEffort?: string; attachmentIds?: string[]; agentMode?: string }
     ) => {
       if (!sessionId || isLoading) return;
       // Persist user message via mutation — updates subscription instantly (no flicker).
       // This is durable: even if the action below fails, the message stays in the DB.
-      await sendUserMessageMutation({ sessionId, content: message });
+      const messageId = await sendUserMessageMutation({ sessionId, content: message });
+      // Link any attachments to this message so they show in chat history
+      if (opts?.attachmentIds?.length) {
+        try {
+          await linkAttachmentsMutation({ ids: opts.attachmentIds as any, messageId });
+        } catch { /* best effort */ }
+      }
       try {
         // Fire the agent action (user message already in DB)
         await sendAction({
@@ -251,6 +286,8 @@ export function useConvexChat(
           model: opts?.model,
           alphaMode: opts?.alphaMode,
           reasoningEffort: opts?.reasoningEffort,
+          attachmentIds: opts?.attachmentIds as any,
+          agentMode: opts?.agentMode,
         });
       } catch (e) {
         // If the action fails (expired sandbox, network error, etc.), reset session
@@ -261,7 +298,7 @@ export function useConvexChat(
         } catch { /* best effort */ }
       }
     },
-    [sessionId, isLoading, sendUserMessageMutation, sendAction, cancelMutation]
+    [sessionId, isLoading, sendUserMessageMutation, linkAttachmentsMutation, sendAction, cancelMutation]
   );
 
   const answerQuestion = useCallback(

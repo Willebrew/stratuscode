@@ -216,6 +216,100 @@ export const clearQuestion = internalMutation({
   },
 });
 
+export const setThinkingSeconds = internalMutation({
+  args: { sessionId: v.id("sessions"), seconds: v.number() },
+  handler: async (ctx, args) => {
+    const state = await ctx.db
+      .query("streaming_state")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
+      .unique();
+    if (!state) return;
+    await ctx.db.patch(state._id, {
+      thinkingSeconds: args.seconds,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const addSubagentStart = internalMutation({
+  args: {
+    sessionId: v.id("sessions"),
+    agentId: v.string(),
+    task: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const state = await ctx.db
+      .query("streaming_state")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
+      .unique();
+    if (!state) return;
+
+    const parts = state.parts ? JSON.parse(state.parts) : [];
+    parts.push({ type: "subagent_start", agentId: args.agentId, task: args.task });
+
+    await ctx.db.patch(state._id, {
+      parts: JSON.stringify(parts),
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const addSubagentEnd = internalMutation({
+  args: {
+    sessionId: v.id("sessions"),
+    agentId: v.string(),
+    result: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const state = await ctx.db
+      .query("streaming_state")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
+      .unique();
+    if (!state) return;
+
+    const parts = state.parts ? JSON.parse(state.parts) : [];
+    parts.push({ type: "subagent_end", agentId: args.agentId, result: args.result });
+
+    await ctx.db.patch(state._id, {
+      parts: JSON.stringify(parts),
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const updateToolCallArgs = internalMutation({
+  args: {
+    sessionId: v.id("sessions"),
+    toolCallId: v.string(),
+    args: v.string(),
+  },
+  handler: async (ctx, { sessionId, toolCallId, args: newArgs }) => {
+    const state = await ctx.db
+      .query("streaming_state")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
+      .unique();
+    if (!state) return;
+
+    const toolCalls = JSON.parse(state.toolCalls);
+    const tc = toolCalls.find((t: any) => t.id === toolCallId);
+    if (tc) tc.args = newArgs;
+
+    const parts = state.parts ? JSON.parse(state.parts) : [];
+    for (const part of parts) {
+      if (part.type === "tool_call" && part.toolCall?.id === toolCallId) {
+        part.toolCall.args = newArgs;
+        break;
+      }
+    }
+
+    await ctx.db.patch(state._id, {
+      toolCalls: JSON.stringify(toolCalls),
+      parts: JSON.stringify(parts),
+      updatedAt: Date.now(),
+    });
+  },
+});
+
 export const finish = internalMutation({
   args: { sessionId: v.id("sessions") },
   handler: async (ctx, args) => {

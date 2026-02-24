@@ -4,10 +4,55 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, memo, useEffect, useRef } from 'react';
 import { Check, Copy } from 'lucide-react';
+import clsx from 'clsx';
+
+// Register only the languages we actually need (~50KB instead of ~500KB)
+import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript';
+import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript';
+import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx';
+import jsx from 'react-syntax-highlighter/dist/esm/languages/prism/jsx';
+import python from 'react-syntax-highlighter/dist/esm/languages/prism/python';
+import rust from 'react-syntax-highlighter/dist/esm/languages/prism/rust';
+import go from 'react-syntax-highlighter/dist/esm/languages/prism/go';
+import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash';
+import json from 'react-syntax-highlighter/dist/esm/languages/prism/json';
+import css from 'react-syntax-highlighter/dist/esm/languages/prism/css';
+import html from 'react-syntax-highlighter/dist/esm/languages/prism/markup';
+import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql';
+import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml';
+import toml from 'react-syntax-highlighter/dist/esm/languages/prism/toml';
+import diff from 'react-syntax-highlighter/dist/esm/languages/prism/diff';
+import markdown from 'react-syntax-highlighter/dist/esm/languages/prism/markdown';
+
+SyntaxHighlighter.registerLanguage('typescript', typescript);
+SyntaxHighlighter.registerLanguage('ts', typescript);
+SyntaxHighlighter.registerLanguage('javascript', javascript);
+SyntaxHighlighter.registerLanguage('js', javascript);
+SyntaxHighlighter.registerLanguage('tsx', tsx);
+SyntaxHighlighter.registerLanguage('jsx', jsx);
+SyntaxHighlighter.registerLanguage('python', python);
+SyntaxHighlighter.registerLanguage('py', python);
+SyntaxHighlighter.registerLanguage('rust', rust);
+SyntaxHighlighter.registerLanguage('go', go);
+SyntaxHighlighter.registerLanguage('bash', bash);
+SyntaxHighlighter.registerLanguage('sh', bash);
+SyntaxHighlighter.registerLanguage('shell', bash);
+SyntaxHighlighter.registerLanguage('zsh', bash);
+SyntaxHighlighter.registerLanguage('json', json);
+SyntaxHighlighter.registerLanguage('css', css);
+SyntaxHighlighter.registerLanguage('html', html);
+SyntaxHighlighter.registerLanguage('xml', html);
+SyntaxHighlighter.registerLanguage('sql', sql);
+SyntaxHighlighter.registerLanguage('yaml', yaml);
+SyntaxHighlighter.registerLanguage('yml', yaml);
+SyntaxHighlighter.registerLanguage('toml', toml);
+SyntaxHighlighter.registerLanguage('diff', diff);
+SyntaxHighlighter.registerLanguage('markdown', markdown);
+SyntaxHighlighter.registerLanguage('md', markdown);
 
 // One Dark theme with transparent background to match our container
 const codeTheme: Record<string, React.CSSProperties> = {
@@ -62,11 +107,58 @@ function CopyButton({ text }: { text: string }) {
 interface MarkdownRendererProps {
   content: string;
   className?: string;
+  isStreaming?: boolean;
+  isInline?: boolean;
 }
 
-export function MarkdownRenderer({ content, className = '' }: MarkdownRendererProps) {
+function useSmoothStreaming(content: string, isStreaming: boolean) {
+  const [displayed, setDisplayed] = useState(content);
+  const contentRef = useRef(content);
+  contentRef.current = content;
+
+  useEffect(() => {
+    if (!isStreaming) {
+      setDisplayed(content);
+      return;
+    }
+
+    let rafId: number;
+    let lastTime = performance.now();
+
+    const advance = (time: number) => {
+      // Calculate how much time passed, though we advance per frame regardless
+      lastTime = time;
+
+      setDisplayed(prev => {
+        const target = contentRef.current;
+        if (prev === target) return prev;
+
+        // If for some reason the target got smaller (e.g. reset), snap to it
+        if (target.length < prev.length) return target;
+
+        const diff = target.length - prev.length;
+        // The more we fall behind, the faster we type to catch up gracefully.
+        // Base chunk is 1 char per frame (60fps = 60 chars / sec).
+        const chunk = Math.max(1, Math.ceil(diff / 8));
+
+        return target.substring(0, prev.length + chunk);
+      });
+
+      rafId = requestAnimationFrame(advance);
+    };
+
+    rafId = requestAnimationFrame(advance);
+    return () => cancelAnimationFrame(rafId);
+  }, [isStreaming, content]); // re-trigger only if streaming toggles or initial content is huge
+
+  return isStreaming ? displayed : content;
+}
+
+export const MarkdownRenderer = memo(function MarkdownRenderer({ content, className = '', isStreaming = false, isInline = false }: MarkdownRendererProps) {
+  const displayedContent = useSmoothStreaming(content, isStreaming);
+
   return (
-    <div className={`markdown-body ${className}`}>
+    <div className={clsx("markdown-body", isInline && "inline whitespace-nowrap overflow-hidden text-ellipsis w-full", className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex]}
@@ -75,17 +167,21 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
           code({ node, className: codeClassName, children, ...props }) {
             const match = /language-(\w+)/.exec(codeClassName || '');
             const codeString = String(children).replace(/\n$/, '');
-            const isInline = !match && !codeString.includes('\n');
+            const isInlineCode = !match && !codeString.includes('\n');
 
-            if (isInline) {
+            if (isInlineCode) {
               return (
                 <code
-                  className="px-1.5 py-0.5 rounded-md bg-muted text-[0.8125rem] font-mono"
+                  className={clsx("px-1.5 py-0.5 rounded-md bg-muted text-[0.8125rem] font-mono", isInline && "bg-transparent text-inherit px-0")}
                   {...props}
                 >
-                  {children}
+                  {isInline ? `\`${children}\`` : children}
                 </code>
               );
+            }
+
+            if (isInline) {
+              return <span className="text-muted-foreground mr-1 truncate">[Code]</span>;
             }
 
             const language = match ? match[1] : 'text';
@@ -117,6 +213,7 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
 
           // Tables
           table({ children }) {
+            if (isInline) return <span className="mr-1 text-muted-foreground">[Table]</span>;
             return (
               <div className="my-3 overflow-x-auto rounded-xl border border-border/30">
                 <table className="w-full text-sm border-collapse">
@@ -126,6 +223,7 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
             );
           },
           thead({ children }) {
+            if (isInline) return <>{children}</>;
             return (
               <thead className="bg-secondary/50 border-b border-border/30">
                 {children}
@@ -133,6 +231,7 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
             );
           },
           th({ children }) {
+            if (isInline) return <span className="mr-1">{children}</span>;
             return (
               <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">
                 {children}
@@ -140,6 +239,7 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
             );
           },
           td({ children }) {
+            if (isInline) return <span className="mr-1">{children}</span>;
             return (
               <td className="px-3 py-2 text-sm border-t border-border/20">
                 {children}
@@ -149,6 +249,7 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
 
           // Links
           a({ href, children }) {
+            if (isInline) return <span className="text-inherit">{children}</span>;
             return (
               <a
                 href={href}
@@ -163,6 +264,7 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
 
           // Block quotes
           blockquote({ children }) {
+            if (isInline) return <span className="italic mr-1">{children}</span>;
             return (
               <blockquote className="my-3 pl-4 border-l-2 border-border/50 text-muted-foreground italic">
                 {children}
@@ -172,28 +274,35 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
 
           // Headings
           h1({ children }) {
+            if (isInline) return <strong className="mr-1 font-semibold">{children}</strong>;
             return <h1 className="text-xl font-semibold mt-5 mb-2">{children}</h1>;
           },
           h2({ children }) {
+            if (isInline) return <strong className="mr-1 font-semibold">{children}</strong>;
             return <h2 className="text-lg font-semibold mt-4 mb-2">{children}</h2>;
           },
           h3({ children }) {
+            if (isInline) return <strong className="mr-1 font-semibold">{children}</strong>;
             return <h3 className="text-base font-semibold mt-3 mb-1.5">{children}</h3>;
           },
 
           // Lists
           ul({ children }) {
+            if (isInline) return <span className="mr-1">{children}</span>;
             return <ul className="my-2 ml-4 list-disc space-y-1 marker:text-muted-foreground">{children}</ul>;
           },
           ol({ children }) {
+            if (isInline) return <span className="mr-1">{children}</span>;
             return <ol className="my-2 ml-4 list-decimal space-y-1 marker:text-muted-foreground">{children}</ol>;
           },
           li({ children }) {
+            if (isInline) return <span className="mr-1">&bull; {children}</span>;
             return <li className="text-sm leading-relaxed pl-1">{children}</li>;
           },
 
           // Paragraphs
           p({ children }) {
+            if (isInline) return <span className="mr-1">{children}</span>;
             return <p className="my-2 text-sm leading-relaxed">{children}</p>;
           },
 
@@ -211,8 +320,8 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
           },
         }}
       >
-        {content}
+        {displayedContent}
       </ReactMarkdown>
     </div>
   );
-}
+});

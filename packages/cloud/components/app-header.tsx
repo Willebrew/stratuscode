@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery } from 'convex/react';
@@ -8,10 +8,11 @@ import { api } from '../convex/_generated/api';
 import type { Id } from '../convex/_generated/dataModel';
 import {
   GitBranch, GitPullRequest, GitCommitHorizontal,
-  ChevronLeft, ChevronDown, Settings, Menu, PanelLeftOpen, LogOut,
+  ChevronLeft, ChevronDown, Settings, Menu, PanelLeftOpen, LogOut, FolderOpen,
 } from 'lucide-react';
 import { StratusLogo } from './stratus-logo';
 import { useSidebar } from './sidebar-context';
+import { WorkspaceBrowser } from './workspace-browser';
 
 interface AppHeaderProps {
   sessionId?: Id<'sessions'> | null;
@@ -21,6 +22,7 @@ interface AppHeaderProps {
 export function AppHeader({ sessionId, onSend }: AppHeaderProps) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [browserOpen, setBrowserOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { toggle, desktopCollapsed, toggleDesktop, triggerExit } = useSidebar();
 
@@ -38,6 +40,11 @@ export function AppHeader({ sessionId, onSend }: AppHeaderProps) {
   const owner = session?.owner ?? '';
   const repo = session?.repo ?? '';
   const branch = session?.branch ?? '';
+
+  // Cache last known model name so it doesn't flicker to empty while switching sessions
+  const lastModelRef = useRef<string>('');
+  if (session?.model) lastModelRef.current = session.model;
+  const displayModel = session?.model ?? (inSession ? lastModelRef.current : '');
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -91,14 +98,21 @@ export function AppHeader({ sessionId, onSend }: AppHeaderProps) {
             >
               <ChevronLeft className="w-4 h-4" />
             </div>
-            <div className="w-8 h-8 rounded-lg bg-foreground flex items-center justify-center">
-              <StratusLogo className="w-4 h-4 text-background" />
+            <div className="w-8 h-8 rounded-xl bg-foreground/10 border border-foreground/[0.08] flex items-center justify-center">
+              <StratusLogo className="w-5 h-5 text-foreground" />
             </div>
-            {/* Show "StratusCode" when not in session */}
+            {/* Show brand name when not in session, model name when in session */}
             <div className="overflow-hidden transition-all duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]" style={{ maxWidth: inSession ? 0 : 200, opacity: inSession ? 0 : 1 }}>
               <span className="font-semibold tracking-tight text-sm whitespace-nowrap">StratusCode</span>
             </div>
           </Link>
+          {/* Model name — animates in when entering a session */}
+          <div
+            className="overflow-hidden transition-all duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]"
+            style={{ maxWidth: inSession && displayModel ? 200 : 0, opacity: inSession && displayModel ? 1 : 0 }}
+          >
+            <span className="text-xs text-muted-foreground font-mono whitespace-nowrap">{displayModel}</span>
+          </div>
 
           {/* Session info — fades in */}
           <div
@@ -120,6 +134,18 @@ export function AppHeader({ sessionId, onSend }: AppHeaderProps) {
 
         {/* Right side */}
         <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+          {/* Workspace browser — when in a session */}
+          {inSession && (
+            <button
+              onClick={() => setBrowserOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
+              title="Browse workspace files"
+            >
+              <FolderOpen className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Files</span>
+            </button>
+          )}
+
           {/* Ship It — only in session with changes */}
           {inSession && hasChanges && (
             <div className="relative" ref={menuRef}>
@@ -179,6 +205,15 @@ export function AppHeader({ sessionId, onSend }: AppHeaderProps) {
           </Link>
         </div>
       </div>
+
+      {/* Workspace file browser panel */}
+      {sessionId && (
+        <WorkspaceBrowser
+          sessionId={sessionId}
+          isOpen={browserOpen}
+          onClose={() => setBrowserOpen(false)}
+        />
+      )}
     </header>
   );
 }

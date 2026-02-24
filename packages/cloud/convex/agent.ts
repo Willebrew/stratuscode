@@ -356,6 +356,7 @@ export const sendMessage = internalAction({
     providerHeaders: v.optional(v.string()), // JSON string
     alphaMode: v.optional(v.boolean()),
     reasoningEffort: v.optional(v.string()),
+    agentMode: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const session = await ctx.runQuery(internal.sessions.getInternal, { id: args.sessionId });
@@ -841,6 +842,8 @@ export const send = action({
     model: v.optional(v.string()),
     alphaMode: v.optional(v.boolean()),
     reasoningEffort: v.optional(v.string()),
+    attachmentIds: v.optional(v.array(v.string())),
+    agentMode: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     // Resolve session and determine model
@@ -878,6 +881,11 @@ export const send = action({
       lastMessage: args.message.slice(0, 200),
     });
 
+    // If agent mode was provided, update the session's agent field
+    if (args.agentMode) {
+      await ctx.runMutation(internal.sessions.updateAgent, { id: args.sessionId, agent: args.agentMode });
+    }
+
     // Schedule the internal action (fire-and-forget, runs in background)
     await ctx.scheduler.runAfter(0, internal.agent.sendMessage, {
       sessionId: args.sessionId,
@@ -889,6 +897,7 @@ export const send = action({
       providerHeaders: resolved.headers ? JSON.stringify(resolved.headers) : undefined,
       alphaMode: args.alphaMode,
       reasoningEffort: args.reasoningEffort,
+      agentMode: args.agentMode,
     });
 
   },

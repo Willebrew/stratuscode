@@ -187,6 +187,44 @@ export const remove = mutation({
   },
 });
 
+/**
+ * Purge all data associated with a session (messages, events, todos, attachments, streaming state, agent state).
+ */
+export const purgeSessionData = internalMutation({
+  args: { id: v.id("sessions") },
+  handler: async (ctx, args) => {
+    // Messages
+    const messages = await ctx.db.query("messages").withIndex("by_sessionId", (q) => q.eq("sessionId", args.id)).collect();
+    for (const m of messages) await ctx.db.delete(m._id);
+
+    // Timeline events
+    const events = await ctx.db.query("timeline_events").withIndex("by_sessionId", (q) => q.eq("sessionId", args.id)).collect();
+    for (const e of events) await ctx.db.delete(e._id);
+
+    // Todos
+    const todos = await ctx.db.query("todos").withIndex("by_sessionId", (q) => q.eq("sessionId", args.id)).collect();
+    for (const t of todos) await ctx.db.delete(t._id);
+
+    // Attachments
+    const attachments = await ctx.db.query("attachments").withIndex("by_sessionId", (q) => q.eq("sessionId", args.id)).collect();
+    for (const a of attachments) {
+      await ctx.storage.delete(a.storageId);
+      await ctx.db.delete(a._id);
+    }
+
+    // Streaming state
+    const streamingState = await ctx.db.query("streaming_state").withIndex("by_sessionId", (q) => q.eq("sessionId", args.id)).unique();
+    if (streamingState) await ctx.db.delete(streamingState._id);
+
+    // Agent state
+    const agentState = await ctx.db.query("agent_state").withIndex("by_sessionId", (q) => q.eq("sessionId", args.id)).unique();
+    if (agentState) await ctx.db.delete(agentState._id);
+
+    // Session itself
+    await ctx.db.delete(args.id);
+  },
+});
+
 export const markHasChanges = internalMutation({
   args: { id: v.id("sessions") },
   handler: async (ctx, args) => {

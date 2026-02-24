@@ -13,7 +13,9 @@ export default defineSchema({
     status: v.string(), // 'booting' | 'idle' | 'running' | 'completed' | 'error'
     sandboxId: v.optional(v.string()),
     snapshotId: v.optional(v.string()),
+    containerId: v.optional(v.string()), // Docker container ID
     title: v.string(),
+    titleGenerated: v.optional(v.boolean()),
     lastMessage: v.string(),
     tokenUsage: v.object({
       input: v.number(),
@@ -34,6 +36,7 @@ export default defineSchema({
     role: v.string(), // 'user' | 'assistant'
     content: v.string(),
     parts: v.array(v.any()), // MessagePart[] — preserves existing frontend shape
+    thinkingSeconds: v.optional(v.number()), // Time spent thinking
     createdAt: v.number(),
   })
     .index("by_sessionId", ["sessionId"])
@@ -80,8 +83,22 @@ export default defineSchema({
     parts: v.optional(v.string()), // JSON array of ordered MessagePart[] (text + tool_call interleaved)
     pendingQuestion: v.optional(v.string()), // JSON of question data
     pendingAnswer: v.optional(v.string()), // JSON of answer data
+    thinkingSeconds: v.optional(v.number()), // Set server-side the instant reasoning stops
     isStreaming: v.boolean(),
     updatedAt: v.number(),
   })
     .index("by_sessionId", ["sessionId"]),
+
+  // Attachments — file uploads (images, code files)
+  attachments: defineTable({
+    sessionId: v.id("sessions"),
+    messageId: v.optional(v.id("messages")),
+    filename: v.string(),
+    mimeType: v.string(),
+    size: v.number(),
+    storageId: v.id("_storage"),
+    createdAt: v.number(),
+  })
+    .index("by_sessionId", ["sessionId"])
+    .index("by_messageId", ["messageId"]),
 });

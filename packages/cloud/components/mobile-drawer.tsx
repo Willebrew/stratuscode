@@ -47,7 +47,7 @@ export function MobileDrawer({ children }: MobileDrawerProps) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="fixed inset-0 bg-black/60 z-40 lg:hidden"
+            className="fixed inset-2 rounded-2xl bg-black/60 z-40 lg:hidden"
             style={{ touchAction: 'none' }}
             onClick={close}
           />
@@ -65,7 +65,7 @@ export function MobileDrawer({ children }: MobileDrawerProps) {
               }
             }}
             id="mobile-drawer"
-            className="fixed inset-y-0 left-0 w-72 z-50 lg:hidden will-change-transform"
+            className="fixed inset-y-0 left-0 w-72 z-50 lg:hidden will-change-transform overflow-visible"
           >
             <div className="h-full overflow-hidden">
               {children}

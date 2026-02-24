@@ -178,6 +178,7 @@ export async function executeSubagent(
       },
       onReasoning: parentContext.callbacks?.onReasoning,
       onToolCallStart: parentContext.callbacks?.onToolCallStart,
+      onToolCallChunk: parentContext.callbacks?.onToolCallChunk,
       onToolCallComplete: parentContext.callbacks?.onToolCallComplete,
       onStatusChange: parentContext.callbacks?.onStatusChange,
       onError: parentContext.callbacks?.onError,

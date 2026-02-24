@@ -1,21 +1,117 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { ChevronRight, Loader2, Check, X, Wrench, HelpCircle, FileCode, Rocket } from 'lucide-react';
+import clsx from 'clsx';
+
+import { useState, useEffect, useRef, memo } from 'react';
+import { ChevronRight, ChevronDown, Loader2, Check, X, Wrench, HelpCircle, FileCode, Rocket, Download, Paperclip, Copy, ThumbsUp, ThumbsDown, RotateCcw, FileEdit, FolderOpen, Search, Terminal, Eye, GitBranch, ClipboardList, Send, Bot } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MarkdownRenderer } from './markdown-renderer';
 import { InlineDiff } from './inline-diff';
+import { AgentThinkingIndicator, WaveText } from './agent-thinking-indicator';
+import { AnimatedStratusLogo } from './animated-stratus-logo';
 import type { ChatMessage, ToolCallInfo, MessagePart, TodoItem } from '@/hooks/use-convex-chat';
 
+type GroupedPart = { part: MessagePart; idx: number; nestedParts?: MessagePart[] };
+
+/**
+ * Group a flat list of parts so that subagent content is nested inside
+ * the corresponding delegate_to_* tool call. Handles nested subagents
+ * (subagent spawning subagent) via a depth counter.
+ */
+function groupSubagentParts(parts: { part: MessagePart; idx: number }[]): GroupedPart[] {
+  const grouped: GroupedPart[] = [];
+  let activeSubagent: { part: MessagePart; idx: number; nestedParts: MessagePart[]; hasStarted: boolean } | null = null;
+  let nestingDepth = 0;
+  let orphanedStarts = 0;
+
+  for (const item of parts) {
+    const { part } = item;
+
+    if (activeSubagent) {
+      if ((part as any).type === 'subagent_start') {
+        if (!activeSubagent.hasStarted) {
+          activeSubagent.hasStarted = true;
+        } else {
+          nestingDepth++;
+          activeSubagent.nestedParts.push(part);
+        }
+        continue;
+      }
+
+      if ((part as any).type === 'subagent_end') {
+        if (nestingDepth > 0) {
+          nestingDepth--;
+          activeSubagent.nestedParts.push(part);
+        } else {
+          activeSubagent = null;
+        }
+        continue;
+      }
+
+      if (!activeSubagent.hasStarted && part.type === 'text') {
+        grouped.push(item);
+        continue;
+      }
+
+      activeSubagent.nestedParts.push(part);
+      continue;
+    }
+
+    if (part.type === 'tool_call' && part.toolCall.name?.startsWith('delegate_to_')) {
+      const hasRacedStart = orphanedStarts > 0;
+      if (hasRacedStart) orphanedStarts--;
+
+      nestingDepth = 0;
+      activeSubagent = { ...item, nestedParts: [], hasStarted: hasRacedStart };
+      grouped.push(activeSubagent);
+      continue;
+    }
+
+    if ((part as any).type === 'subagent_start') {
+      orphanedStarts++;
+      continue;
+    }
+    if ((part as any).type === 'subagent_end') continue;
+
+    grouped.push(item);
+  }
+
+  return grouped;
+}
+
+interface AttachmentInfo {
+  _id: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+}
+
 interface MessageBubbleProps {
+  index: number;
+  isLast?: boolean;
   message: ChatMessage;
   todos?: TodoItem[];
+  sessionId?: string;
+  attachments?: AttachmentInfo[];
   onSend?: (message: string) => void;
   onAnswer?: (answer: string) => void;
 }
 
-export function MessageBubble({ message, todos, onSend, onAnswer }: MessageBubbleProps) {
+// Module-level timer stores — persist across component remounts
+const _frozenTimers = new Map<string, number>();   // messageId → frozen seconds
+const _startTimes = new Map<string, number>();     // messageId → Date.now() when thinking started
+const _lastTicks = new Map<string, number>();      // messageId → last displayed seconds value
+
+export const MessageBubble = memo(function MessageBubble({ index, isLast, message, todos, sessionId, attachments, onSend, onAnswer }: MessageBubbleProps) {
   const isUser = message.role === 'user';
+  const [isCopied, setIsCopied] = useState(false);
+  const [thumbState, setThumbState] = useState<'up' | 'down' | null>(null);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(message.content);
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2000);
+  };
 
   if (isUser) {
     return (
@@ -25,8 +121,23 @@ export function MessageBubble({ message, todos, onSend, onAnswer }: MessageBubbl
         transition={{ duration: 0.2 }}
         className="flex justify-end"
       >
-        <div className="max-w-[85%] sm:max-w-[70%] rounded-2xl px-4 sm:px-5 py-3 sm:py-3.5 bg-foreground text-background">
-          <MarkdownRenderer content={message.content} />
+        <div className="max-w-[85%] sm:max-w-[70%]">
+          {attachments && attachments.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-1.5 justify-end">
+              {attachments.map((a) => (
+                <span
+                  key={a._id}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/10 border border-white/[0.08] text-muted-foreground text-[11px]"
+                >
+                  <Paperclip className="w-3 h-3" />
+                  <span className="max-w-[150px] truncate">{a.filename}</span>
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="rounded-2xl px-4 sm:px-5 py-3 sm:py-3.5 bg-foreground text-background">
+            <MarkdownRenderer content={message.content} />
+          </div>
         </div>
       </motion.div>
     );
@@ -35,9 +146,26 @@ export function MessageBubble({ message, todos, onSend, onAnswer }: MessageBubbl
   // Agent message — render parts in chronological order, no avatar
   // Deduplicate: collect question texts from tool_call parts so we can suppress
   // text parts that just echo the same question the QuestionCard already renders.
+  // Collect reasoning context from the agent parts if it exists.
+  let reasoningContent = '';
+  // Check if standard text has started streaming, which implies reasoning is complete.
+  let hasText = false;
+
+  // Deduplicate: collect question texts from tool_call parts so we can suppress
+  // text parts that just echo the same question the QuestionCard already renders.
   const questionTexts = new Set<string>();
   const seenQuestionKeys = new Set<string>();
   const deduplicatedParts: { part: MessagePart; idx: number }[] = [];
+
+  // Pass 0: check for reasoning and text
+  for (const part of message.parts) {
+    if (part.type === 'reasoning') {
+      reasoningContent += part.content + '\n';
+    }
+    if (part.type === 'text' && part.content.trim().length > 0) {
+      hasText = true;
+    }
+  }
 
   // First pass: collect question texts from tool calls
   for (const part of message.parts) {
@@ -79,26 +207,165 @@ export function MessageBubble({ message, todos, onSend, onAnswer }: MessageBubbl
     deduplicatedParts.push({ part, idx: i });
   }
 
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2 }}
-    >
-      {deduplicatedParts.map(({ part, idx }) => (
-        <MessagePartView key={idx} part={part} todos={todos} onSend={onSend} onAnswer={onAnswer} />
-      ))}
-    </motion.div>
-  );
-}
+  const isThinkingCompleted = !message.streaming || message.parts.length > 0;
+  const isGeneratingContent = message.streaming && message.parts.length > 0;
 
-function MessagePartView({ part, todos, onSend, onAnswer }: { part: MessagePart; todos?: TodoItem[]; onSend?: (msg: string) => void; onAnswer?: (answer: string) => void }) {
+  // Stable key for timer Map, avoiding the "streaming" temporary ID
+  const timerKey = sessionId ? `${sessionId}-${index}` : index.toString();
+
+  // --- Timer: module-level Maps survive component remounts ---
+  // Check if we already have a frozen value from a previous mount, or a persisted value
+  const [thinkingSeconds, setThinkingSeconds] = useState(() => {
+    if (message.thinkingSeconds !== undefined) return message.thinkingSeconds;
+    return _frozenTimers.get(timerKey) ?? _lastTicks.get(timerKey) ?? 0;
+  });
+
+  // Record when thinking starts (sync in render)
+  if (!isThinkingCompleted && !_startTimes.has(timerKey)) {
+    _startTimes.set(timerKey, Date.now());
+  }
+
+  // Freeze immediately in render when thinking completes
+  if (isThinkingCompleted && _startTimes.has(timerKey) && !_frozenTimers.has(timerKey)) {
+    if (message.thinkingSeconds !== undefined) {
+      _frozenTimers.set(timerKey, message.thinkingSeconds);
+    } else {
+      const elapsed = Math.max(
+        _lastTicks.get(timerKey) ?? 0,
+        Math.round((Date.now() - _startTimes.get(timerKey)!) / 1000)
+      );
+      _frozenTimers.set(timerKey, elapsed);
+    }
+  }
+
+  useEffect(() => {
+    // Already frozen — just sync state
+    const frozen = _frozenTimers.get(timerKey);
+    if (frozen !== undefined) {
+      setThinkingSeconds(frozen);
+      return;
+    }
+
+    // Persisted override on reload
+    if (isThinkingCompleted && message.thinkingSeconds !== undefined) {
+      _frozenTimers.set(timerKey, message.thinkingSeconds);
+      setThinkingSeconds(message.thinkingSeconds);
+      return;
+    }
+
+    const start = _startTimes.get(timerKey);
+    if (!start || isThinkingCompleted) return;
+
+    const tick = () => {
+      const elapsed = Math.round((Date.now() - start) / 1000);
+      _lastTicks.set(timerKey, elapsed);
+      setThinkingSeconds(elapsed);
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [timerKey, isThinkingCompleted, message.thinkingSeconds]);
+
+  // Pick a fun random phrase for the generation indicator — stable per message
+  const generatingPhrase = (() => {
+    const phrases = [
+      'Cooking...', 'Stratifying...', 'Brewing...', 'Conjuring...',
+      'Crafting...', 'Weaving...', 'Forging...', 'Assembling...',
+      'Composing...', 'Manifesting...', 'Sculpting...', 'Synthesizing...',
+      'Channeling...', 'Architecting...', 'Distilling...', 'Materializing...',
+      'Orchestrating...', 'Calibrating...', 'Rendering...', 'Transmitting...',
+      'Deploying thoughts...', 'Spinning up...', 'Mixing ingredients...',
+      'Connecting neurons...', 'Warming up the GPU...', 'Almost there...',
+      'Working some magic...', 'On it...',
+    ];
+    // Use both message ID and session ID for better entropy
+    const seed = `${message.id}-${sessionId || index}`;
+    let hash = 0;
+    for (let i = 0; i < seed.length; i++) {
+      hash = ((hash << 5) - hash) + seed.charCodeAt(i);
+      hash |= 0;
+    }
+    return phrases[Math.abs(hash) % phrases.length];
+  })();
+
+  return (
+    <div className="flex flex-col gap-2 relative group pb-1">
+      {/* Show the AgentThinkingIndicator — stays mounted throughout streaming */}
+      {(reasoningContent || message.streaming) && (
+        <AgentThinkingIndicator
+          messageId={message.id}
+          label="Thinking"
+          isCompleted={isThinkingCompleted}
+          reasoning={reasoningContent.trim()}
+          seconds={thinkingSeconds}
+        />
+      )}
+
+      {/* Render parts — group subagent tool calls inside their delegate card */}
+      {groupSubagentParts(deduplicatedParts).map(({ part, idx, nestedParts }) => (
+        <MessagePartView key={idx} part={part} nestedParts={nestedParts} todos={todos} sessionId={sessionId} onSend={onSend} onAnswer={onAnswer} isStreaming={message.streaming} />
+      ))}
+
+      {/* Show generation swoop logo under the response if streaming content */}
+      {isGeneratingContent && (
+        <div className="mt-2 flex items-center gap-2 text-foreground/40 min-h-[32px]">
+          <AnimatedStratusLogo mode="generating" size={20} />
+          <span className="text-sm font-medium">{generatingPhrase}</span>
+        </div>
+      )}
+
+      {/* Show idle logo and action buttons when response is fully complete */}
+      {!isGeneratingContent && isThinkingCompleted && message.parts.length > 0 && (
+        <div className="mt-2 flex items-center gap-3 min-h-[32px]">
+          {/* Static logo at bottom left, exactly where generating logo was */}
+          {isLast && (
+            <div className="flex items-center gap-2 text-foreground/20 animate-fade-in shrink-0">
+              <AnimatedStratusLogo mode="idle" size={20} />
+            </div>
+          )}
+
+          {/* Action buttons sitting horizontally to the right of the logo space */}
+          <div className="flex items-center gap-1.5 text-muted-foreground/40 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+            <button
+              onClick={handleCopy}
+              className="p-1.5 hover:bg-secondary/40 hover:text-foreground rounded-md transition-colors"
+              title="Copy"
+            >
+              {isCopied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+            </button>
+            <button
+              onClick={() => setThumbState(thumbState === 'up' ? null : 'up')}
+              className={clsx("p-1.5 rounded-md transition-colors", thumbState === 'up' ? "bg-secondary/60 text-foreground" : "hover:bg-secondary/40 hover:text-foreground")}
+              title="Good response"
+            >
+              <ThumbsUp className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setThumbState(thumbState === 'down' ? null : 'down')}
+              className={clsx("p-1.5 rounded-md transition-colors", thumbState === 'down' ? "bg-secondary/60 text-foreground" : "hover:bg-secondary/40 hover:text-foreground")}
+              title="Bad response"
+            >
+              <ThumbsDown className="w-4 h-4" />
+            </button>
+            <button
+              className="p-1.5 hover:bg-secondary/40 hover:text-foreground rounded-md transition-colors ml-1"
+              title="Retry"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+function MessagePartView({ part, nestedParts, todos, sessionId, onSend, onAnswer, isStreaming }: { part: MessagePart; nestedParts?: MessagePart[]; todos?: TodoItem[]; sessionId?: string; onSend?: (msg: string) => void; onAnswer?: (answer: string) => void; isStreaming?: boolean }) {
   switch (part.type) {
     case 'reasoning':
-      // Reasoning is hidden from UI per user preference
       return null;
     case 'text':
-      return <MarkdownRenderer content={part.content} />;
+      return <MarkdownRenderer content={part.content} isStreaming={isStreaming} />;
     case 'tool_call':
       if (part.toolCall.name === 'question') {
         return <QuestionCard toolCall={part.toolCall} onAnswer={onAnswer} />;
@@ -107,16 +374,15 @@ function MessagePartView({ part, todos, onSend, onAnswer }: { part: MessagePart;
         return <PlanApprovalCard toolCall={part.toolCall} todos={todos} onAnswer={onAnswer} />;
       }
       if (part.toolCall.name === 'write_to_file') {
-        return <FileWriteCard toolCall={part.toolCall} />;
+        return <FileWriteCard toolCall={part.toolCall} sessionId={sessionId} />;
       }
       if (part.toolCall.name === 'edit' || part.toolCall.name === 'multi_edit') {
-        return <EditCard toolCall={part.toolCall} />;
+        return <EditCard toolCall={part.toolCall} sessionId={sessionId} />;
       }
-      return (
-        <div className="mb-2">
-          <ToolCallCard toolCall={part.toolCall} />
-        </div>
-      );
+      if (part.toolCall.name?.startsWith('delegate_to_')) {
+        return <SubagentCard toolCall={part.toolCall} nestedParts={nestedParts || []} sessionId={sessionId} />;
+      }
+      return <ToolCallCard toolCall={part.toolCall} />;
   }
 }
 
@@ -166,7 +432,7 @@ function QuestionCard({ toolCall, onAnswer }: { toolCall: ToolCallInfo; onAnswer
   };
 
   return (
-    <div className="my-3 rounded-2xl border border-border/50 bg-secondary/20 p-4 sm:p-5">
+    <div className="rounded-2xl border border-border/50 bg-secondary/20 p-4 sm:p-5">
       <div className="flex items-start gap-2 sm:gap-2.5 mb-3">
         <HelpCircle className="w-4 h-4 text-foreground/70 mt-0.5 flex-shrink-0" />
         <div className="text-xs sm:text-sm font-medium text-foreground flex-1 min-w-0">
@@ -182,13 +448,12 @@ function QuestionCard({ toolCall, onAnswer }: { toolCall: ToolCallInfo; onAnswer
                 key={i}
                 onClick={() => handleSelect(opt)}
                 disabled={!!answered}
-                className={`inline-block px-3 py-2 sm:py-1.5 rounded-full border text-xs font-medium transition-colors ${
-                  isSelected
-                    ? 'bg-foreground text-background border-foreground'
-                    : answered
-                      ? 'bg-secondary/50 border-border/50 text-muted-foreground cursor-default opacity-50'
-                      : 'bg-secondary border-border text-foreground/80 hover:bg-foreground hover:text-background cursor-pointer active:scale-95'
-                }`}
+                className={`inline-block px-3 py-2 sm:py-1.5 rounded-full border text-xs font-medium transition-colors ${isSelected
+                  ? 'bg-foreground text-background border-foreground'
+                  : answered
+                    ? 'bg-secondary/50 border-border/50 text-muted-foreground cursor-default opacity-50'
+                    : 'bg-secondary border-border text-foreground/80 hover:bg-foreground hover:text-background cursor-pointer active:scale-95'
+                  }`}
               >
                 {isSelected && <Check className="w-3 h-3 inline mr-1" />}
                 {opt}
@@ -275,7 +540,7 @@ function PlanApprovalCard({ toolCall, todos, onAnswer }: { toolCall: ToolCallInf
   } : null;
 
   return (
-    <div className="my-3 rounded-2xl border border-primary/20 bg-primary/[0.03] p-4 sm:p-5">
+    <div className="rounded-2xl border border-primary/20 bg-primary/[0.03] p-4 sm:p-5">
       <div className="flex items-start gap-2 sm:gap-2.5 mb-3">
         <Rocket className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
         <div className="flex-1">
@@ -306,11 +571,10 @@ function PlanApprovalCard({ toolCall, todos, onAnswer }: { toolCall: ToolCallInf
 
       <div className="flex flex-wrap gap-2 pl-0 sm:pl-6 mt-4">
         {answered ? (
-          <div className={`inline-flex items-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-full text-xs font-medium ${
-            wasApproved || selectedAnswer?.includes('Approve')
-              ? 'bg-green-500/20 text-green-700 dark:text-green-400 border border-green-500/30'
-              : 'bg-secondary/50 text-muted-foreground border border-border/50'
-          }`}>
+          <div className={`inline-flex items-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-full text-xs font-medium ${wasApproved || selectedAnswer?.includes('Approve')
+            ? 'bg-green-500/20 text-green-700 dark:text-green-400 border border-green-500/30'
+            : 'bg-secondary/50 text-muted-foreground border border-border/50'
+            }`}>
             {(wasApproved || selectedAnswer?.includes('Approve')) ? (
               <><Check className="w-3 h-3" /> Plan approved — switching to build mode</>
             ) : (
@@ -347,7 +611,7 @@ function PlanApprovalCard({ toolCall, todos, onAnswer }: { toolCall: ToolCallInf
   );
 }
 
-function FileWriteCard({ toolCall }: { toolCall: ToolCallInfo }) {
+function FileWriteCard({ toolCall, sessionId }: { toolCall: ToolCallInfo; sessionId?: string }) {
   let filename = '';
   let code = '';
 
@@ -355,7 +619,11 @@ function FileWriteCard({ toolCall }: { toolCall: ToolCallInfo }) {
     const parsed = JSON.parse(toolCall.args);
     filename = parsed.TargetFile || parsed.target_file || '';
     code = parsed.CodeContent || parsed.code_content || '';
-  } catch { /* ignore */ }
+  } catch {
+    // Fallback for streaming — extract from partial JSON
+    filename = extractPartialString(toolCall.args, 'TargetFile') || extractPartialString(toolCall.args, 'target_file');
+    code = extractPartialString(toolCall.args, 'CodeContent') || extractPartialString(toolCall.args, 'code_content');
+  }
 
   const rawName = filename.split('/').pop() || filename;
   // Show a clean name for plan files (e.g. cloud-1770443832795-5fmltw.md → plan.md)
@@ -403,19 +671,62 @@ function FileWriteCard({ toolCall }: { toolCall: ToolCallInfo }) {
 
   const visibleCode = doneRevealing ? code : code.slice(0, revealedChars);
 
+  // ── Filename typewriter ──
+  const nameAlreadyDone = useRef(toolCall.status === 'completed' || toolCall.status === 'failed');
+  const [typedFilename, setTypedFilename] = useState(nameAlreadyDone.current ? displayName : '');
+  const filenameRef = useRef(displayName);
+  filenameRef.current = displayName;
+  const fnAnimatedRef = useRef(nameAlreadyDone.current);
+
+  useEffect(() => {
+    if (nameAlreadyDone.current || fnAnimatedRef.current || !displayName) return;
+    const t = setTimeout(() => {
+      const name = filenameRef.current;
+      let i = 0;
+      setTypedFilename('');
+      const speed = Math.max(15, Math.min(40, 300 / name.length));
+      const iv = setInterval(() => {
+        i++;
+        setTypedFilename(name.slice(0, i));
+        if (i >= name.length) { clearInterval(iv); fnAnimatedRef.current = true; setTypedFilename(filenameRef.current); }
+      }, speed);
+    }, 200);
+    return () => clearTimeout(t);
+  }, [!!displayName]);
+
+  useEffect(() => {
+    if (fnAnimatedRef.current || nameAlreadyDone.current) setTypedFilename(displayName);
+  }, [displayName]);
+
+  const shownFilename = typedFilename || (nameAlreadyDone.current ? displayName : '\u00A0');
+
   return (
-    <div className="my-2 rounded-xl overflow-hidden border border-border/30 bg-secondary/20">
+    <div className="rounded-xl overflow-hidden border border-border/30 bg-secondary/20">
       <div className="flex items-center gap-2 px-3 py-2 bg-secondary/50 border-b border-border/30">
         {isRunning || !doneRevealing ? (
           <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
         ) : (
           <FileCode className="w-3.5 h-3.5 text-muted-foreground" />
         )}
-        <span className="text-xs text-muted-foreground font-mono truncate">{displayName || 'file'}</span>
-        {hasDiff && (() => {
-          const added = (toolCall.result!.match(/^\+[^+]/gm) || []).length;
-          return added > 0 ? <span className="ml-auto text-xs text-green-500">+{added}</span> : null;
-        })()}
+        <span className="text-xs text-muted-foreground font-mono truncate flex-1">{shownFilename || 'file'}</span>
+        <span className="flex items-center gap-2 flex-shrink-0">
+          {hasDiff && (() => {
+            const added = (toolCall.result!.match(/^\+[^+]/gm) || []).length;
+            return added > 0 ? <span className="text-xs text-green-500">+{added}</span> : null;
+          })()}
+          {!isRunning && sessionId && filename && (
+            <button
+              onClick={() => {
+                const absolutePath = filename.startsWith('/') ? filename : `/workspace/${filename}`;
+                window.open(`/api/sandbox/file?sessionId=${sessionId}&path=${encodeURIComponent(absolutePath)}`);
+              }}
+              className="text-muted-foreground hover:text-foreground transition-colors p-0.5"
+              title="Download file"
+            >
+              <Download className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </span>
       </div>
       {hasDiff ? (
         <InlineDiff diff={toolCall.result!} filename={displayName} defaultExpanded={true} hideHeader />
@@ -424,8 +735,7 @@ function FileWriteCard({ toolCall }: { toolCall: ToolCallInfo }) {
           <pre className="p-3 text-xs font-mono text-foreground/90 leading-relaxed whitespace-pre">{visibleCode}{!doneRevealing && <span className="animate-pulse">|</span>}</pre>
         </div>
       ) : isRunning ? (
-        <div className="p-3 flex items-center gap-2 text-xs text-muted-foreground">
-          <Loader2 className="w-3 h-3 animate-spin" />
+        <div className="p-3 text-xs text-muted-foreground">
           <span>Writing file...</span>
         </div>
       ) : null}
@@ -433,7 +743,7 @@ function FileWriteCard({ toolCall }: { toolCall: ToolCallInfo }) {
   );
 }
 
-function EditCard({ toolCall }: { toolCall: ToolCallInfo }) {
+function EditCard({ toolCall, sessionId }: { toolCall: ToolCallInfo; sessionId?: string }) {
   let filename = '';
   let explanation = '';
   let oldStr = '';
@@ -441,12 +751,24 @@ function EditCard({ toolCall }: { toolCall: ToolCallInfo }) {
   let edits: Array<{ old_string: string; new_string: string }> = [];
   try {
     const parsed = JSON.parse(toolCall.args);
-    filename = parsed.file_path || '';
-    explanation = parsed.explanation || '';
-    oldStr = parsed.old_string || '';
-    newStr = parsed.new_string || '';
+    filename = parsed.file_path || parsed.TargetFile || '';
+    explanation = parsed.explanation || parsed.Description || '';
+    oldStr = parsed.old_string || parsed.TargetContent || '';
+    newStr = parsed.new_string || parsed.ReplacementContent || '';
     if (parsed.edits) edits = parsed.edits;
-  } catch { /* ignore */ }
+    if (parsed.ReplacementChunks) {
+      edits = parsed.ReplacementChunks.map((c: any) => ({
+        old_string: c.TargetContent || '',
+        new_string: c.ReplacementContent || ''
+      }));
+    }
+  } catch {
+    // Fallback for streaming partial JSON
+    filename = extractPartialString(toolCall.args, 'TargetFile') || extractPartialString(toolCall.args, 'file_path');
+    explanation = extractPartialString(toolCall.args, 'Description') || extractPartialString(toolCall.args, 'explanation');
+    oldStr = extractPartialString(toolCall.args, 'TargetContent') || extractPartialString(toolCall.args, 'old_string');
+    newStr = extractPartialString(toolCall.args, 'ReplacementContent') || extractPartialString(toolCall.args, 'new_string');
+  }
 
   const rawName = filename.split('/').pop() || filename;
   const isRunning = toolCall.status === 'running';
@@ -466,66 +788,95 @@ function EditCard({ toolCall }: { toolCall: ToolCallInfo }) {
 
   // Build a preview from args while the tool is running
   const hasArgsPreview = !hasDiff && (oldStr || newStr || edits.length > 0);
-  const previewLines: Array<{ type: 'remove' | 'add' | 'context'; text: string }> = [];
+  let liveDiffStr = '';
+
   if (hasArgsPreview) {
     const pairs = edits.length > 0 ? edits : [{ old_string: oldStr, new_string: newStr }];
+
+    // Construct a synthetic unified diff so InlineDiff can render it nicely
+    // We start with a fake header to trick InlineDiff into parsing it
+    liveDiffStr = `--- a/${rawName || 'file'}\n+++ b/${rawName || 'file'}\n`;
+
     pairs.forEach((pair, idx) => {
-      if (idx > 0) previewLines.push({ type: 'context', text: '...' });
-      pair.old_string.split('\n').forEach(l => previewLines.push({ type: 'remove', text: l }));
-      pair.new_string.split('\n').forEach(l => previewLines.push({ type: 'add', text: l }));
+      // Add a fake chunk header for each edit
+      liveDiffStr += `@@ -0,0 +0,0 @@\n`;
+      pair.old_string.split('\\n').forEach(l => { if (l !== '') liveDiffStr += `-${l}\n`; });
+      pair.new_string.split('\\n').forEach(l => { if (l !== '') liveDiffStr += `+${l}\n`; });
     });
   }
+  // ── Filename typewriter ──
+  const editNameDone = useRef(toolCall.status === 'completed' || toolCall.status === 'failed');
+  const [typedEditName, setTypedEditName] = useState(editNameDone.current ? rawName : '');
+  const editNameRef = useRef(rawName);
+  editNameRef.current = rawName;
+  const editAnimatedRef = useRef(editNameDone.current);
+
+  useEffect(() => {
+    if (editNameDone.current || editAnimatedRef.current || !rawName) return;
+    const t = setTimeout(() => {
+      const name = editNameRef.current;
+      let i = 0;
+      setTypedEditName('');
+      const speed = Math.max(15, Math.min(40, 300 / name.length));
+      const iv = setInterval(() => {
+        i++;
+        setTypedEditName(name.slice(0, i));
+        if (i >= name.length) { clearInterval(iv); editAnimatedRef.current = true; setTypedEditName(editNameRef.current); }
+      }, speed);
+    }, 200);
+    return () => clearTimeout(t);
+  }, [!!rawName]);
+
+  useEffect(() => {
+    if (editAnimatedRef.current || editNameDone.current) setTypedEditName(rawName);
+  }, [rawName]);
+
+  const shownEditName = typedEditName || (editNameDone.current ? rawName : '\u00A0');
 
   return (
-    <div className="my-2 rounded-xl overflow-hidden border border-border/30 bg-secondary/20">
+    <div className="rounded-xl overflow-hidden border border-border/30 bg-secondary/20">
       <div className="flex items-center gap-2 px-3 py-2 bg-secondary/50 border-b border-border/30">
         {isRunning ? (
           <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
         ) : (
           <FileCode className="w-3.5 h-3.5 text-muted-foreground" />
         )}
-        <span className="text-xs text-muted-foreground font-mono truncate flex-1">{rawName || 'file'}</span>
+        <span className="text-xs text-muted-foreground font-mono truncate flex-1">{shownEditName || 'file'}</span>
         {explanation && !hasDiff && (
           <span className="text-[10px] text-muted-foreground/60 truncate max-w-[200px]">{explanation}</span>
         )}
-        {hasDiff && (() => {
-          const added = (diff.match(/^\+[^+]/gm) || []).length;
-          const removed = (diff.match(/^-[^-]/gm) || []).length;
-          return (
-            <span className="flex items-center gap-2 flex-shrink-0">
-              {added > 0 && <span className="text-xs text-green-500">+{added}</span>}
-              {removed > 0 && <span className="text-xs text-red-500">-{removed}</span>}
-            </span>
-          );
-        })()}
+        <span className="flex items-center gap-2 flex-shrink-0">
+          {hasDiff && (() => {
+            const added = (diff.match(/^\+[^+]/gm) || []).length;
+            const removed = (diff.match(/^-[^-]/gm) || []).length;
+            return (
+              <>
+                {added > 0 && <span className="text-xs text-green-500">+{added}</span>}
+                {removed > 0 && <span className="text-xs text-red-500">-{removed}</span>}
+              </>
+            );
+          })()}
+          {!isRunning && sessionId && filename && (
+            <button
+              onClick={() => {
+                const absolutePath = filename.startsWith('/') ? filename : `/workspace/${filename}`;
+                window.open(`/api/sandbox/file?sessionId=${sessionId}&path=${encodeURIComponent(absolutePath)}`);
+              }}
+              className="text-muted-foreground hover:text-foreground transition-colors p-0.5"
+              title="Download file"
+            >
+              <Download className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </span>
       </div>
       {hasDiff ? (
         <InlineDiff diff={diff} filename={rawName} defaultExpanded={true} hideHeader />
       ) : hasArgsPreview ? (
-        <div className="overflow-x-auto max-h-64 scrollbar-hide">
-          <pre className="p-3 text-xs font-mono leading-relaxed whitespace-pre">
-            {previewLines.map((line, i) => (
-              <div
-                key={i}
-                className={
-                  line.type === 'remove' ? 'text-red-400/80 bg-red-500/5' :
-                  line.type === 'add' ? 'text-green-400/80 bg-green-500/5' :
-                  'text-muted-foreground/50'
-                }
-              >
-                <span className="inline-block w-4 text-right mr-2 select-none opacity-50">
-                  {line.type === 'remove' ? '-' : line.type === 'add' ? '+' : ' '}
-                </span>
-                {line.text}
-              </div>
-            ))}
-            {isRunning && <span className="animate-pulse text-muted-foreground">|</span>}
-          </pre>
-        </div>
+        <InlineDiff diff={liveDiffStr} filename={rawName} defaultExpanded={true} hideHeader />
       ) : isRunning ? (
-        <div className="p-3 flex items-center gap-2 text-xs text-muted-foreground">
-          <Loader2 className="w-3 h-3 animate-spin" />
-          <span>Editing file...</span>
+        <div className="p-3 text-xs text-muted-foreground">
+          <span>Preparing edit...</span>
         </div>
       ) : toolCall.result ? (
         <div className="p-3 text-xs text-muted-foreground">
@@ -538,8 +889,181 @@ function EditCard({ toolCall }: { toolCall: ToolCallInfo }) {
   );
 }
 
+// ── SubagentCard — dropdown like the thinking indicator ──
+function SubagentCard({ toolCall, nestedParts, sessionId }: { toolCall: ToolCallInfo; nestedParts: MessagePart[]; sessionId?: string }) {
+  const isRunning = toolCall.status === 'running';
+  const isCompleted = toolCall.status === 'completed';
+  const isFailed = toolCall.status === 'failed';
+
+  // Always expanded to show tool activity
+  const [userToggled, setUserToggled] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(isRunning);
+
+  // Auto-collapse when tool finishes
+  useEffect(() => {
+    if (!userToggled) {
+      setIsExpanded(isRunning);
+    }
+  }, [isRunning, userToggled]);
+
+  // Extract the task from args — reactive, updates as args stream in
+  let taskDescription = '';
+  try {
+    const parsed = JSON.parse(toolCall.args);
+    taskDescription = parsed.task || parsed.description || parsed.prompt || '';
+  } catch {
+    taskDescription = extractPartialString(toolCall.args, 'task')
+      || extractPartialString(toolCall.args, 'description')
+      || extractPartialString(toolCall.args, 'prompt');
+  }
+
+  const shortTask = taskDescription;
+
+  // Header label — updates reactively as args stream in
+  const agentKind = toolCall.name?.replace('delegate_to_', '') || 'agent';
+  const label = shortTask
+    || (isRunning
+      ? `${agentKind === 'explore' ? 'Exploring codebase' : 'Running subagent'}…`
+      : isCompleted
+        ? `${agentKind === 'explore' ? 'Explored codebase' : 'Subagent completed'}`
+        : 'Subagent failed');
+
+  // ── Typewriter that re-types when label changes ──
+  const wasBornDone = useRef(isCompleted || isFailed);
+  const [typedLabel, setTypedLabel] = useState(wasBornDone.current ? label : '');
+  const prevLabelRef = useRef(label);
+
+  useEffect(() => {
+    // Historical: show instantly
+    if (wasBornDone.current) { setTypedLabel(label); return; }
+
+    // Only animate when label actually changes
+    if (label === prevLabelRef.current && typedLabel === label) return;
+    prevLabelRef.current = label;
+
+    // Debounce: wait for label to settle (args streaming)
+    const debounce = setTimeout(() => {
+      const text = label;
+      let i = 0;
+      setTypedLabel('');
+      const speed = Math.max(8, Math.min(25, 500 / text.length));
+      const iv = setInterval(() => {
+        i++;
+        setTypedLabel(text.slice(0, i));
+        if (i >= text.length) clearInterval(iv);
+      }, speed);
+    }, 350);
+
+    return () => clearTimeout(debounce);
+  }, [label]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const shownLabel = typedLabel || '\u00A0';
+
+  // Parse result for the expandable body
+  let resultText = '';
+  if (toolCall.result) {
+    try {
+      const parsed = JSON.parse(toolCall.result);
+      resultText = parsed.content || parsed.result || parsed.text || toolCall.result;
+    } catch {
+      resultText = toolCall.result;
+    }
+  }
+
+  return (
+    <div className="flex flex-col my-1">
+      {/* Header — clickable to toggle expand */}
+      <div
+        onClick={() => {
+          setUserToggled(true);
+          setIsExpanded(!isExpanded);
+        }}
+        className="inline-flex items-center gap-2 py-0.5 cursor-pointer hover:opacity-80"
+      >
+        <span className="text-[13px] text-muted-foreground">
+          {shownLabel}
+        </span>
+      </div>
+
+      {/* Nested content — tool calls rendered in real-time */}
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="mt-1 ml-3 pl-3 border-l-2 border-border/30 flex flex-col gap-2">
+              {/* Render nested parts — re-apply grouping for nested subagents */}
+              {groupSubagentParts(nestedParts.map((part, i) => ({ part, idx: i }))).map(({ part, idx, nestedParts: childNested }) => (
+                <MessagePartView key={idx} part={part} nestedParts={childNested} sessionId={sessionId} />
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 function ToolCallCard({ toolCall }: { toolCall: ToolCallInfo }) {
   const [isExpanded, setIsExpanded] = useState(false);
+
+  // ── Friendly display name map ──
+  const TOOL_DISPLAY_NAMES: Record<string, string> = {
+    write_to_file: 'Writing File',
+    write: 'Writing File',
+    edit: 'Editing File',
+    multi_edit: 'Editing Files',
+    read_file: 'Reading File',
+    read: 'Reading File',
+    ls: 'Listing Directory',
+    grep: 'Searching Code',
+    glob: 'Finding Files',
+    bash: 'Running Command',
+    websearch: 'Searching Web',
+    webfetch: 'Fetching Page',
+    lsp: 'Code Intelligence',
+    git_commit: 'Committing Changes',
+    git_push: 'Pushing to Remote',
+    pr_create: 'Creating Pull Request',
+    todoread: 'Checking Tasks',
+    todowrite: 'Updating Tasks',
+    question: 'Asking Question',
+    plan_enter: 'Entering Plan Mode',
+    plan_exit: 'Plan Approval',
+    task: 'Delegating Task',
+    delegate_to_explore: 'Exploring Codebase',
+    delegate_to_general: 'Running Subagent',
+  };
+
+  // ── Per-tool icon map ──
+  const TOOL_ICONS: Record<string, React.ReactNode> = {
+    write_to_file: <FileCode className="w-3.5 h-3.5" />,
+    write: <FileCode className="w-3.5 h-3.5" />,
+    edit: <FileEdit className="w-3.5 h-3.5" />,
+    multi_edit: <FileEdit className="w-3.5 h-3.5" />,
+    read_file: <Eye className="w-3.5 h-3.5" />,
+    read: <Eye className="w-3.5 h-3.5" />,
+    ls: <FolderOpen className="w-3.5 h-3.5" />,
+    grep: <Search className="w-3.5 h-3.5" />,
+    glob: <Search className="w-3.5 h-3.5" />,
+    bash: <Terminal className="w-3.5 h-3.5" />,
+    websearch: <Search className="w-3.5 h-3.5" />,
+    webfetch: <Download className="w-3.5 h-3.5" />,
+    lsp: <FileCode className="w-3.5 h-3.5" />,
+    git_commit: <GitBranch className="w-3.5 h-3.5" />,
+    git_push: <GitBranch className="w-3.5 h-3.5" />,
+    pr_create: <GitBranch className="w-3.5 h-3.5" />,
+    todoread: <ClipboardList className="w-3.5 h-3.5" />,
+    todowrite: <ClipboardList className="w-3.5 h-3.5" />,
+    question: <HelpCircle className="w-3.5 h-3.5" />,
+    plan_enter: <ClipboardList className="w-3.5 h-3.5" />,
+    plan_exit: <Rocket className="w-3.5 h-3.5" />,
+    task: <Send className="w-3.5 h-3.5" />,
+  };
 
   const statusIcon = {
     running: <Loader2 className="w-3.5 h-3.5 animate-spin text-foreground/50" />,
@@ -547,21 +1071,102 @@ function ToolCallCard({ toolCall }: { toolCall: ToolCallInfo }) {
     failed: <X className="w-3.5 h-3.5 text-red-500" />,
   }[toolCall.status];
 
+  const isPreparing = !toolCall.name;
+
+  // Extract target file from args for a richer display name
+  const getDisplayName = (): string => {
+    if (!toolCall.name) return 'Preparing tool...';
+    const baseName = TOOL_DISPLAY_NAMES[toolCall.name] || toolCall.name;
+    try {
+      const parsed = JSON.parse(toolCall.args);
+      const filePath = parsed.file_path || parsed.path || parsed.filename;
+      if (filePath) {
+        const fileName = filePath.split('/').pop();
+        return `${baseName} · ${fileName}`;
+      }
+      // For bash, show the command
+      if (toolCall.name === 'bash' && parsed.command) {
+        const cmd = parsed.command.length > 40 ? parsed.command.slice(0, 40) + '…' : parsed.command;
+        return `${baseName} · ${cmd}`;
+      }
+      // For grep, show the pattern
+      if ((toolCall.name === 'grep' || toolCall.name === 'glob') && parsed.pattern) {
+        return `${baseName} · "${parsed.pattern}"`;
+      }
+    } catch { /* args might be partial JSON during streaming */ }
+    return baseName;
+  };
+
+  const displayName = getDisplayName();
+  const toolIcon = isPreparing
+    ? <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
+    : (TOOL_ICONS[toolCall.name] || <Wrench className="w-3.5 h-3.5" />);
+
+  // ── Determine if this is a fresh tool (born during streaming) vs loaded from history ──
+  const isAlreadyDone = toolCall.status === 'completed' || toolCall.status === 'failed';
+  const wasBornDoneRef = useRef(isAlreadyDone);
+
+  // ── Typewriter animation — debounce on displayName settling ──
+  const hasAnimatedRef = useRef(wasBornDoneRef.current);
+  const isTypingRef = useRef(false);
+  const [typedName, setTypedName] = useState(wasBornDoneRef.current ? displayName : '');
+
+  useEffect(() => {
+    // Historical tools: always instant
+    if (wasBornDoneRef.current) { setTypedName(displayName); return; }
+    // Already animated: instant sync for future changes
+    if (hasAnimatedRef.current) { setTypedName(displayName); return; }
+    // Still preparing (no name): wait
+    if (isPreparing) return;
+    // Currently typing: don't restart
+    if (isTypingRef.current) return;
+
+    // Debounce: wait 400ms for displayName to settle (args streaming in)
+    const debounce = setTimeout(() => {
+      const nameToType = displayName;
+      let i = 0;
+      isTypingRef.current = true;
+      setTypedName('');
+      const speed = Math.max(12, Math.min(35, 400 / nameToType.length));
+      const interval = setInterval(() => {
+        i++;
+        setTypedName(nameToType.slice(0, i));
+        if (i >= nameToType.length) {
+          clearInterval(interval);
+          hasAnimatedRef.current = true;
+          isTypingRef.current = false;
+        }
+      }, speed);
+    }, 400);
+
+    return () => clearTimeout(debounce);
+  }, [displayName, isPreparing]);
+
+  const shownName = typedName || (wasBornDoneRef.current ? displayName : '\u00A0');
+
   return (
-    <div className="rounded-xl border border-border/30 overflow-hidden bg-secondary/20">
+    <motion.div
+      initial={wasBornDoneRef.current ? false : { opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: 'easeOut' }}
+      className="rounded-xl border border-border/30 overflow-hidden bg-secondary/20"
+    >
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-secondary/50 transition-colors"
+        disabled={isPreparing}
+        className={`w-full flex items-center gap-2 px-3 py-2 text-left transition-colors ${isPreparing ? 'opacity-70 cursor-default' : 'hover:bg-secondary/50'}`}
       >
-        <Wrench className="w-3.5 h-3.5 text-muted-foreground" />
-        <span className="text-xs font-medium flex-1 truncate">{toolCall.name}</span>
-        {statusIcon}
-        <motion.div
-          animate={{ rotate: isExpanded ? 90 : 0 }}
-          transition={{ duration: 0.15 }}
-        >
-          <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
-        </motion.div>
+        <span className="text-muted-foreground shrink-0">{toolIcon}</span>
+        <span className="text-xs font-medium flex-1 truncate">{shownName}</span>
+        {!isPreparing && statusIcon}
+        {!isPreparing && (
+          <motion.div
+            animate={{ rotate: isExpanded ? 90 : 0 }}
+            transition={{ duration: 0.15 }}
+          >
+            <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+          </motion.div>
+        )}
       </button>
 
       <AnimatePresence initial={false}>
@@ -596,17 +1201,17 @@ function ToolCallCard({ toolCall }: { toolCall: ToolCallInfo }) {
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </motion.div>
   );
 }
 
 function formatPlanMarkdown(todos: TodoItem[], summary?: string): string {
   const lines: string[] = ['# Plan', ''];
-  
+
   if (summary) {
     lines.push('## Summary', '', summary, '');
   }
-  
+
   lines.push('## Tasks', '');
 
   if (todos.length === 0) {
@@ -630,6 +1235,26 @@ function formatJSON(str: string): string {
   } catch {
     return str;
   }
+}
+
+// Utility to extract unclosed string values from a streaming JSON string map
+function extractPartialString(jsonStr: string, key: string): string {
+  if (!jsonStr) return '';
+  const regex = new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)`);
+  const match = jsonStr.match(regex);
+  if (match && match[1] !== undefined) {
+    try {
+      return match[1]
+        .replace(/\\n/g, '\n')
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, '\\')
+        .replace(/\\t/g, '\t')
+        .replace(/\\r/g, '\r');
+    } catch {
+      return match[1];
+    }
+  }
+  return '';
 }
 
 function isDiffContent(str: string): boolean {

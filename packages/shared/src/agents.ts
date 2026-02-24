@@ -308,7 +308,7 @@ Each child agent runs its own agentic loop with its own LLM calls and tool acces
 Available delegation tools:
 ${agentDocs.join('\n')}
 
-Each delegation tool takes a single "task" parameter — a clear description of what the child agent should do.
+Each delegation tool takes a single "task" parameter — a SHORT, concise description (under 8 words) of what the child agent should do. Examples: "Find auth middleware implementation", "Search for database migration files", "Explore error handling patterns".
 
 WHEN TO DELEGATE:
 - Use delegate_to_explore for codebase exploration, searching files, reading code, understanding structure.
@@ -321,6 +321,7 @@ IMPORTANT:
 - The child agent will execute independently and return its complete result to you.
 - You MUST wait for the delegation result before responding to the user.
 - Do NOT try to create scripts or files to simulate subagent behavior — use the delegation tools directly.
+- After receiving a delegation result, you MUST ALWAYS respond to the user. Summarize the findings, explain what was discovered, or describe next steps. NEVER end your turn silently after a delegation — the user expects a response from you.
 </delegation>`;
 }
 

@@ -26,6 +26,7 @@ export interface StreamCallbacks {
   onToken?: (token: string) => void;
   onReasoning?: (text: string) => void;
   onToolCallStart?: (toolCall: { id: string; name: string }) => void;
+  onToolCallChunk?: (chunk: { id: string; name?: string; delta: string }) => void;
   onToolCallArgs?: (id: string, delta: string) => void;
   onToolCallComplete?: (toolCall: ToolCall) => void;
   onComplete?: (accumulator: StreamAccumulator) => void;
@@ -67,7 +68,10 @@ export function handleNormalizedEvent(
 
     case 'tool_call_delta': {
       const tc = accumulator.toolCalls.find(t => t.id === event.id);
-      if (tc) tc.function.arguments += event.delta;
+      if (tc) {
+        tc.function.arguments += event.delta;
+        callbacks?.onToolCallChunk?.({ id: event.id, name: tc.function.name, delta: event.delta });
+      }
       callbacks?.onToolCallArgs?.(event.id, event.delta);
       break;
     }

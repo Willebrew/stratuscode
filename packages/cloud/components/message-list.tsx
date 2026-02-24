@@ -1,8 +1,12 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 import { Loader2, FileCode, Terminal, GitPullRequest } from 'lucide-react';
+import { useQuery } from 'convex/react';
+import { api } from '../convex/_generated/api';
+import type { Id } from '../convex/_generated/dataModel';
 import { MessageBubble } from './message-bubble';
+import { AgentThinkingIndicator } from './agent-thinking-indicator';
 import type { ChatMessage, TodoItem } from '@/hooks/use-convex-chat';
 
 type SandboxStatus = 'idle' | 'initializing' | 'ready';
@@ -12,8 +16,10 @@ interface MessageListProps {
   messagesLoading?: boolean;
   sandboxStatus?: SandboxStatus;
   todos?: TodoItem[];
+  sessionId?: string;
   onSend?: (message: string) => void;
   onAnswer?: (answer: string) => void;
+  bottomPadding?: number;
 }
 
 const SANDBOX_LABELS: Record<SandboxStatus, string> = {
@@ -22,23 +28,71 @@ const SANDBOX_LABELS: Record<SandboxStatus, string> = {
   ready: '',
 };
 
-export function MessageList({ messages, messagesLoading, sandboxStatus = 'idle', todos, onSend, onAnswer }: MessageListProps) {
+export function MessageList({ messages, messagesLoading, sandboxStatus = 'idle', todos, sessionId, onSend, onAnswer, bottomPadding }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const hasScrolledRef = useRef(false);
 
+  // Single subscription for ALL session attachments — avoids N subscriptions per message
+  const allAttachments = useQuery(
+    api.attachments.listForSession,
+    sessionId ? { sessionId: sessionId as Id<'sessions'> } : 'skip'
+  );
+  // Group by messageId for O(1) lookup per message
+  const attachmentsByMessage = useMemo(() => {
+    const map = new Map<string, typeof allAttachments>();
+    if (!allAttachments) return map;
+    for (const a of allAttachments) {
+      if (!a.messageId) continue;
+      const key = a.messageId as string;
+      const existing = map.get(key);
+      if (existing) existing.push(a);
+      else map.set(key, [a]);
+    }
+    return map;
+  }, [allAttachments]);
+
+  const isStreaming = useMemo(() => messages.some(m => m.streaming), [messages]);
+
+  // Handle auto-scrolling when messages length changes or sandbox status updates
   useEffect(() => {
-    if (!bottomRef.current) return;
-    // Jump instantly on initial load, smooth-scroll for subsequent updates
-    const behavior = hasScrolledRef.current ? 'smooth' : 'instant';
-    bottomRef.current.scrollIntoView({ behavior });
+    if (!bottomRef.current || !scrollAreaRef.current) return;
+    scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
     hasScrolledRef.current = true;
-  }, [messages, sandboxStatus]);
+  }, [messages.length, sandboxStatus]); // Only trigger on length change to avoid interrupting manual scrolls
+
+  // Robustly lock scroll to bottom while text is physically streaming/expanding
+  useEffect(() => {
+    if (!isStreaming || !scrollAreaRef.current || !contentRef.current) return;
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (scrollAreaRef.current) {
+        scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
+      }
+    });
+
+    resizeObserver.observe(contentRef.current);
+
+    return () => resizeObserver.disconnect();
+  }, [isStreaming]);
+
+  // When bottomPadding changes (todos/plan mode expanding the input), scroll to
+  // bottom if the user was already near the bottom so content isn't hidden.
+  useEffect(() => {
+    const el = scrollAreaRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distanceFromBottom < 150) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [bottomPadding]);
 
   // Show loading spinner while Convex query is still fetching (prevents "Ready to build" flash)
   if (messagesLoading) {
     return (
       <div className="h-full flex items-center justify-center">
-        <Loader2 className="w-5 h-5 text-muted-foreground animate-spin" />
+        <AgentThinkingIndicator messageId="__loading__" label="Loading messages" />
       </div>
     );
   }
@@ -75,19 +129,28 @@ export function MessageList({ messages, messagesLoading, sandboxStatus = 'idle',
   const showBootStatus = sandboxStatus === 'initializing';
 
   return (
-    <div className="h-full overflow-y-auto chat-scroll-area">
-      <div className="max-w-3xl mx-auto px-3 sm:px-4 space-y-4 sm:space-y-6 pt-2 sm:pt-4 pb-52">
-        {messages.map((message) => (
-          <MessageBubble key={message.id} message={message} todos={todos} onSend={onSend} onAnswer={onAnswer} />
+    <div ref={scrollAreaRef} className="h-full overflow-y-auto chat-scroll-area">
+      <div ref={contentRef} className="max-w-3xl mx-auto px-3 sm:px-4 space-y-4 sm:space-y-6 pt-2 sm:pt-4" style={{ paddingBottom: bottomPadding ?? 208 }}>
+        {messages.map((message, index) => (
+          <MessageBubble
+            key={index}
+            index={index}
+            isLast={index === messages.length - 1}
+            message={message}
+            todos={todos}
+            sessionId={sessionId}
+            attachments={attachmentsByMessage.get(message.id)}
+            onSend={onSend}
+            onAnswer={onAnswer}
+          />
         ))}
         {showBootStatus && (
-          <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span>{SANDBOX_LABELS[sandboxStatus]}</span>
-            <span className="tracking-widest animate-pulse">...</span>
+          <div className="flex justify-center my-4">
+            <AgentThinkingIndicator messageId="__boot__" label={SANDBOX_LABELS[sandboxStatus]} />
           </div>
         )}
-        <div ref={bottomRef} />
+        {/* Anchor element — overflow-anchor keeps this pinned to the viewport bottom */}
+        <div ref={bottomRef} style={{ overflowAnchor: 'auto', height: 1 }} />
       </div>
     </div>
   );
