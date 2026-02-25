@@ -434,7 +434,9 @@ async function generateTitle(
           model,
           instructions: TITLE_PROMPT,
           input: userMessage.slice(0, 500),
-          max_output_tokens: 40,
+          // Must be 300+ — reasoning models (kimi-k2.5 etc.) use internal
+          // thinking tokens; 40 gets fully consumed by reasoning → empty content.
+          max_output_tokens: 300,
         }),
       });
       if (!resp.ok) return null;
@@ -446,7 +448,9 @@ async function generateTitle(
         headers: authHeaders,
         body: JSON.stringify({
           model,
-          max_tokens: 40,
+          // Must be 300+ — reasoning models (kimi-k2.5 etc.) use internal
+          // thinking tokens; 40 gets fully consumed by reasoning → empty content.
+          max_tokens: 300,
           temperature: 0.3,
           messages: [
             { role: "system", content: TITLE_PROMPT },
@@ -1099,7 +1103,23 @@ export const send = action({
     agentMode: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    // Schedule agent immediately — runs in background
+    // Update title from first message (matches clone's TUI/enhancements approach)
+    const agentState = await ctx.runQuery(internal.agent_state.get, {
+      sessionId: args.sessionId,
+    });
+    const hasPreviousMessages = agentState?.sageMessages
+      ? JSON.parse(agentState.sageMessages).length > 0
+      : false;
+
+    if (!hasPreviousMessages) {
+      const title = args.message.slice(0, 80) + (args.message.length > 80 ? "..." : "");
+      await ctx.runMutation(internal.sessions.updateTitle, {
+        id: args.sessionId,
+        title,
+      });
+    }
+
+    // Schedule agent (fire-and-forget, runs in background)
     await ctx.scheduler.runAfter(0, internal.agent.sendMessage, {
       sessionId: args.sessionId,
       message: args.message,
@@ -1109,40 +1129,34 @@ export const send = action({
       agentMode: args.agentMode,
     });
 
-    // Generate AI title for first message (replaces truncated placeholder)
-    try {
-      const agentState = await ctx.runQuery(internal.agent_state.get, {
-        sessionId: args.sessionId,
-      });
-      const hasPrevious = agentState?.sageMessages
-        ? JSON.parse(agentState.sageMessages).length > 0
-        : false;
-      if (hasPrevious) return;
+    // Try to generate a better AI title (replaces truncated placeholder)
+    if (!hasPreviousMessages) {
+      try {
+        const session = await ctx.runQuery(internal.sessions.getInternal, { id: args.sessionId });
+        if (!session) return;
 
-      const session = await ctx.runQuery(internal.sessions.getInternal, { id: args.sessionId });
-      if (!session) return;
+        const model = args.model || session.model || "gpt-5-mini";
+        const resolved = await resolveProviderForModel(model, ctx, session.userId);
 
-      const model = args.model || session.model || "gpt-5-mini";
-      const resolved = await resolveProviderForModel(model, ctx, session.userId);
+        const aiTitle = await generateTitle(
+          args.message,
+          model,
+          resolved.apiKey,
+          resolved.baseUrl,
+          resolved.providerType,
+          resolved.headers,
+        );
 
-      const aiTitle = await generateTitle(
-        args.message,
-        model,
-        resolved.apiKey,
-        resolved.baseUrl,
-        resolved.providerType,
-        resolved.headers,
-      );
-
-      if (aiTitle) {
-        await ctx.runMutation(internal.sessions.updateTitle, {
-          id: args.sessionId,
-          title: aiTitle,
-          titleGenerated: true,
-        });
+        if (aiTitle) {
+          await ctx.runMutation(internal.sessions.updateTitle, {
+            id: args.sessionId,
+            title: aiTitle,
+            titleGenerated: true,
+          });
+        }
+      } catch {
+        // Best effort — truncated title already set above
       }
-    } catch {
-      // Best effort — title failure shouldn't affect the agent
     }
   },
 });
