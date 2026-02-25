@@ -86,6 +86,7 @@ export function useConvexChat(
   const prepareSendMutation = useMutation(api.sessions.prepareSend);
   const sendAction = useAction(api.agent.send);
   const cancelMutation = useMutation(api.sessions.requestCancel);
+  const forceResetMutation = useMutation(api.sessions.forceReset);
   const answerMutation = useMutation(api.streaming.answerQuestion);
   const recoverStaleMutation = useMutation(api.sessions.recoverStaleSession);
 
@@ -304,11 +305,13 @@ export function useConvexChat(
         attachmentIds: opts?.attachmentIds as any,
         agentMode: opts?.agentMode,
       }).catch((e) => {
+        // Action failed before scheduling the agent — force-reset the session
+        // so it doesn't get stuck in "running" with no agent.
         console.error('[sendMessage] Action failed, resetting session:', e);
-        cancelMutation({ id: sessionId }).catch(() => { /* best effort */ });
+        forceResetMutation({ id: sessionId }).catch(() => { /* best effort */ });
       });
     },
-    [sessionId, isLoading, sendUserMessageMutation, linkAttachmentsMutation, prepareSendMutation, sendAction, cancelMutation]
+    [sessionId, isLoading, sendUserMessageMutation, linkAttachmentsMutation, prepareSendMutation, sendAction, forceResetMutation]
   );
 
   const answerQuestion = useCallback(

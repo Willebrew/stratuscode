@@ -141,6 +141,32 @@ export const requestCancel = mutation({
   },
 });
 
+/**
+ * Hard-reset a session that got stuck (e.g., action failed before scheduling).
+ * Unlike requestCancel (which just sets a flag for the agent to check), this
+ * immediately sets status to idle and finishes streaming.
+ */
+export const forceReset = mutation({
+  args: { id: v.id("sessions") },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.id, {
+      cancelRequested: false,
+      status: "idle",
+      updatedAt: Date.now(),
+    });
+    const streamingState = await ctx.db
+      .query("streaming_state")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", args.id))
+      .unique();
+    if (streamingState && streamingState.isStreaming) {
+      await ctx.db.patch(streamingState._id, {
+        isStreaming: false,
+        updatedAt: Date.now(),
+      });
+    }
+  },
+});
+
 export const clearCancel = internalMutation({
   args: { id: v.id("sessions") },
   handler: async (ctx, args) => {
@@ -163,13 +189,17 @@ export const prepareSend = mutation({
     agentMode: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.id);
     const patch: Record<string, any> = {
       cancelRequested: false,
       status: "running",
       lastMessage: args.lastMessage,
       updatedAt: Date.now(),
     };
-    if (args.title) patch.title = args.title;
+    // Only set title on first message (don't overwrite existing titles)
+    if (args.title && (!session?.title || session.title === "New Chat")) {
+      patch.title = args.title;
+    }
     if (args.agentMode) patch.agent = args.agentMode;
     await ctx.db.patch(args.id, patch);
 
