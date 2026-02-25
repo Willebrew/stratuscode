@@ -11,7 +11,7 @@ import { AgentThinkingIndicator, WaveText } from './agent-thinking-indicator';
 import { AnimatedStratusLogo } from './animated-stratus-logo';
 import type { ChatMessage, ToolCallInfo, MessagePart, TodoItem } from '@/hooks/use-convex-chat';
 
-type GroupedPart = { part: MessagePart; idx: number; nestedParts?: MessagePart[] };
+type GroupedPart = { part: MessagePart; idx: number; nestedParts?: MessagePart[]; statusText?: string };
 
 /**
  * Group a flat list of parts so that subagent content is nested inside
@@ -20,7 +20,7 @@ type GroupedPart = { part: MessagePart; idx: number; nestedParts?: MessagePart[]
  */
 function groupSubagentParts(parts: { part: MessagePart; idx: number }[]): GroupedPart[] {
   const grouped: GroupedPart[] = [];
-  let activeSubagent: { part: MessagePart; idx: number; nestedParts: MessagePart[]; hasStarted: boolean } | null = null;
+  let activeSubagent: { part: MessagePart; idx: number; nestedParts: MessagePart[]; hasStarted: boolean; statusText?: string } | null = null;
   let nestingDepth = 0;
   let orphanedStarts = 0;
 
@@ -31,6 +31,10 @@ function groupSubagentParts(parts: { part: MessagePart; idx: number }[]): Groupe
       if ((part as any).type === 'subagent_start') {
         if (!activeSubagent.hasStarted) {
           activeSubagent.hasStarted = true;
+          // Capture statusText from the subagent_start marker for live display
+          if ((part as any).statusText) {
+            activeSubagent.statusText = (part as any).statusText;
+          }
         } else {
           nestingDepth++;
           activeSubagent.nestedParts.push(part);
@@ -302,8 +306,8 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
       )}
 
       {/* Render parts — group subagent tool calls inside their delegate card */}
-      {groupSubagentParts(deduplicatedParts).map(({ part, idx, nestedParts }) => (
-        <MessagePartView key={idx} part={part} nestedParts={nestedParts} todos={todos} sessionId={sessionId} onSend={onSend} onAnswer={onAnswer} isStreaming={message.streaming} />
+      {groupSubagentParts(deduplicatedParts).map(({ part, idx, nestedParts, statusText }) => (
+        <MessagePartView key={idx} part={part} nestedParts={nestedParts} statusText={statusText} todos={todos} sessionId={sessionId} onSend={onSend} onAnswer={onAnswer} isStreaming={message.streaming} />
       ))}
 
       {/* Show generation swoop logo under the response if streaming content */}
@@ -360,7 +364,7 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
   );
 });
 
-function MessagePartView({ part, nestedParts, todos, sessionId, onSend, onAnswer, isStreaming }: { part: MessagePart; nestedParts?: MessagePart[]; todos?: TodoItem[]; sessionId?: string; onSend?: (msg: string) => void; onAnswer?: (answer: string) => void; isStreaming?: boolean }) {
+function MessagePartView({ part, nestedParts, statusText, todos, sessionId, onSend, onAnswer, isStreaming }: { part: MessagePart; nestedParts?: MessagePart[]; statusText?: string; todos?: TodoItem[]; sessionId?: string; onSend?: (msg: string) => void; onAnswer?: (answer: string) => void; isStreaming?: boolean }) {
   switch (part.type) {
     case 'reasoning':
       return null;
@@ -380,7 +384,7 @@ function MessagePartView({ part, nestedParts, todos, sessionId, onSend, onAnswer
         return <EditCard toolCall={part.toolCall} sessionId={sessionId} />;
       }
       if (part.toolCall.name?.startsWith('delegate_to_')) {
-        return <SubagentCard toolCall={part.toolCall} nestedParts={nestedParts || []} sessionId={sessionId} />;
+        return <SubagentCard toolCall={part.toolCall} nestedParts={nestedParts || []} statusText={statusText} sessionId={sessionId} />;
       }
       return <ToolCallCard toolCall={part.toolCall} />;
   }
@@ -890,7 +894,7 @@ function EditCard({ toolCall, sessionId }: { toolCall: ToolCallInfo; sessionId?:
 }
 
 // ── SubagentCard — dropdown like the thinking indicator ──
-function SubagentCard({ toolCall, nestedParts, sessionId }: { toolCall: ToolCallInfo; nestedParts: MessagePart[]; sessionId?: string }) {
+function SubagentCard({ toolCall, nestedParts, statusText, sessionId }: { toolCall: ToolCallInfo; nestedParts: MessagePart[]; statusText?: string; sessionId?: string }) {
   const isRunning = toolCall.status === 'running';
   const isCompleted = toolCall.status === 'completed';
   const isFailed = toolCall.status === 'failed';
@@ -906,69 +910,71 @@ function SubagentCard({ toolCall, nestedParts, sessionId }: { toolCall: ToolCall
     }
   }, [isRunning, userToggled]);
 
-  // Extract the task from args — reactive, updates as args stream in
-  let taskDescription = '';
-  try {
-    const parsed = JSON.parse(toolCall.args);
-    taskDescription = parsed.task || parsed.description || parsed.prompt || '';
-  } catch {
-    taskDescription = extractPartialString(toolCall.args, 'task')
-      || extractPartialString(toolCall.args, 'description')
-      || extractPartialString(toolCall.args, 'prompt');
-  }
-
-  const shortTask = taskDescription;
-
-  // Header label — updates reactively as args stream in
+  // Derive label from LLM-generated statusText (live from child agent)
   const agentKind = toolCall.name?.replace('delegate_to_', '') || 'agent';
-  const label = shortTask
-    || (isRunning
-      ? `${agentKind === 'explore' ? 'Exploring codebase' : 'Running subagent'}…`
-      : isCompleted
-        ? `${agentKind === 'explore' ? 'Explored codebase' : 'Subagent completed'}`
-        : 'Subagent failed');
+
+  // Extract the last meaningful line from statusText for display
+  const derivedLabel = (() => {
+    if (statusText) {
+      const lines = statusText.split('\n').filter(l => l.trim());
+      const lastLine = lines[lines.length - 1]?.trim() || '';
+      if (lastLine) return lastLine.length > 80 ? lastLine.slice(0, 77) + '...' : lastLine;
+    }
+    if (isFailed) return 'Subagent failed';
+    if (isRunning) return agentKind === 'explore' ? 'Exploring codebase...' : 'Starting...';
+    if (isCompleted) {
+      // For completed subagents, show final statusText or generic fallback
+      return agentKind === 'explore' ? 'Explored codebase' : 'Completed';
+    }
+    return 'Starting...';
+  })();
 
   // ── Typewriter that re-types when label changes ──
   const wasBornDone = useRef(isCompleted || isFailed);
-  const [typedLabel, setTypedLabel] = useState(wasBornDone.current ? label : '');
-  const prevLabelRef = useRef(label);
+  const [typedLabel, setTypedLabel] = useState(wasBornDone.current ? derivedLabel : '');
+  const prevLabelRef = useRef(derivedLabel);
+  const typingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     // Historical: show instantly
-    if (wasBornDone.current) { setTypedLabel(label); return; }
+    if (wasBornDone.current) { setTypedLabel(derivedLabel); return; }
 
     // Only animate when label actually changes
-    if (label === prevLabelRef.current && typedLabel === label) return;
-    prevLabelRef.current = label;
+    if (derivedLabel === prevLabelRef.current && typedLabel === derivedLabel) return;
+    prevLabelRef.current = derivedLabel;
 
-    // Debounce: wait for label to settle (args streaming)
+    // Cancel any running typewriter animation
+    if (typingIntervalRef.current) {
+      clearInterval(typingIntervalRef.current);
+      typingIntervalRef.current = null;
+    }
+
+    // Debounce: wait for label to settle (tokens streaming fast)
     const debounce = setTimeout(() => {
-      const text = label;
+      const text = derivedLabel;
       let i = 0;
       setTypedLabel('');
       const speed = Math.max(8, Math.min(25, 500 / text.length));
-      const iv = setInterval(() => {
+      typingIntervalRef.current = setInterval(() => {
         i++;
         setTypedLabel(text.slice(0, i));
-        if (i >= text.length) clearInterval(iv);
+        if (i >= text.length) {
+          if (typingIntervalRef.current) clearInterval(typingIntervalRef.current);
+          typingIntervalRef.current = null;
+        }
       }, speed);
-    }, 350);
+    }, 300);
 
-    return () => clearTimeout(debounce);
-  }, [label]); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => {
+      clearTimeout(debounce);
+      if (typingIntervalRef.current) {
+        clearInterval(typingIntervalRef.current);
+        typingIntervalRef.current = null;
+      }
+    };
+  }, [derivedLabel]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const shownLabel = typedLabel || '\u00A0';
-
-  // Parse result for the expandable body
-  let resultText = '';
-  if (toolCall.result) {
-    try {
-      const parsed = JSON.parse(toolCall.result);
-      resultText = parsed.content || parsed.result || parsed.text || toolCall.result;
-    } catch {
-      resultText = toolCall.result;
-    }
-  }
 
   return (
     <div className="flex flex-col my-1">
@@ -980,7 +986,7 @@ function SubagentCard({ toolCall, nestedParts, sessionId }: { toolCall: ToolCall
         }}
         className="inline-flex items-center gap-2 py-0.5 cursor-pointer hover:opacity-80"
       >
-        <span className="text-[13px] text-muted-foreground">
+        <span className={clsx("text-[13px] text-muted-foreground", isRunning && "animate-shimmer-text")}>
           {shownLabel}
         </span>
       </div>
@@ -997,8 +1003,8 @@ function SubagentCard({ toolCall, nestedParts, sessionId }: { toolCall: ToolCall
           >
             <div className="mt-1 ml-3 pl-3 border-l-2 border-border/30 flex flex-col gap-2">
               {/* Render nested parts — re-apply grouping for nested subagents */}
-              {groupSubagentParts(nestedParts.map((part, i) => ({ part, idx: i }))).map(({ part, idx, nestedParts: childNested }) => (
-                <MessagePartView key={idx} part={part} nestedParts={childNested} sessionId={sessionId} />
+              {groupSubagentParts(nestedParts.map((part, i) => ({ part, idx: i }))).map(({ part, idx, nestedParts: childNested, statusText: childStatus }) => (
+                <MessagePartView key={idx} part={part} nestedParts={childNested} statusText={childStatus} sessionId={sessionId} />
               ))}
             </div>
           </motion.div>

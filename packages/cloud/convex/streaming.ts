@@ -307,6 +307,35 @@ export const addSubagentStart = internalMutation({
   },
 });
 
+export const updateSubagentStatus = internalMutation({
+  args: {
+    sessionId: v.id("sessions"),
+    agentName: v.string(),
+    statusText: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const state = await ctx.db
+      .query("streaming_state")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
+      .unique();
+    if (!state) return;
+
+    const parts = state.parts ? JSON.parse(state.parts) : [];
+    // Find the LAST subagent_start matching this agentName and update its statusText
+    for (let i = parts.length - 1; i >= 0; i--) {
+      if (parts[i].type === "subagent_start" && parts[i].agentName === args.agentName) {
+        parts[i].statusText = args.statusText;
+        break;
+      }
+    }
+
+    await ctx.db.patch(state._id, {
+      parts: JSON.stringify(parts),
+      updatedAt: Date.now(),
+    });
+  },
+});
+
 export const addSubagentEnd = internalMutation({
   args: {
     sessionId: v.id("sessions"),

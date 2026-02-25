@@ -321,6 +321,15 @@ code {
   animation: shimmer 2s ease-in-out infinite;
 }
 
+.animate-shimmer-text {
+  background: linear-gradient(90deg, currentColor 40%, var(--accent) 50%, currentColor 60%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 2.5s ease-in-out infinite;
+}
+
 /* Diff viewer styles */
 .diff-table td {
   padding: 0 0.25rem;
