@@ -414,19 +414,22 @@ async function generateTitle(
   providerType: string,
   headers?: Record<string, string>,
 ): Promise<string | null> {
-  if (!apiKey || apiKey === "server-managed") return null;
+  if (apiKey === "server-managed") return null;
 
   try {
     let title: string | undefined;
+    const authHeaders: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...headers,
+    };
+    if (apiKey) {
+      authHeaders["Authorization"] = `Bearer ${apiKey}`;
+    }
 
     if (providerType === "responses-api") {
       const resp = await fetch(`${baseUrl}/responses`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-          ...headers,
-        },
+        headers: authHeaders,
         body: JSON.stringify({
           model,
           instructions: TITLE_PROMPT,
@@ -440,11 +443,7 @@ async function generateTitle(
     } else {
       const resp = await fetch(`${baseUrl}/chat/completions`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-          ...headers,
-        },
+        headers: authHeaders,
         body: JSON.stringify({
           model,
           max_tokens: 40,
