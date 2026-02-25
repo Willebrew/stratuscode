@@ -593,6 +593,12 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
             }
           },
           onToolCall: async (tc: any) => {
+            // Check for cancellation before starting a new tool call
+            const sess = await ctx.runQuery(internal.sessions.getInternal, { id: args.sessionId });
+            if (sess?.cancelRequested) {
+              throw new Error("CANCELLED_BY_USER");
+            }
+
             // Flush pending tokens before tool call
             await flushTokens();
 

@@ -129,13 +129,14 @@ export const setSessionBranch = internalMutation({
 export const requestCancel = mutation({
   args: { id: v.id("sessions") },
   handler: async (ctx, args) => {
-    // Only set the cancel flag — do NOT change status or streaming state.
-    // The agent action checks this flag between tool calls, saves partial
-    // progress, and then sets status to "idle" + streaming to finished.
-    // This prevents the UI from dropping the streaming message before the
-    // agent has a chance to persist it.
+    // Set cancel flag AND status to idle for instant UI feedback.
+    // Do NOT touch streaming state (isStreaming stays true) — this is critical:
+    // the streaming content stays visible while the agent saves partial progress.
+    // The agent will detect cancelRequested, save the partial message, then
+    // call streaming.finish to cleanly transition to the persisted message.
     await ctx.db.patch(args.id, {
       cancelRequested: true,
+      status: "idle",
       updatedAt: Date.now(),
     });
   },
