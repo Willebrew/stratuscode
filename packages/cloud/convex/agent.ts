@@ -405,6 +405,11 @@ export const sendMessage = internalAction({
       }
     };
 
+    // Create an AbortController so we can abort the LLM HTTP request
+    // when the user presses stop. The cancel flag is polled every 2s.
+    const abortController = new AbortController();
+    let cancelCheckInterval: ReturnType<typeof setInterval> | null = null;
+
     try {
       // ── 1. Create or resume sandbox ──
 
@@ -553,6 +558,17 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
       // ── 6. Run processDirectly with batched callbacks ──
       // (streaming state + user message already persisted before this action)
 
+      // Start polling for cancel requests to abort the LLM HTTP connection
+      cancelCheckInterval = setInterval(async () => {
+        try {
+          const sess = await ctx.runQuery(internal.sessions.getInternal, { id: args.sessionId });
+          if (sess?.cancelRequested) {
+            abortController.abort();
+            if (cancelCheckInterval) clearInterval(cancelCheckInterval);
+          }
+        } catch { /* best effort */ }
+      }, 2000);
+
       let lastAgentError: Error | null = null;
       let hasMarkedChanges = false;
 
@@ -573,6 +589,7 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
           ? JSON.parse(agentState.existingSummary)
           : undefined,
         toolMetadata: { projectDir: workDir },
+        abort: abortController.signal,
         callbacks: {
           onToken: (token: string) => {
             tokenBuffer += token;
@@ -693,6 +710,9 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
         },
       });
 
+      // Clean up cancel polling
+      if (cancelCheckInterval) clearInterval(cancelCheckInterval);
+
       // Final flush of any remaining tokens
       if (flushTimeout) clearTimeout(flushTimeout);
       await flushTokens();
@@ -791,8 +811,13 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
         // Sandbox may still be running, that's okay — next turn will reconnect
       }
     } catch (error) {
+      // Clean up cancel polling on error path
+      if (cancelCheckInterval) clearInterval(cancelCheckInterval);
+
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const isCancelled = errorMessage === "CANCELLED_BY_USER";
+      const isCancelled = errorMessage === "CANCELLED_BY_USER"
+        || errorMessage === "Aborted"
+        || (error instanceof Error && error.name === "AbortError");
 
       console.error(`[agent] ${isCancelled ? "Cancelled" : "Error"}:`, errorMessage);
 
