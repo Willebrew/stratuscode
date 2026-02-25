@@ -401,6 +401,48 @@ async function resolveProviderForModel(
   };
 }
 
+// ─── Title generation ───
+
+/**
+ * Generate a concise title for a session from the user's first message.
+ * Uses OpenAI gpt-5-mini (cheap & fast) regardless of session model.
+ */
+async function generateTitle(userMessage: string): Promise<string | null> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        max_tokens: 20,
+        temperature: 0.3,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Generate a concise 3-6 word title for this coding conversation. Return ONLY the title, no quotes, no punctuation at the end.",
+          },
+          { role: "user", content: userMessage.slice(0, 500) },
+        ],
+      }),
+    });
+    if (!resp.ok) return null;
+    const data = (await resp.json()) as {
+      choices: Array<{ message: { content: string } }>;
+    };
+    const title = data.choices?.[0]?.message?.content?.trim();
+    return title && title.length > 0 && title.length <= 80 ? title : null;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Main action ───
 
 export const sendMessage = internalAction({
@@ -533,6 +575,7 @@ export const sendMessage = internalAction({
       const previousMessages = agentState?.sageMessages
         ? JSON.parse(agentState.sageMessages)
         : [];
+      const hasPreviousMessages = previousMessages.length > 0;
 
       let currentAgent = agentState?.agentMode || session.agent || "build";
       let planFilePath = agentState?.planFilePath || null;
@@ -851,6 +894,23 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
         id: args.sessionId,
         status: "idle",
       });
+
+      // ── 8. Generate AI title on first message ──
+
+      if (!hasPreviousMessages) {
+        try {
+          const aiTitle = await generateTitle(args.message);
+          if (aiTitle) {
+            await ctx.runMutation(internal.sessions.updateTitle, {
+              id: args.sessionId,
+              title: aiTitle,
+              titleGenerated: true,
+            });
+          }
+        } catch {
+          // Best effort — title generation failure shouldn't break the session
+        }
+      }
 
       // ── 9. Snapshot sandbox for fast resume (after status update) ──
 

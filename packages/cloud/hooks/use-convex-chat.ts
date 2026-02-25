@@ -286,10 +286,9 @@ export function useConvexChat(
       //    mutations update Convex subscriptions instantly, so isLoading=true and
       //    isStreaming=true propagate to the UI immediately. If this was inside
       //    the action, there'd be a 200-500ms gap with no loading indicator.
-      const title = message.slice(0, 80) + (message.length > 80 ? '...' : '');
+      //    Title is generated server-side by the agent after the first response.
       await prepareSendMutation({
         id: sessionId,
-        title,
         lastMessage: message.slice(0, 200),
         agentMode: opts?.agentMode,
       });

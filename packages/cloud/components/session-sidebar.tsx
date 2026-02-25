@@ -48,14 +48,15 @@ function StatusIndicator({ status }: { status: string }) {
 function SessionTitle({ title, isGenerated }: { title: string, isGenerated?: boolean }) {
   const [isTyping, setIsTyping] = useState(false);
   const prevTitle = useRef(title);
+  const wasGenerated = useRef(isGenerated);
 
   useEffect(() => {
-    if (title !== prevTitle.current) {
-      if (prevTitle.current === "New Chat" && isGenerated) {
-        setIsTyping(true);
-      }
-      prevTitle.current = title;
+    // Trigger typing animation when title changes to an AI-generated one
+    if (title !== prevTitle.current && isGenerated && !wasGenerated.current) {
+      setIsTyping(true);
     }
+    prevTitle.current = title;
+    wasGenerated.current = isGenerated;
   }, [title, isGenerated]);
 
   if (!isTyping) return <>{title}</>;

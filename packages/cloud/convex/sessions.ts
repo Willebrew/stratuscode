@@ -80,9 +80,11 @@ export const updateStatus = internalMutation({
 });
 
 export const updateTitle = internalMutation({
-  args: { id: v.id("sessions"), title: v.string() },
+  args: { id: v.id("sessions"), title: v.string(), titleGenerated: v.optional(v.boolean()) },
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.id, { title: args.title, updatedAt: Date.now() });
+    const patch: Record<string, any> = { title: args.title, updatedAt: Date.now() };
+    if (args.titleGenerated) patch.titleGenerated = true;
+    await ctx.db.patch(args.id, patch);
   },
 });
 
