@@ -432,9 +432,8 @@ async function generateTitle(
           model,
           instructions: TITLE_PROMPT,
           input: [{ role: "user", content: userMessage.slice(0, 500) }],
-          max_output_tokens: 1000,
-          store: false,
           stream: true,
+          store: false,
         }),
       });
       if (!resp.ok) {
