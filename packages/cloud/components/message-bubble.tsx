@@ -937,7 +937,7 @@ function SubagentCard({ toolCall, nestedParts, statusText: groupedStatusText, al
     if (liveStatusText) {
       const lines = liveStatusText.split('\n').filter((l: string) => l.trim());
       const lastLine = lines[lines.length - 1]?.trim() || '';
-      if (lastLine) return lastLine.length > 80 ? lastLine.slice(0, 77) + '...' : lastLine;
+      if (lastLine) return lastLine.length > 200 ? lastLine.slice(0, 197) + '...' : lastLine;
     }
     if (isFailed) return 'Subagent failed';
     if (isRunning) return taskFromArgs || 'Working...';
