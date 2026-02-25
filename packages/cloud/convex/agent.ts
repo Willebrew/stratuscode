@@ -415,10 +415,6 @@ export const sendMessage = internalAction({
     alphaMode: v.optional(v.boolean()),
     reasoningEffort: v.optional(v.string()),
     agentMode: v.optional(v.string()),
-    // Codex OAuth credentials (forwarded from send action)
-    codexAccessToken: v.optional(v.string()),
-    codexRefreshToken: v.optional(v.string()),
-    codexAccountId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const session = await ctx.runQuery(internal.sessions.getInternal, { id: args.sessionId });
@@ -432,7 +428,7 @@ export const sendMessage = internalAction({
 
     const model = args.model || session.model || "gpt-5-mini";
 
-    // Resolve provider from explicit args or auto-detect from model
+    // Resolve provider from Convex DB or env vars (server-side only)
     const resolved = await resolveProviderForModel(model, ctx, session.userId);
     const apiKey = args.apiKey || resolved.apiKey;
     const baseUrl = args.baseUrl || resolved.baseUrl;
@@ -973,10 +969,6 @@ export const send = action({
     reasoningEffort: v.optional(v.string()),
     attachmentIds: v.optional(v.array(v.string())),
     agentMode: v.optional(v.string()),
-    // Codex OAuth credentials (passed from frontend via cookie-backed API)
-    codexAccessToken: v.optional(v.string()),
-    codexRefreshToken: v.optional(v.string()),
-    codexAccountId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await ctx.scheduler.runAfter(0, internal.agent.sendMessage, {
@@ -986,9 +978,6 @@ export const send = action({
       alphaMode: args.alphaMode,
       reasoningEffort: args.reasoningEffort,
       agentMode: args.agentMode,
-      codexAccessToken: args.codexAccessToken,
-      codexRefreshToken: args.codexRefreshToken,
-      codexAccountId: args.codexAccountId,
     });
   },
 });

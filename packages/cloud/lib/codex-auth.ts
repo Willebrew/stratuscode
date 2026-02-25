@@ -1,13 +1,13 @@
 /**
  * Codex (ChatGPT Pro) OAuth Authentication
- * 
+ *
  * Handles OAuth flow with OpenAI for Codex access tokens.
- * Tokens are stored in HTTP-only cookies.
+ * Tokens are stored server-side in Convex DB (not in cookies).
+ * PKCE verifier uses a short-lived cookie only during the auth handshake.
  */
 
 import { cookies } from 'next/headers';
 
-const CODEX_COOKIE_NAME = 'codex_tokens';
 const CODEX_PKCE_COOKIE = 'codex_pkce';
 const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const ISSUER = 'https://auth.openai.com';
@@ -17,63 +17,6 @@ export interface CodexTokens {
   refreshToken: string;
   expiresAt: number;
   accountId?: string;
-}
-
-/**
- * Get Codex tokens from the cookie store.
- */
-export async function getCodexTokens(): Promise<CodexTokens | null> {
-  try {
-    const cookieStore = await cookies();
-    const raw = cookieStore.get(CODEX_COOKIE_NAME)?.value;
-    if (!raw) return null;
-
-    const tokens: CodexTokens = JSON.parse(raw);
-
-    // Check if expired
-    if (tokens.expiresAt && tokens.expiresAt < Date.now()) {
-      // Try to refresh
-      const refreshed = await refreshCodexTokens(tokens.refreshToken);
-      if (refreshed) {
-        // Save refreshed tokens — but don't lose them if save fails
-        // (save can fail in Server Component renders where cookies are read-only)
-        try {
-          await saveCodexTokens(refreshed);
-        } catch {
-          // Cookie save failed (e.g. read-only context), still return refreshed tokens
-        }
-        return refreshed;
-      }
-      try { await clearCodexTokens(); } catch { /* ignore */ }
-      return null;
-    }
-
-    return tokens;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Save Codex tokens to an HTTP-only cookie.
- */
-export async function saveCodexTokens(tokens: CodexTokens): Promise<void> {
-  const cookieStore = await cookies();
-  cookieStore.set(CODEX_COOKIE_NAME, JSON.stringify(tokens), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
-    maxAge: 30 * 24 * 60 * 60, // 30 days
-  });
-}
-
-/**
- * Clear Codex tokens from cookies.
- */
-export async function clearCodexTokens(): Promise<void> {
-  const cookieStore = await cookies();
-  cookieStore.delete(CODEX_COOKIE_NAME);
 }
 
 function parseJwtClaims(token: string): Record<string, unknown> | undefined {
@@ -120,6 +63,7 @@ function generatePKCE(): { codeVerifier: string; challenge: string } {
 
 /**
  * Save the PKCE code verifier in a cookie for the callback to use.
+ * (Short-lived — only during the auth handshake, not for token storage.)
  */
 export async function savePkceVerifier(codeVerifier: string): Promise<void> {
   const cookieStore = await cookies();
@@ -289,34 +233,4 @@ export async function pollCodexDeviceAuth(
   }
 
   throw new Error(`Device auth polling failed: ${res.status}`);
-}
-
-/**
- * Refresh Codex tokens using the refresh token.
- */
-async function refreshCodexTokens(refreshToken: string): Promise<CodexTokens | null> {
-  try {
-    const res = await fetch(`${ISSUER}/oauth/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: refreshToken,
-        client_id: CODEX_CLIENT_ID,
-      }).toString(),
-    });
-
-    if (!res.ok) return null;
-
-    const data = await res.json();
-    const accountId = extractAccountIdFromTokens(data as Record<string, unknown>);
-    return {
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token || refreshToken,
-      expiresAt: Date.now() + (data.expires_in || 3600) * 1000,
-      accountId,
-    };
-  } catch {
-    return null;
-  }
 }

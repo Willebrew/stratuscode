@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { saveCodexTokens } from '@/lib/codex-auth';
-import type { CodexTokens } from '@/lib/codex-auth';
+import { ConvexHttpClient } from 'convex/browser';
+import { api } from '../../../../convex/_generated/api';
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,16 +14,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create CodexTokens object
-    const tokens: CodexTokens = {
+    // Save tokens to Convex DB (server-side only, no cookies)
+    const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+    if (!convexUrl) {
+      return NextResponse.json(
+        { error: 'Convex not configured' },
+        { status: 500 }
+      );
+    }
+
+    const client = new ConvexHttpClient(convexUrl);
+    await client.mutation(api.codex_auth.save, {
+      userId: 'owner',
       accessToken,
       refreshToken,
-      expiresAt: Date.now() + 3600 * 1000, // 1 hour from now
       accountId,
-    };
-
-    // Save to cookie
-    await saveCodexTokens(tokens);
+      expiresAt: Date.now() + 3600 * 1000,
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {

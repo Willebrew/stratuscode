@@ -1,9 +1,9 @@
-import { describe, expect, test, mock } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 
-import { getAvailableProviders, getProvider, PROVIDER_CONFIGS, buildSageProviderConfig } from './providers';
+import { getAvailableProviders, getProvider, PROVIDER_CONFIGS, buildSageProviderConfig, getDefaultProvider, getAvailableModels, findModelConfig } from './providers';
 
 describe('cloud/providers', () => {
-  test('getAvailableProviders returns env-configured providers (no codex oauth)', async () => {
+  test('getAvailableProviders returns env-configured providers', () => {
     const originalEnv = { ...process.env };
     try {
       process.env.OPENAI_API_KEY = 'test-openai-key';
@@ -12,11 +12,15 @@ describe('cloud/providers', () => {
       delete process.env.CUSTOM_API_KEY;
       delete process.env.CUSTOM_BASE_URL;
 
-      const providers = await getAvailableProviders();
+      const providers = getAvailableProviders();
 
       const openai = providers.find((p) => p.id === 'openai');
       expect(openai).toBeDefined();
       expect(openai!.apiKey).toBe('test-openai-key');
+
+      // Codex is always present (server-managed tokens)
+      const codex = providers.find((p) => p.id === 'openai-codex');
+      expect(codex).toBeDefined();
 
       // Free provider should always be present (apiKey defaults to empty string)
       const zen = providers.find((p) => p.id === 'opencode-zen');
@@ -27,18 +31,18 @@ describe('cloud/providers', () => {
     }
   });
 
-  test('getProvider returns null for unknown provider', async () => {
-    const provider = await getProvider('does-not-exist');
+  test('getProvider returns null for unknown provider', () => {
+    const provider = getProvider('does-not-exist');
     expect(provider).toBeNull();
   });
 
-  test('custom provider uses CUSTOM_BASE_URL when set', async () => {
+  test('custom provider uses CUSTOM_BASE_URL when set', () => {
     const originalEnv = { ...process.env };
     try {
       process.env.CUSTOM_API_KEY = 'custom-key';
       process.env.CUSTOM_BASE_URL = 'http://localhost:9999/v1';
 
-      const provider = await getProvider('custom');
+      const provider = getProvider('custom');
       expect(provider).toBeDefined();
       expect(provider!.apiKey).toBe('custom-key');
       expect(provider!.baseUrl).toBe('http://localhost:9999/v1');
@@ -55,40 +59,37 @@ describe('cloud/providers', () => {
     expect(PROVIDER_CONFIGS.openrouter!.id).toBe('openrouter');
   });
 
-  test('getDefaultProvider returns the first available provider', async () => {
+  test('getDefaultProvider returns the first available provider', () => {
     const originalEnv = { ...process.env };
     try {
       process.env.OPENAI_API_KEY = 'test-key';
-      const { getDefaultProvider } = await import('./providers');
-      const provider = await getDefaultProvider();
+      const provider = getDefaultProvider();
       expect(provider).toBeDefined();
     } finally {
       process.env = originalEnv;
     }
   });
 
-  test('getAvailableModels lists models from all configured providers', async () => {
+  test('getAvailableModels lists models from all configured providers', () => {
     const originalEnv = { ...process.env };
     try {
       process.env.OPENAI_API_KEY = 'test-key';
-      const { getAvailableModels } = await import('./providers');
-      const models = await getAvailableModels();
+      const models = getAvailableModels();
       expect(models.length).toBeGreaterThan(0);
       // Should include OpenAI models
-      const gpt4o = models.find(m => m.model.id === 'gpt-5-mini');
-      expect(gpt4o).toBeDefined();
-      expect(gpt4o!.providerId).toBe('openai');
+      const gpt5mini = models.find(m => m.model.id === 'gpt-5-mini');
+      expect(gpt5mini).toBeDefined();
+      expect(gpt5mini!.providerId).toBe('openai');
     } finally {
       process.env = originalEnv;
     }
   });
 
-  test('findModelConfig finds a known model', async () => {
+  test('findModelConfig finds a known model', () => {
     const originalEnv = { ...process.env };
     try {
       process.env.OPENAI_API_KEY = 'test-key';
-      const { findModelConfig } = await import('./providers');
-      const result = await findModelConfig('gpt-5-mini');
+      const result = findModelConfig('gpt-5-mini');
       expect(result).toBeDefined();
       expect(result!.model.id).toBe('gpt-5-mini');
       expect(result!.provider.id).toBe('openai');
@@ -97,9 +98,8 @@ describe('cloud/providers', () => {
     }
   });
 
-  test('findModelConfig returns null for unknown model', async () => {
-    const { findModelConfig } = await import('./providers');
-    const result = await findModelConfig('does-not-exist-model');
+  test('findModelConfig returns null for unknown model', () => {
+    const result = findModelConfig('does-not-exist-model');
     expect(result).toBeNull();
   });
 
@@ -136,70 +136,41 @@ describe('cloud/providers', () => {
   });
 });
 
-describe('cloud/providers: codex OAuth', () => {
-  test('getAvailableProviders includes codex when OAuth tokens available', async () => {
-    mock.module('./codex-auth', () => ({
-      getCodexTokens: () => Promise.resolve({ accessToken: 'codex-oauth-at', accountId: 'acct-xyz' }),
-    }));
-
-    const providers = await getAvailableProviders();
+describe('cloud/providers: codex', () => {
+  test('getAvailableProviders always includes codex', () => {
+    const providers = getAvailableProviders();
     const codex = providers.find(p => p.id === 'openai-codex');
     expect(codex).toBeDefined();
-    expect(codex!.apiKey).toBe('codex-oauth-at');
-    expect(codex!.headers!['ChatGPT-Account-Id']).toBe('acct-xyz');
+    expect(codex!.type).toBe('responses-api');
+    expect(codex!.baseUrl).toBe('https://chatgpt.com/backend-api/codex');
   });
 
-  test('getProvider returns codex with OAuth tokens and headers', async () => {
-    const provider = await getProvider('openai-codex');
+  test('getProvider returns codex config', () => {
+    const provider = getProvider('openai-codex');
     expect(provider).toBeDefined();
-    expect(provider!.apiKey).toBe('codex-oauth-at');
-    expect(provider!.headers!['ChatGPT-Account-Id']).toBe('acct-xyz');
     expect(provider!.type).toBe('responses-api');
+    expect(provider!.models.length).toBeGreaterThan(0);
   });
 
-  test('getAvailableProviders includes codex without accountId', async () => {
-    mock.module('./codex-auth', () => ({
-      getCodexTokens: () => Promise.resolve({ accessToken: 'codex-no-acct' }),
-    }));
-
-    const providers = await getAvailableProviders();
-    const codex = providers.find(p => p.id === 'openai-codex');
-    expect(codex).toBeDefined();
-    expect(codex!.apiKey).toBe('codex-no-acct');
-    expect(codex!.headers?.['ChatGPT-Account-Id']).toBeUndefined();
-  });
-
-  test('getProvider returns codex without accountId header', async () => {
-    mock.module('./codex-auth', () => ({
-      getCodexTokens: () => Promise.resolve({ accessToken: 'codex-no-acct-gp' }),
-    }));
-
-    const provider = await getProvider('openai-codex');
-    expect(provider).toBeDefined();
-    expect(provider!.apiKey).toBe('codex-no-acct-gp');
-    expect(provider!.headers?.['ChatGPT-Account-Id']).toBeUndefined();
-  });
-
-  test('getCodexTokensSafe returns null when getCodexTokens rejects', async () => {
-    mock.module('./codex-auth', () => ({
-      getCodexTokens: () => Promise.reject(new Error('token expired')),
-    }));
-
-    const providers = await getAvailableProviders();
-    const codex = providers.find(p => p.id === 'openai-codex');
-    expect(codex).toBeUndefined();
-  });
-
-  test('getProvider returns null for codex when tokens unavailable', async () => {
+  test('codex uses env var token when available', () => {
     const originalEnv = { ...process.env };
-    delete process.env.CODEX_ACCESS_TOKEN;
     try {
-      mock.module('./codex-auth', () => ({
-        getCodexTokens: () => Promise.resolve(null),
-      }));
+      process.env.CODEX_ACCESS_TOKEN = 'env-codex-token';
+      const provider = getProvider('openai-codex');
+      expect(provider).toBeDefined();
+      expect(provider!.apiKey).toBe('env-codex-token');
+    } finally {
+      process.env = originalEnv;
+    }
+  });
 
-      const provider = await getProvider('openai-codex');
-      expect(provider).toBeNull();
+  test('codex uses server-managed placeholder when no env var', () => {
+    const originalEnv = { ...process.env };
+    try {
+      delete process.env.CODEX_ACCESS_TOKEN;
+      const provider = getProvider('openai-codex');
+      expect(provider).toBeDefined();
+      expect(provider!.apiKey).toBe('server-managed');
     } finally {
       process.env = originalEnv;
     }
@@ -230,20 +201,12 @@ describe('cloud/providers: OpenRouter', () => {
     expect(deepseekR1!.reasoning).toBe(true);
   });
 
-  test('getAvailableProviders includes openrouter when env key set', async () => {
+  test('getAvailableProviders includes openrouter when env key set', () => {
     const originalEnv = { ...process.env };
     try {
       process.env.OPENROUTER_API_KEY = 'sk-or-test-key';
-      delete process.env.OPENAI_API_KEY;
-      delete process.env.CODEX_ACCESS_TOKEN;
-      delete process.env.ANTHROPIC_API_KEY;
-      delete process.env.CUSTOM_API_KEY;
 
-      mock.module('./codex-auth', () => ({
-        getCodexTokens: () => Promise.resolve(null),
-      }));
-
-      const providers = await getAvailableProviders();
+      const providers = getAvailableProviders();
       const openrouter = providers.find(p => p.id === 'openrouter');
       expect(openrouter).toBeDefined();
       expect(openrouter!.apiKey).toBe('sk-or-test-key');
@@ -255,12 +218,12 @@ describe('cloud/providers: OpenRouter', () => {
     }
   });
 
-  test('getProvider returns openrouter config', async () => {
+  test('getProvider returns openrouter config', () => {
     const originalEnv = { ...process.env };
     try {
       process.env.OPENROUTER_API_KEY = 'sk-or-provider-test';
 
-      const provider = await getProvider('openrouter');
+      const provider = getProvider('openrouter');
       expect(provider).toBeDefined();
       expect(provider!.apiKey).toBe('sk-or-provider-test');
       expect(provider!.type).toBe('chat-completions');
@@ -269,12 +232,12 @@ describe('cloud/providers: OpenRouter', () => {
     }
   });
 
-  test('getProvider returns null for openrouter when no env key', async () => {
+  test('getProvider returns null for openrouter when no env key', () => {
     const originalEnv = { ...process.env };
     try {
       delete process.env.OPENROUTER_API_KEY;
 
-      const provider = await getProvider('openrouter');
+      const provider = getProvider('openrouter');
       expect(provider).toBeNull();
     } finally {
       process.env = originalEnv;
@@ -304,12 +267,11 @@ describe('cloud/providers: OpenRouter', () => {
     expect(config.contextWindow).toBe(200_000);
   });
 
-  test('findModelConfig finds openrouter model', async () => {
+  test('findModelConfig finds openrouter model', () => {
     const originalEnv = { ...process.env };
     try {
       process.env.OPENROUTER_API_KEY = 'sk-or-find-test';
-      const { findModelConfig } = await import('./providers');
-      const result = await findModelConfig('anthropic/claude-sonnet-4');
+      const result = findModelConfig('anthropic/claude-sonnet-4');
       expect(result).toBeDefined();
       expect(result!.model.id).toBe('anthropic/claude-sonnet-4');
       expect(result!.provider.id).toBe('openrouter');

@@ -1,22 +1,13 @@
 /**
  * LLM Provider Configuration
- * 
+ *
  * Supports the same providers as the CLI:
  * - OpenAI (standard API)
- * - OpenAI Codex (ChatGPT Pro/Plus) — via env var OR browser OAuth
+ * - OpenAI Codex (ChatGPT Pro/Plus) — tokens stored server-side in Convex DB
  * - OpenCode Zen (free models)
  * - Anthropic
  * - Custom OpenAI-compatible endpoints
  */
-
-async function getCodexTokensSafe(): Promise<import('./codex-auth').CodexTokens | null> {
-  try {
-    const mod = await import('./codex-auth');
-    return await mod.getCodexTokens();
-  } catch {
-    return null;
-  }
-}
 
 export interface ProviderConfig {
   id: string;
@@ -130,43 +121,28 @@ export const PROVIDER_CONFIGS: Record<string, Omit<ProviderConfig, 'apiKey'> & {
 };
 
 /**
- * Get available providers based on configured environment variables and OAuth tokens.
+ * Get available providers based on configured environment variables.
+ * Codex is always included — auth is handled server-side in the Convex agent
+ * via tokens stored in the Convex DB.
  */
-export async function getAvailableProviders(): Promise<ProviderConfig[]> {
+export function getAvailableProviders(): ProviderConfig[] {
   const available: ProviderConfig[] = [];
 
-  // Check Codex OAuth tokens from cookie
-  let codexOAuthKey: string | null = null;
-  let codexOAuthHeaders: Record<string, string> | undefined;
-  const tokens = await getCodexTokensSafe();
-  if (tokens) {
-    codexOAuthKey = tokens.accessToken;
-    if (tokens.accountId) {
-      codexOAuthHeaders = { 'ChatGPT-Account-Id': tokens.accountId };
-    }
-  }
-
-  // Add Codex if OAuth tokens are available
-  if (codexOAuthKey) {
-    const codexConfig = PROVIDER_CONFIGS['openai-codex'];
-    if (codexConfig) {
-      available.push({
-        id: 'openai-codex',
-        label: codexConfig.label,
-        apiKey: codexOAuthKey,
-        baseUrl: codexConfig.baseUrl,
-        type: codexConfig.type,
-        headers: { ...codexConfig.headers, ...codexOAuthHeaders },
-        models: codexConfig.models,
-      });
-    }
-  }
-
-  // Add other providers from environment variables
   for (const [id, config] of Object.entries(PROVIDER_CONFIGS)) {
-    // Skip openai-codex - already handled above
-    if (id === 'openai-codex') continue;
-    
+    // Codex: always available (tokens resolved server-side by the agent)
+    if (id === 'openai-codex') {
+      available.push({
+        id,
+        label: config.label,
+        apiKey: process.env.CODEX_ACCESS_TOKEN || 'server-managed',
+        baseUrl: config.baseUrl,
+        type: config.type,
+        headers: config.headers,
+        models: config.models,
+      });
+      continue;
+    }
+
     // OpenCode Zen has a default API key for free models (empty string is valid)
     const apiKey = process.env[config.envKey] || config.apiKey;
     if (apiKey !== undefined) {
@@ -188,27 +164,21 @@ export async function getAvailableProviders(): Promise<ProviderConfig[]> {
 /**
  * Get provider config by ID
  */
-export async function getProvider(providerId: string): Promise<ProviderConfig | null> {
+export function getProvider(providerId: string): ProviderConfig | null {
   const config = PROVIDER_CONFIGS[providerId];
   if (!config) return null;
 
-  // For openai-codex, check OAuth tokens first
+  // Codex: always return config (tokens resolved server-side by the agent)
   if (providerId === 'openai-codex') {
-    const tokens = await getCodexTokensSafe();
-    if (tokens) {
-      return {
-        id: providerId,
-        label: config.label,
-        apiKey: tokens.accessToken,
-        baseUrl: config.baseUrl,
-        type: config.type,
-        headers: {
-          ...config.headers,
-          ...(tokens.accountId ? { 'ChatGPT-Account-Id': tokens.accountId } : {}),
-        },
-        models: config.models,
-      };
-    }
+    return {
+      id: providerId,
+      label: config.label,
+      apiKey: process.env.CODEX_ACCESS_TOKEN || 'server-managed',
+      baseUrl: config.baseUrl,
+      type: config.type,
+      headers: config.headers,
+      models: config.models,
+    };
   }
 
   // OpenCode Zen and other providers may have default API keys (empty string is valid)
@@ -229,19 +199,19 @@ export async function getProvider(providerId: string): Promise<ProviderConfig | 
 /**
  * Get the default provider (first available)
  */
-export async function getDefaultProvider(): Promise<ProviderConfig | null> {
-  const available = await getAvailableProviders();
+export function getDefaultProvider(): ProviderConfig | null {
+  const available = getAvailableProviders();
   return available[0] || null;
 }
 
 /**
  * Find model config by ID across all providers
  */
-export async function findModelConfig(modelId: string): Promise<{ provider: ProviderConfig; model: ModelConfig } | null> {
+export function findModelConfig(modelId: string): { provider: ProviderConfig; model: ModelConfig } | null {
   for (const [providerId, config] of Object.entries(PROVIDER_CONFIGS)) {
     const model = config.models.find(m => m.id === modelId);
     if (model) {
-      const provider = await getProvider(providerId);
+      const provider = getProvider(providerId);
       if (provider) {
         return { provider, model };
       }
@@ -253,10 +223,10 @@ export async function findModelConfig(modelId: string): Promise<{ provider: Prov
 /**
  * Get all available models from configured providers
  */
-export async function getAvailableModels(): Promise<Array<{ providerId: string; providerLabel: string; model: ModelConfig }>> {
+export function getAvailableModels(): Array<{ providerId: string; providerLabel: string; model: ModelConfig }> {
   const models: Array<{ providerId: string; providerLabel: string; model: ModelConfig }> = [];
 
-  for (const provider of await getAvailableProviders()) {
+  for (const provider of getAvailableProviders()) {
     for (const model of provider.models) {
       models.push({
         providerId: provider.id,
@@ -274,7 +244,7 @@ export async function getAvailableModels(): Promise<Array<{ providerId: string; 
  */
 export function buildSageProviderConfig(provider: ProviderConfig, modelId: string) {
   const model = provider.models.find(m => m.id === modelId);
-  
+
   return {
     apiKey: provider.apiKey,
     baseUrl: provider.baseUrl,

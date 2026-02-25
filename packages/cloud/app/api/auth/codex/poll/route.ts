@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { pollCodexDeviceAuth, saveCodexTokens } from '@/lib/codex-auth';
+import { pollCodexDeviceAuth } from '@/lib/codex-auth';
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,9 +19,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: 'pending' });
     }
 
-    // Success — save tokens to cookies and return them so frontend can
-    // also persist to Convex DB (Convex actions can't read cookies).
-    await saveCodexTokens(tokens);
+    // Success — return tokens so frontend can persist to Convex DB.
+    // Tokens are stored server-side only (no cookies).
     return NextResponse.json({
       status: 'success',
       tokens: {

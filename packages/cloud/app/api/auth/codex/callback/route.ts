@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { exchangeCodexCode, saveCodexTokens, getPkceVerifier } from '@/lib/codex-auth';
+import { exchangeCodexCode, getPkceVerifier } from '@/lib/codex-auth';
+import { ConvexHttpClient } from 'convex/browser';
+import { api } from '../../../../convex/_generated/api';
 
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get('code');
@@ -27,7 +29,22 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  await saveCodexTokens(tokens);
+  // Save tokens to Convex DB (server-side only, no cookies)
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (convexUrl) {
+    try {
+      const client = new ConvexHttpClient(convexUrl);
+      await client.mutation(api.codex_auth.save, {
+        userId: 'owner',
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        accountId: tokens.accountId,
+        expiresAt: tokens.expiresAt,
+      });
+    } catch (e) {
+      console.error('Failed to save codex tokens to Convex:', e);
+    }
+  }
 
   return NextResponse.redirect(
     new URL('/chat?codex_success=true', request.nextUrl.origin)

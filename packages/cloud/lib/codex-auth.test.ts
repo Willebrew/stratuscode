@@ -12,16 +12,12 @@ mock.module('next/headers', () => ({
 }));
 
 import {
-  getCodexTokens,
-  saveCodexTokens,
-  clearCodexTokens,
   savePkceVerifier,
   getPkceVerifier,
   initiateCodexAuth,
   exchangeCodexCode,
   initiateCodexDeviceAuth,
   pollCodexDeviceAuth,
-  type CodexTokens,
 } from './codex-auth';
 
 let originalFetch: typeof globalThis.fetch;
@@ -35,100 +31,6 @@ beforeEach(() => {
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
-});
-
-// ============================================
-// Cookie-based token functions
-// ============================================
-
-describe('codex-auth: getCodexTokens', () => {
-  test('returns null when no cookie exists', async () => {
-    mockCookieStore.get.mockReturnValue(undefined);
-    const tokens = await getCodexTokens();
-    expect(tokens).toBeNull();
-  });
-
-  test('returns tokens from cookie when not expired', async () => {
-    const stored: CodexTokens = {
-      accessToken: 'at-123',
-      refreshToken: 'rt-456',
-      expiresAt: Date.now() + 60_000,
-    };
-    mockCookieStore.get.mockReturnValue({ value: JSON.stringify(stored) });
-    const tokens = await getCodexTokens();
-    expect(tokens).toBeDefined();
-    expect(tokens!.accessToken).toBe('at-123');
-  });
-
-  test('attempts refresh when token is expired', async () => {
-    const stored: CodexTokens = {
-      accessToken: 'old-at',
-      refreshToken: 'rt-456',
-      expiresAt: Date.now() - 10_000,
-    };
-    mockCookieStore.get.mockReturnValue({ value: JSON.stringify(stored) });
-
-    // Mock fetch for refresh — return failure
-    globalThis.fetch = mock(() =>
-      Promise.resolve({ ok: false, status: 401 } as Response)
-    ) as unknown as typeof fetch;
-
-    const tokens = await getCodexTokens();
-    expect(tokens).toBeNull();
-    // Should have tried to clear cookies
-    expect(mockCookieStore.delete).toHaveBeenCalled();
-  });
-
-  test('returns refreshed tokens on successful refresh', async () => {
-    const stored: CodexTokens = {
-      accessToken: 'old-at',
-      refreshToken: 'rt-456',
-      expiresAt: Date.now() - 10_000,
-    };
-    mockCookieStore.get.mockReturnValue({ value: JSON.stringify(stored) });
-
-    globalThis.fetch = mock(() =>
-      Promise.resolve({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            access_token: 'new-at',
-            refresh_token: 'new-rt',
-            expires_in: 3600,
-          }),
-      } as Response)
-    ) as unknown as typeof fetch;
-
-    const tokens = await getCodexTokens();
-    expect(tokens).toBeDefined();
-    expect(tokens!.accessToken).toBe('new-at');
-    expect(tokens!.refreshToken).toBe('new-rt');
-  });
-
-  test('returns null on parse error', async () => {
-    mockCookieStore.get.mockReturnValue({ value: 'not-json' });
-    const tokens = await getCodexTokens();
-    expect(tokens).toBeNull();
-  });
-});
-
-describe('codex-auth: saveCodexTokens', () => {
-  test('sets cookie with token JSON', async () => {
-    const tokens: CodexTokens = {
-      accessToken: 'at',
-      refreshToken: 'rt',
-      expiresAt: Date.now() + 60_000,
-    };
-    await saveCodexTokens(tokens);
-    expect(mockCookieStore.set).toHaveBeenCalled();
-  });
-});
-
-describe('codex-auth: clearCodexTokens', () => {
-  test('deletes the token cookie', async () => {
-    await clearCodexTokens();
-    expect(mockCookieStore.delete).toHaveBeenCalled();
-  });
 });
 
 // ============================================
@@ -512,22 +414,5 @@ describe('codex-auth: accountId extraction edge cases', () => {
     ) as unknown as typeof fetch;
     const tokens = await exchangeCodexCode('code', 'state', 'http://localhost/cb', 'v');
     expect(tokens!.accountId).toBeUndefined();
-  });
-});
-
-describe('codex-auth: refresh edge cases', () => {
-  test('handles refresh when fetch throws network error', async () => {
-    const stored: CodexTokens = {
-      accessToken: 'old-at',
-      refreshToken: 'rt-456',
-      expiresAt: Date.now() - 10_000,
-    };
-    mockCookieStore.get.mockReturnValue({ value: JSON.stringify(stored) });
-    globalThis.fetch = mock(() =>
-      Promise.reject(new Error('network failure'))
-    ) as unknown as typeof fetch;
-    const tokens = await getCodexTokens();
-    expect(tokens).toBeNull();
-    expect(mockCookieStore.delete).toHaveBeenCalled();
   });
 });
