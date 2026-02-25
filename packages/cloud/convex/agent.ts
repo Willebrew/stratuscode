@@ -431,8 +431,9 @@ async function generateTitle(
         body: JSON.stringify({
           model,
           instructions: TITLE_PROMPT,
-          input: userMessage.slice(0, 500),
+          input: [{ role: "user", content: userMessage.slice(0, 500) }],
           max_output_tokens: 1000,
+          store: false,
         }),
       });
       if (!resp.ok) {
