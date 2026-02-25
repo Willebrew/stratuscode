@@ -199,9 +199,10 @@ export const prepareSend = mutation({
       lastMessage: args.lastMessage,
       updatedAt: Date.now(),
     };
-    // Set title on first message — don't overwrite AI-generated titles
+    // Set title on first message — don't overwrite once generated
     if (args.title && !session?.titleGenerated) {
       patch.title = args.title;
+      patch.titleGenerated = true;
     }
     if (args.agentMode) patch.agent = args.agentMode;
     await ctx.db.patch(args.id, patch);

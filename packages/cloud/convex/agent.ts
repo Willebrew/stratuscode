@@ -1027,26 +1027,7 @@ export const send = action({
     agentMode: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    // Update title from first message (instant — no LLM call)
-    try {
-      const agentState = await ctx.runQuery(internal.agent_state.get, {
-        sessionId: args.sessionId,
-      });
-      const hasPrevious = agentState?.sageMessages
-        ? JSON.parse(agentState.sageMessages).length > 0
-        : false;
-      if (!hasPrevious) {
-        const title = args.message.slice(0, 80) + (args.message.length > 80 ? "..." : "");
-        await ctx.runMutation(internal.sessions.updateTitle, {
-          id: args.sessionId,
-          title,
-          titleGenerated: true,
-        });
-      }
-    } catch {
-      // Best effort — title failure shouldn't affect the agent
-    }
-
+    // Title is already set by prepareSend mutation (instant, from frontend).
     // Schedule agent — starts running right away
     await ctx.scheduler.runAfter(0, internal.agent.sendMessage, {
       sessionId: args.sessionId,
