@@ -179,7 +179,8 @@ async function runCodexBrowserAuth(): Promise<OAuthResult | null> {
     const tokenJson = await tokenResp.json() as Record<string, unknown>;
     const access = String(tokenJson.access_token || '');
     const refresh = String(tokenJson.refresh_token || '');
-    const expires = Number(tokenJson.expires_in || 0);
+    const expiresIn = Number(tokenJson.expires_in || 3600);
+    const expires = Date.now() + expiresIn * 1000;
 
     const accountId = extractAccountIdFromTokens(tokenJson);
     return { refresh, access, expires, accountId };

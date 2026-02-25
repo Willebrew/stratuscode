@@ -35,10 +35,16 @@ export async function getCodexTokens(): Promise<CodexTokens | null> {
       // Try to refresh
       const refreshed = await refreshCodexTokens(tokens.refreshToken);
       if (refreshed) {
-        await saveCodexTokens(refreshed);
+        // Save refreshed tokens — but don't lose them if save fails
+        // (save can fail in Server Component renders where cookies are read-only)
+        try {
+          await saveCodexTokens(refreshed);
+        } catch {
+          // Cookie save failed (e.g. read-only context), still return refreshed tokens
+        }
         return refreshed;
       }
-      await clearCodexTokens();
+      try { await clearCodexTokens(); } catch { /* ignore */ }
       return null;
     }
 

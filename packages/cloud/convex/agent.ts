@@ -239,13 +239,13 @@ const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 /** In-memory cache of refreshed Codex access token for this action invocation */
 let cachedCodexToken: { access: string; expires: number } | null = null;
 
-async function refreshCodexAccessToken(): Promise<string | null> {
+async function refreshCodexAccessToken(refreshTokenOverride?: string): Promise<string | null> {
   // If we have a cached token that hasn't expired, use it
   if (cachedCodexToken && cachedCodexToken.expires > Date.now() + 60_000) {
     return cachedCodexToken.access;
   }
 
-  const refreshToken = process.env.CODEX_REFRESH_TOKEN;
+  const refreshToken = refreshTokenOverride || process.env.CODEX_REFRESH_TOKEN;
   if (!refreshToken) return null;
 
   try {
@@ -281,7 +281,10 @@ async function refreshCodexAccessToken(): Promise<string | null> {
  * previous hard-coded OpenAI-only logic so Codex, OpenRouter, Anthropic,
  * and OpenCode Zen models all route to the correct API.
  */
-async function resolveProviderForModel(model: string): Promise<{
+async function resolveProviderForModel(
+  model: string,
+  codexTokens?: { accessToken?: string; refreshToken?: string; accountId?: string },
+): Promise<{
   apiKey: string;
   baseUrl: string;
   providerType: string;
@@ -291,14 +294,17 @@ async function resolveProviderForModel(model: string): Promise<{
 
   // Codex models → ChatGPT Codex Responses API
   if (m.includes("codex")) {
-    // Try to refresh the access token if we have a refresh token
-    const freshToken = await refreshCodexAccessToken();
+    // Use forwarded OAuth tokens from frontend cookies, fall back to env vars
+    const refreshToken = codexTokens?.refreshToken || process.env.CODEX_REFRESH_TOKEN;
+    const freshToken = await refreshCodexAccessToken(refreshToken || undefined);
+    const accessToken = freshToken || codexTokens?.accessToken || process.env.CODEX_ACCESS_TOKEN || "";
+    const accountId = codexTokens?.accountId || process.env.CODEX_ACCOUNT_ID;
     return {
-      apiKey: freshToken || process.env.CODEX_ACCESS_TOKEN || "",
+      apiKey: accessToken,
       baseUrl: "https://chatgpt.com/backend-api/codex",
       providerType: "responses-api",
-      headers: process.env.CODEX_ACCOUNT_ID
-        ? { "ChatGPT-Account-Id": process.env.CODEX_ACCOUNT_ID }
+      headers: accountId
+        ? { "ChatGPT-Account-Id": accountId }
         : undefined,
     };
   }
@@ -357,6 +363,10 @@ export const sendMessage = internalAction({
     alphaMode: v.optional(v.boolean()),
     reasoningEffort: v.optional(v.string()),
     agentMode: v.optional(v.string()),
+    // Codex OAuth credentials (forwarded from send action)
+    codexAccessToken: v.optional(v.string()),
+    codexRefreshToken: v.optional(v.string()),
+    codexAccountId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const session = await ctx.runQuery(internal.sessions.getInternal, { id: args.sessionId });
@@ -371,7 +381,10 @@ export const sendMessage = internalAction({
     const model = args.model || session.model || "gpt-5-mini";
 
     // Resolve provider from explicit args or auto-detect from model
-    const resolved = await resolveProviderForModel(model);
+    const codexTokens = (args.codexAccessToken || args.codexRefreshToken)
+      ? { accessToken: args.codexAccessToken, refreshToken: args.codexRefreshToken, accountId: args.codexAccountId }
+      : undefined;
+    const resolved = await resolveProviderForModel(model, codexTokens);
     const apiKey = args.apiKey || resolved.apiKey;
     const baseUrl = args.baseUrl || resolved.baseUrl;
     const providerType = args.providerType || resolved.providerType;
@@ -910,6 +923,10 @@ export const send = action({
     reasoningEffort: v.optional(v.string()),
     attachmentIds: v.optional(v.array(v.string())),
     agentMode: v.optional(v.string()),
+    // Codex OAuth credentials (passed from frontend via cookie-backed API)
+    codexAccessToken: v.optional(v.string()),
+    codexRefreshToken: v.optional(v.string()),
+    codexAccountId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await ctx.scheduler.runAfter(0, internal.agent.sendMessage, {
@@ -919,6 +936,9 @@ export const send = action({
       alphaMode: args.alphaMode,
       reasoningEffort: args.reasoningEffort,
       agentMode: args.agentMode,
+      codexAccessToken: args.codexAccessToken,
+      codexRefreshToken: args.codexRefreshToken,
+      codexAccountId: args.codexAccountId,
     });
   },
 });

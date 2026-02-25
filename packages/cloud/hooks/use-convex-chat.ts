@@ -296,6 +296,25 @@ export function useConvexChat(
 
       // 4. Fire the agent action (fire-and-forget). Session is already "running"
       //    from prepareSend, so the UI shows loading immediately.
+      //    For Codex models, fetch fresh OAuth tokens from cookies first.
+      let codexAccessToken: string | undefined;
+      let codexRefreshToken: string | undefined;
+      let codexAccountId: string | undefined;
+      const effectiveModel = (opts?.model || session?.model || '').toLowerCase();
+      if (effectiveModel.includes('codex')) {
+        try {
+          const resp = await fetch('/api/auth/codex/tokens');
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data.authenticated) {
+              codexAccessToken = data.accessToken;
+              codexRefreshToken = data.refreshToken;
+              codexAccountId = data.accountId;
+            }
+          }
+        } catch { /* fall back to env vars on Convex side */ }
+      }
+
       sendAction({
         sessionId,
         message,
@@ -304,6 +323,9 @@ export function useConvexChat(
         reasoningEffort: opts?.reasoningEffort,
         attachmentIds: opts?.attachmentIds as any,
         agentMode: opts?.agentMode,
+        codexAccessToken,
+        codexRefreshToken,
+        codexAccountId,
       }).catch((e) => {
         // Action failed before scheduling the agent — force-reset the session
         // so it doesn't get stuck in "running" with no agent.
