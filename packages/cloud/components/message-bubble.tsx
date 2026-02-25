@@ -307,7 +307,7 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
 
       {/* Render parts — group subagent tool calls inside their delegate card */}
       {groupSubagentParts(deduplicatedParts).map(({ part, idx, nestedParts, statusText }) => (
-        <MessagePartView key={idx} part={part} nestedParts={nestedParts} statusText={statusText} todos={todos} sessionId={sessionId} onSend={onSend} onAnswer={onAnswer} isStreaming={message.streaming} />
+        <MessagePartView key={idx} part={part} nestedParts={nestedParts} statusText={statusText} allParts={message.parts} todos={todos} sessionId={sessionId} onSend={onSend} onAnswer={onAnswer} isStreaming={message.streaming} />
       ))}
 
       {/* Show generation swoop logo under the response if streaming content */}
@@ -364,7 +364,7 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
   );
 });
 
-function MessagePartView({ part, nestedParts, statusText, todos, sessionId, onSend, onAnswer, isStreaming }: { part: MessagePart; nestedParts?: MessagePart[]; statusText?: string; todos?: TodoItem[]; sessionId?: string; onSend?: (msg: string) => void; onAnswer?: (answer: string) => void; isStreaming?: boolean }) {
+function MessagePartView({ part, nestedParts, statusText, allParts, todos, sessionId, onSend, onAnswer, isStreaming }: { part: MessagePart; nestedParts?: MessagePart[]; statusText?: string; allParts?: MessagePart[]; todos?: TodoItem[]; sessionId?: string; onSend?: (msg: string) => void; onAnswer?: (answer: string) => void; isStreaming?: boolean }) {
   switch (part.type) {
     case 'reasoning':
       return null;
@@ -384,7 +384,7 @@ function MessagePartView({ part, nestedParts, statusText, todos, sessionId, onSe
         return <EditCard toolCall={part.toolCall} sessionId={sessionId} />;
       }
       if (part.toolCall.name?.startsWith('delegate_to_')) {
-        return <SubagentCard toolCall={part.toolCall} nestedParts={nestedParts || []} statusText={statusText} sessionId={sessionId} />;
+        return <SubagentCard toolCall={part.toolCall} nestedParts={nestedParts || []} statusText={statusText} allParts={allParts} sessionId={sessionId} />;
       }
       return <ToolCallCard toolCall={part.toolCall} />;
   }
@@ -894,7 +894,7 @@ function EditCard({ toolCall, sessionId }: { toolCall: ToolCallInfo; sessionId?:
 }
 
 // ── SubagentCard — dropdown like the thinking indicator ──
-function SubagentCard({ toolCall, nestedParts, statusText, sessionId }: { toolCall: ToolCallInfo; nestedParts: MessagePart[]; statusText?: string; sessionId?: string }) {
+function SubagentCard({ toolCall, nestedParts, statusText: groupedStatusText, allParts, sessionId }: { toolCall: ToolCallInfo; nestedParts: MessagePart[]; statusText?: string; allParts?: MessagePart[]; sessionId?: string }) {
   const isRunning = toolCall.status === 'running';
   const isCompleted = toolCall.status === 'completed';
   const isFailed = toolCall.status === 'failed';
@@ -910,7 +910,6 @@ function SubagentCard({ toolCall, nestedParts, statusText, sessionId }: { toolCa
     }
   }, [isRunning, userToggled]);
 
-  // Derive label from LLM-generated statusText (live from child agent)
   const agentKind = toolCall.name?.replace('delegate_to_', '') || 'agent';
 
   // Extract task from tool call args as a reliable fallback (always available)
@@ -919,10 +918,24 @@ function SubagentCard({ toolCall, nestedParts, statusText, sessionId }: { toolCa
     catch { return ''; }
   })();
 
+  // Read statusText directly from raw parts — bypasses grouping logic
+  // Find the LAST subagent_start matching this agent for the latest status
+  const liveStatusText = (() => {
+    if (allParts) {
+      for (let i = allParts.length - 1; i >= 0; i--) {
+        const p = allParts[i] as any;
+        if (p?.type === 'subagent_start' && p.agentName === agentKind && p.statusText) {
+          return p.statusText as string;
+        }
+      }
+    }
+    return groupedStatusText;
+  })();
+
   // Extract the last meaningful line from statusText for display
   const derivedLabel = (() => {
-    if (statusText) {
-      const lines = statusText.split('\n').filter(l => l.trim());
+    if (liveStatusText) {
+      const lines = liveStatusText.split('\n').filter((l: string) => l.trim());
       const lastLine = lines[lines.length - 1]?.trim() || '';
       if (lastLine) return lastLine.length > 80 ? lastLine.slice(0, 77) + '...' : lastLine;
     }
