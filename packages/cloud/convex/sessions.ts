@@ -199,7 +199,8 @@ export const prepareSend = mutation({
       lastMessage: args.lastMessage,
       updatedAt: Date.now(),
     };
-    // Title is set by the send action via updateTitle (not here)
+    // Set truncated title as instant placeholder — AI title replaces it later
+    // via updateTitle with titleGenerated=true (triggers typing animation)
     if (args.title && !session?.titleGenerated) {
       patch.title = args.title;
     }

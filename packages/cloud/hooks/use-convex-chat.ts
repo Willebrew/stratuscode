@@ -283,11 +283,14 @@ export function useConvexChat(
       }
 
       // 3. Prepare session state via MUTATION (not action) — this is the key:
-      //    mutations update Convex subscriptions instantly, so isLoading=true and
-      //    isStreaming=true propagate to the UI immediately.
-      //    Title is set by the send action (matching clone behavior).
+      //    mutations update Convex subscriptions instantly, so isLoading=true,
+      //    isStreaming=true, and a truncated title all propagate immediately.
+      //    The send action later replaces the truncated title with an AI-generated
+      //    one (+ typing animation via titleGenerated flag).
+      const title = message.slice(0, 80) + (message.length > 80 ? '...' : '');
       await prepareSendMutation({
         id: sessionId,
+        title,
         lastMessage: message.slice(0, 200),
         agentMode: opts?.agentMode,
       });
