@@ -434,9 +434,9 @@ async function generateTitle(
           model,
           instructions: TITLE_PROMPT,
           input: userMessage.slice(0, 500),
-          // Must be 300+ — reasoning models (kimi-k2.5 etc.) use internal
-          // thinking tokens; 40 gets fully consumed by reasoning → empty content.
-          max_output_tokens: 300,
+          // Must be 1000+ — reasoning models (kimi-k2.5) use ~400 internal
+          // thinking tokens before producing output. Lower values → empty content.
+          max_output_tokens: 1000,
         }),
       });
       if (!resp.ok) return null;
@@ -448,9 +448,9 @@ async function generateTitle(
         headers: authHeaders,
         body: JSON.stringify({
           model,
-          // Must be 300+ — reasoning models (kimi-k2.5 etc.) use internal
-          // thinking tokens; 40 gets fully consumed by reasoning → empty content.
-          max_tokens: 300,
+          // Must be 1000+ — reasoning models (kimi-k2.5) use ~400 internal
+          // thinking tokens before producing output. Lower values → empty content.
+          max_tokens: 1000,
           temperature: 0.3,
           messages: [
             { role: "system", content: TITLE_PROMPT },
