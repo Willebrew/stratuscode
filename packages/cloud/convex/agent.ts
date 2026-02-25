@@ -849,15 +849,22 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
             });
           },
           onSubagentEnd: async (agentName: string, result: string) => {
-            // Flush any remaining subagent status text before closing
-            if (subagentTextBuffers[agentName]) {
+            // Set final statusText from the child's result so completed cards
+            // show a meaningful summary instead of the last tool activity
+            const finalStatus = subagentTextBuffers[agentName] || "";
+            // Append the child's final text as the last line (this is the LLM's summary)
+            const resultLine = result?.trim().split('\n').filter(l => l.trim()).pop()?.trim() || "";
+            const statusText = resultLine
+              ? (finalStatus ? finalStatus + "\n" + resultLine : resultLine)
+              : finalStatus;
+            if (statusText) {
               await ctx.runMutation(internal.streaming.updateSubagentStatus, {
                 sessionId: args.sessionId,
                 agentName,
-                statusText: subagentTextBuffers[agentName],
+                statusText,
               });
-              delete subagentTextBuffers[agentName];
             }
+            delete subagentTextBuffers[agentName];
             await flushTokens();
             await ctx.runMutation(internal.streaming.addSubagentEnd, {
               sessionId: args.sessionId,
@@ -904,11 +911,19 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
       if (streamState?.reasoning) {
         parts.push({ type: "reasoning", content: streamState.reasoning });
       }
-      const toolCalls = streamState?.toolCalls ? JSON.parse(streamState.toolCalls) : [];
-      const textContent = streamState?.content || result.content || "";
 
-      // Interleave tool calls with text content
-      if (toolCalls.length > 0) {
+      // Use ordered parts (preserves subagent markers with statusText)
+      const orderedParts = streamState?.parts ? JSON.parse(streamState.parts) : null;
+      if (orderedParts && orderedParts.length > 0) {
+        for (const p of orderedParts) {
+          if (p.type === "text" || p.type === "tool_call" || p.type === "subagent_start" || p.type === "subagent_end") {
+            parts.push(p);
+          }
+        }
+      } else {
+        // Legacy fallback: flat toolCalls + text
+        const toolCalls = streamState?.toolCalls ? JSON.parse(streamState.toolCalls) : [];
+        const textContent = streamState?.content || result.content || "";
         for (const tc of toolCalls) {
           parts.push({
             type: "tool_call",
@@ -921,16 +936,16 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
             },
           });
         }
-      }
-      if (textContent) {
-        parts.push({ type: "text", content: textContent });
+        if (textContent) {
+          parts.push({ type: "text", content: textContent });
+        }
       }
 
       // Save the complete assistant message
       await ctx.runMutation(internal.messages.create, {
         sessionId: args.sessionId,
         role: "assistant",
-        content: result.content || textContent,
+        content: result.content || streamState?.content || "",
         parts,
       });
 

@@ -18,7 +18,7 @@
     "@stratuscode/tools": "workspace:*",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@vercel/sandbox": "^1.4.0",
-    "@willebrew/sage-core": "0.1.7",
+    "@willebrew/sage-core": "0.1.8",
     "clsx": "^2.1.0",
     "convex": "^1.31.7",
     "diff2html": "^3.4.48",
