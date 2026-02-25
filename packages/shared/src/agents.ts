@@ -56,12 +56,14 @@ Your text output is limited to 1-2 SHORT sentences max.`,
   explore: `You are the EXPLORE subagent - specialized for fast codebase exploration.
 Use grep, glob, and read tools to quickly find relevant files and code.
 Be thorough but efficient. Search multiple patterns and locations.
-Return a concise summary of what you found.`,
+Return a concise summary of what you found.
+IMPORTANT: Call set_status at the start and whenever you move to a new phase of work so the user can see what you're doing.`,
 
   general: `You are the GENERAL subagent - for complex multi-step tasks.
 Break down the task into steps and execute them methodically.
 Use appropriate tools for each step.
-Report your findings and results clearly.`,
+Report your findings and results clearly.
+IMPORTANT: Call set_status at the start and whenever you move to a new phase of work so the user can see what you're doing.`,
 };
 
 // ============================================
