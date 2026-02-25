@@ -237,17 +237,16 @@ const CODEX_ISSUER = "https://auth.openai.com";
 const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 
 /** In-memory cache of refreshed Codex access token for this action invocation */
-let cachedCodexToken: { access: string; expires: number } | null = null;
+let cachedCodexToken: { access: string; refresh: string; accountId?: string; expires: number } | null = null;
 
-async function refreshCodexAccessToken(refreshTokenOverride?: string): Promise<string | null> {
-  // If we have a cached token that hasn't expired, use it
-  if (cachedCodexToken && cachedCodexToken.expires > Date.now() + 60_000) {
-    return cachedCodexToken.access;
-  }
+interface CodexRefreshResult {
+  accessToken: string;
+  refreshToken: string;
+  accountId?: string;
+  expiresAt: number;
+}
 
-  const refreshToken = refreshTokenOverride || process.env.CODEX_REFRESH_TOKEN;
-  if (!refreshToken) return null;
-
+async function refreshCodexAccessToken(refreshToken: string): Promise<CodexRefreshResult | null> {
   try {
     const resp = await fetch(`${CODEX_ISSUER}/oauth/token`, {
       method: "POST",
@@ -261,13 +260,15 @@ async function refreshCodexAccessToken(refreshTokenOverride?: string): Promise<s
     if (!resp.ok) return null;
     const data = (await resp.json()) as {
       access_token: string;
+      refresh_token?: string;
       expires_in?: number;
     };
-    cachedCodexToken = {
-      access: data.access_token,
-      expires: Date.now() + (data.expires_in ?? 3600) * 1000,
+    const expiresAt = Date.now() + (data.expires_in ?? 3600) * 1000;
+    return {
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token || refreshToken,
+      expiresAt,
     };
-    return data.access_token;
   } catch {
     return null;
   }
@@ -283,7 +284,8 @@ async function refreshCodexAccessToken(refreshTokenOverride?: string): Promise<s
  */
 async function resolveProviderForModel(
   model: string,
-  codexTokens?: { accessToken?: string; refreshToken?: string; accountId?: string },
+  ctx: any,
+  userId: string,
 ): Promise<{
   apiKey: string;
   baseUrl: string;
@@ -294,11 +296,61 @@ async function resolveProviderForModel(
 
   // Codex models → ChatGPT Codex Responses API
   if (m.includes("codex")) {
-    // Use forwarded OAuth tokens from frontend cookies, fall back to env vars
-    const refreshToken = codexTokens?.refreshToken || process.env.CODEX_REFRESH_TOKEN;
-    const freshToken = await refreshCodexAccessToken(refreshToken || undefined);
-    const accessToken = freshToken || codexTokens?.accessToken || process.env.CODEX_ACCESS_TOKEN || "";
-    const accountId = codexTokens?.accountId || process.env.CODEX_ACCOUNT_ID;
+    let accessToken = "";
+    let accountId = process.env.CODEX_ACCOUNT_ID;
+
+    // 1. Check in-memory cache first (same action invocation)
+    if (cachedCodexToken && cachedCodexToken.expires > Date.now() + 60_000) {
+      accessToken = cachedCodexToken.access;
+      accountId = cachedCodexToken.accountId || accountId;
+    }
+
+    // 2. Read from Convex DB (user's OAuth tokens from device auth)
+    if (!accessToken) {
+      const dbAuth = await ctx.runQuery(internal.codex_auth.get, { userId });
+      if (dbAuth) {
+        if (dbAuth.expiresAt > Date.now() + 60_000) {
+          // Token still fresh
+          accessToken = dbAuth.accessToken;
+          accountId = dbAuth.accountId || accountId;
+          cachedCodexToken = { access: dbAuth.accessToken, refresh: dbAuth.refreshToken, accountId: dbAuth.accountId, expires: dbAuth.expiresAt };
+        } else {
+          // Token expired — refresh it
+          const refreshed = await refreshCodexAccessToken(dbAuth.refreshToken);
+          if (refreshed) {
+            accessToken = refreshed.accessToken;
+            accountId = refreshed.accountId || dbAuth.accountId || accountId;
+            cachedCodexToken = { access: refreshed.accessToken, refresh: refreshed.refreshToken, accountId, expires: refreshed.expiresAt };
+            // Persist refreshed tokens back to DB
+            try {
+              await ctx.runMutation(internal.codex_auth.updateTokens, {
+                userId,
+                accessToken: refreshed.accessToken,
+                refreshToken: refreshed.refreshToken,
+                accountId,
+                expiresAt: refreshed.expiresAt,
+              });
+            } catch { /* best effort */ }
+          }
+        }
+      }
+    }
+
+    // 3. Fall back to env vars
+    if (!accessToken) {
+      const envRefresh = process.env.CODEX_REFRESH_TOKEN;
+      if (envRefresh) {
+        const refreshed = await refreshCodexAccessToken(envRefresh);
+        if (refreshed) {
+          accessToken = refreshed.accessToken;
+          cachedCodexToken = { access: refreshed.accessToken, refresh: refreshed.refreshToken, expires: refreshed.expiresAt };
+        }
+      }
+      if (!accessToken) {
+        accessToken = process.env.CODEX_ACCESS_TOKEN || "";
+      }
+    }
+
     return {
       apiKey: accessToken,
       baseUrl: "https://chatgpt.com/backend-api/codex",
@@ -381,10 +433,7 @@ export const sendMessage = internalAction({
     const model = args.model || session.model || "gpt-5-mini";
 
     // Resolve provider from explicit args or auto-detect from model
-    const codexTokens = (args.codexAccessToken || args.codexRefreshToken)
-      ? { accessToken: args.codexAccessToken, refreshToken: args.codexRefreshToken, accountId: args.codexAccountId }
-      : undefined;
-    const resolved = await resolveProviderForModel(model, codexTokens);
+    const resolved = await resolveProviderForModel(model, ctx, session.userId);
     const apiKey = args.apiKey || resolved.apiKey;
     const baseUrl = args.baseUrl || resolved.baseUrl;
     const providerType = args.providerType || resolved.providerType;

@@ -89,6 +89,18 @@ export default defineSchema({
   })
     .index("by_sessionId", ["sessionId"]),
 
+  // Codex OAuth tokens — stored per-user so Convex actions can access them
+  // (cookies aren't accessible from Convex server-side actions)
+  codex_auth: defineTable({
+    userId: v.string(),
+    accessToken: v.string(),
+    refreshToken: v.string(),
+    accountId: v.optional(v.string()),
+    expiresAt: v.number(), // Unix timestamp (ms)
+    updatedAt: v.number(),
+  })
+    .index("by_userId", ["userId"]),
+
   // Attachments — file uploads (images, code files)
   attachments: defineTable({
     sessionId: v.id("sessions"),

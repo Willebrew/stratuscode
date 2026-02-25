@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { ChevronLeft, LogOut, Moon, Sun, Monitor, Link2, Loader2, Settings, Check, Cpu } from 'lucide-react';
 import { StratusLogo } from '@/components/stratus-logo';
+import { useMutation } from 'convex/react';
+import { api } from '../../convex/_generated/api';
 
 const ease = [0.4, 0, 0.2, 1] as const;
 
@@ -97,6 +99,7 @@ export default function SettingsPage() {
   const [linkingCodex, setLinkingCodex] = useState(false);
   const [codexError, setCodexError] = useState('');
   const [deviceCode, setDeviceCode] = useState<{ userCode: string; verificationUrl: string; deviceAuthId: string; interval: number } | null>(null);
+  const saveCodexAuth = useMutation(api.codex_auth.save);
   const [selectedModel, setSelectedModel] = useState<string>('gpt-5-mini');
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set());
 
@@ -353,6 +356,18 @@ export default function SettingsPage() {
                             });
                             const result = await pollRes.json();
                             if (result.status === 'success') {
+                              // Save tokens to Convex DB so the agent action can access them
+                              if (result.tokens) {
+                                try {
+                                  await saveCodexAuth({
+                                    userId: 'owner',
+                                    accessToken: result.tokens.accessToken,
+                                    refreshToken: result.tokens.refreshToken,
+                                    accountId: result.tokens.accountId,
+                                    expiresAt: result.tokens.expiresAt,
+                                  });
+                                } catch { /* best effort — cookies are primary store */ }
+                              }
                               setDeviceCode(null);
                               setLinkingCodex(false);
                               router.push('/chat?codex_success=true');

@@ -19,9 +19,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: 'pending' });
     }
 
-    // Success — save tokens and return
+    // Success — save tokens to cookies and return them so frontend can
+    // also persist to Convex DB (Convex actions can't read cookies).
     await saveCodexTokens(tokens);
-    return NextResponse.json({ status: 'success' });
+    return NextResponse.json({
+      status: 'success',
+      tokens: {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        accountId: tokens.accountId,
+        expiresAt: tokens.expiresAt,
+      },
+    });
   } catch (err) {
     return NextResponse.json(
       { status: 'error', error: err instanceof Error ? err.message : 'Polling failed' },
