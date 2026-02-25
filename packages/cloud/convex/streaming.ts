@@ -99,6 +99,33 @@ export const addToolCall = internalMutation({
       .unique();
     if (!state) return;
 
+    const toolCalls = JSON.parse(state.toolCalls);
+
+    // If updateToolResult already added this tool call (race condition),
+    // just update the name/args on the existing entry and skip adding a duplicate.
+    const existing = toolCalls.find((t: any) => t.id === args.toolCallId);
+    if (existing) {
+      if (!existing.name) existing.name = args.toolName;
+      if (!existing.args || existing.args === "") existing.args = args.toolArgs;
+
+      // Also update in parts
+      const parts = state.parts ? JSON.parse(state.parts) : [];
+      for (const part of parts) {
+        if (part.type === "tool_call" && part.toolCall?.id === args.toolCallId) {
+          if (!part.toolCall.name) part.toolCall.name = args.toolName;
+          if (!part.toolCall.args || part.toolCall.args === "") part.toolCall.args = args.toolArgs;
+          break;
+        }
+      }
+
+      await ctx.db.patch(state._id, {
+        toolCalls: JSON.stringify(toolCalls),
+        parts: JSON.stringify(parts),
+        updatedAt: Date.now(),
+      });
+      return;
+    }
+
     const toolCall = {
       id: args.toolCallId,
       name: args.toolName,
@@ -106,7 +133,6 @@ export const addToolCall = internalMutation({
       status: "running",
     };
 
-    const toolCalls = JSON.parse(state.toolCalls);
     toolCalls.push(toolCall);
 
     // Add to ordered parts
@@ -125,6 +151,7 @@ export const updateToolResult = internalMutation({
   args: {
     sessionId: v.id("sessions"),
     toolCallId: v.string(),
+    toolName: v.optional(v.string()),
     result: v.string(),
     toolArgs: v.optional(v.string()),
   },
@@ -140,17 +167,43 @@ export const updateToolResult = internalMutation({
       tc.result = args.result;
       tc.status = "completed";
       if (args.toolArgs) tc.args = args.toolArgs;
+    } else {
+      // Race condition: onToolResult arrived before onToolCall's addToolCall
+      // mutation committed (SAGE fires callbacks without awaiting them).
+      // Add the tool call directly as completed so it doesn't stay stuck.
+      toolCalls.push({
+        id: args.toolCallId,
+        name: args.toolName || "",
+        args: args.toolArgs || "",
+        result: args.result,
+        status: "completed",
+      });
     }
 
     // Also update in ordered parts
     const parts = state.parts ? JSON.parse(state.parts) : [];
+    let foundInParts = false;
     for (const part of parts) {
       if (part.type === "tool_call" && part.toolCall?.id === args.toolCallId) {
         part.toolCall.result = args.result;
         part.toolCall.status = "completed";
         if (args.toolArgs) part.toolCall.args = args.toolArgs;
+        foundInParts = true;
         break;
       }
+    }
+    if (!foundInParts) {
+      // Same race condition — add to parts as completed
+      parts.push({
+        type: "tool_call",
+        toolCall: {
+          id: args.toolCallId,
+          name: args.toolName || "",
+          args: args.toolArgs || "",
+          result: args.result,
+          status: "completed",
+        },
+      });
     }
 
     await ctx.db.patch(state._id, {

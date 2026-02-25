@@ -695,6 +695,7 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
             await ctx.runMutation(internal.streaming.updateToolResult, {
               sessionId: args.sessionId,
               toolCallId: tc.id,
+              toolName,
               result: result.slice(0, 5000),
               toolArgs,
             });
