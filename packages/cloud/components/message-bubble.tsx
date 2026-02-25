@@ -943,7 +943,7 @@ function SubagentCard({ toolCall, nestedParts, statusText: groupedStatusText, al
       if (lastLine) return lastLine.length > 200 ? lastLine.slice(0, 197) + '...' : lastLine;
     }
     if (isFailed) return 'Subagent failed';
-    if (isRunning) return taskFromArgs || 'Working...';
+    if (isRunning) return 'Starting...';
     if (isCompleted) return taskFromArgs || 'Completed';
     return taskFromArgs || 'Working...';
   })();
