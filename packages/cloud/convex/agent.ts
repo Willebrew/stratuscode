@@ -761,7 +761,13 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
         lastMessage: preview,
       });
 
-      // ── 9. Snapshot sandbox for fast resume ──
+      // Set status to idle BEFORE snapshotting so UI responds immediately
+      await ctx.runMutation(internal.sessions.updateStatus, {
+        id: args.sessionId,
+        status: "idle",
+      });
+
+      // ── 9. Snapshot sandbox for fast resume (after status update) ──
 
       try {
         const snapshot = await sandbox.snapshot();
@@ -778,19 +784,66 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
         console.warn("[agent] Failed to snapshot sandbox:", e);
         // Sandbox may still be running, that's okay — next turn will reconnect
       }
-
-      // Set status to idle
-      await ctx.runMutation(internal.sessions.updateStatus, {
-        id: args.sessionId,
-        status: "idle",
-      });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const isCancelled = errorMessage === "CANCELLED_BY_USER";
 
       console.error(`[agent] ${isCancelled ? "Cancelled" : "Error"}:`, errorMessage);
 
-      // Try to snapshot sandbox even on error/cancel
+      // Flush any remaining buffered tokens first so partial content is saved
+      if (flushTimeout) clearTimeout(flushTimeout);
+      try { await flushTokens(); } catch { /* best effort */ }
+
+      // Save partial assistant message on cancel so work isn't lost
+      if (isCancelled) {
+        try {
+          const streamState = await ctx.runQuery(internal.streaming.getInternal, {
+            sessionId: args.sessionId,
+          });
+          if (streamState && (streamState.content || streamState.toolCalls !== "[]")) {
+            const parts: any[] = [];
+            if (streamState.reasoning) {
+              parts.push({ type: "reasoning", content: streamState.reasoning });
+            }
+            // Use ordered parts if available, fall back to legacy toolCalls
+            const orderedParts = streamState.parts ? JSON.parse(streamState.parts) : null;
+            if (orderedParts && orderedParts.length > 0) {
+              for (const p of orderedParts) {
+                if (p.type === "text" || p.type === "tool_call" || p.type === "subagent_start" || p.type === "subagent_end") {
+                  parts.push(p);
+                }
+              }
+            } else {
+              const tcs = streamState.toolCalls ? JSON.parse(streamState.toolCalls) : [];
+              for (const tc of tcs) {
+                parts.push({
+                  type: "tool_call",
+                  toolCall: { id: tc.id, name: tc.name, args: tc.args, result: tc.result, status: tc.status || "completed" },
+                });
+              }
+              if (streamState.content) {
+                parts.push({ type: "text", content: streamState.content });
+              }
+            }
+            await ctx.runMutation(internal.messages.create, {
+              sessionId: args.sessionId,
+              role: "assistant",
+              content: streamState.content || "(cancelled)",
+              parts,
+            });
+          }
+        } catch { /* best effort */ }
+      }
+
+      // Finish streaming and set status AFTER saving partial message
+      await ctx.runMutation(internal.streaming.finish, { sessionId: args.sessionId });
+      await ctx.runMutation(internal.sessions.updateStatus, {
+        id: args.sessionId,
+        status: isCancelled ? "idle" : "error",
+        errorMessage: isCancelled ? undefined : errorMessage,
+      });
+
+      // Snapshot sandbox AFTER status update so UI responds immediately
       if (sandbox) {
         try {
           const snapshot = await sandbox.snapshot();
@@ -806,49 +859,6 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
           // Best effort
         }
       }
-
-      // Flush any remaining buffered tokens
-      if (flushTimeout) clearTimeout(flushTimeout);
-      try { await flushTokens(); } catch { /* best effort */ }
-
-      await ctx.runMutation(internal.streaming.finish, { sessionId: args.sessionId });
-
-      // Save partial assistant message on cancel so work isn't lost
-      if (isCancelled) {
-        try {
-          const streamState = await ctx.runQuery(internal.streaming.getInternal, {
-            sessionId: args.sessionId,
-          });
-          if (streamState && (streamState.content || streamState.toolCalls !== "[]")) {
-            const parts: any[] = [];
-            if (streamState.reasoning) {
-              parts.push({ type: "reasoning", content: streamState.reasoning });
-            }
-            const tcs = streamState.toolCalls ? JSON.parse(streamState.toolCalls) : [];
-            for (const tc of tcs) {
-              parts.push({
-                type: "tool_call",
-                toolCall: { id: tc.id, name: tc.name, args: tc.args, result: tc.result, status: tc.status || "completed" },
-              });
-            }
-            if (streamState.content) {
-              parts.push({ type: "text", content: streamState.content });
-            }
-            await ctx.runMutation(internal.messages.create, {
-              sessionId: args.sessionId,
-              role: "assistant",
-              content: streamState.content || "(cancelled)",
-              parts,
-            });
-          }
-        } catch { /* best effort */ }
-      }
-
-      await ctx.runMutation(internal.sessions.updateStatus, {
-        id: args.sessionId,
-        status: isCancelled ? "idle" : "error",
-        errorMessage: isCancelled ? undefined : errorMessage,
-      });
     }
   },
 });
@@ -876,35 +886,22 @@ export const send = action({
     // User message is already persisted by the frontend via messages.sendUserMessage
     // mutation (instant subscription update). We just need to set up session state.
 
-    // Clear any previous cancel and set status to running
-    await ctx.runMutation(internal.sessions.clearCancel, { id: args.sessionId });
-    await ctx.runMutation(internal.sessions.updateStatus, {
-      id: args.sessionId,
-      status: "running",
-    });
-
-    // Initialize streaming state
-    await ctx.runMutation(internal.streaming.start, { sessionId: args.sessionId });
-
-    // Update title from first message
+    // Determine title for first message
     const agentState = await ctx.runQuery(internal.agent_state.get, { sessionId: args.sessionId });
     const hasPreviousMessages = agentState?.sageMessages
       ? JSON.parse(agentState.sageMessages).length > 0
       : false;
+    const title = !hasPreviousMessages
+      ? args.message.slice(0, 80) + (args.message.length > 80 ? "..." : "")
+      : undefined;
 
-    if (!hasPreviousMessages) {
-      const title = args.message.slice(0, 80) + (args.message.length > 80 ? "..." : "");
-      await ctx.runMutation(internal.sessions.updateTitle, { id: args.sessionId, title });
-    }
-    await ctx.runMutation(internal.sessions.updateLastMessage, {
+    // Single mutation: clear cancel, set running, init streaming, update title/lastMessage/agent
+    await ctx.runMutation(internal.sessions.prepareSend, {
       id: args.sessionId,
+      title,
       lastMessage: args.message.slice(0, 200),
+      agentMode: args.agentMode,
     });
-
-    // If agent mode was provided, update the session's agent field
-    if (args.agentMode) {
-      await ctx.runMutation(internal.sessions.updateAgent, { id: args.sessionId, agent: args.agentMode });
-    }
 
     // Schedule the internal action (fire-and-forget, runs in background)
     await ctx.scheduler.runAfter(0, internal.agent.sendMessage, {

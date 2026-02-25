@@ -129,25 +129,15 @@ export const setSessionBranch = internalMutation({
 export const requestCancel = mutation({
   args: { id: v.id("sessions") },
   handler: async (ctx, args) => {
-    // Set cancel flag AND immediately update status so UI responds instantly.
-    // The background action will stop at its next cancellation check.
+    // Only set the cancel flag — do NOT change status or streaming state.
+    // The agent action checks this flag between tool calls, saves partial
+    // progress, and then sets status to "idle" + streaming to finished.
+    // This prevents the UI from dropping the streaming message before the
+    // agent has a chance to persist it.
     await ctx.db.patch(args.id, {
       cancelRequested: true,
-      status: "idle",
       updatedAt: Date.now(),
     });
-
-    // Also finish streaming so the UI stops showing the streaming indicator
-    const streamingState = await ctx.db
-      .query("streaming_state")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", args.id))
-      .unique();
-    if (streamingState && streamingState.isStreaming) {
-      await ctx.db.patch(streamingState._id, {
-        isStreaming: false,
-        updatedAt: Date.now(),
-      });
-    }
   },
 });
 
@@ -156,6 +146,48 @@ export const clearCancel = internalMutation({
   handler: async (ctx, args) => {
     await ctx.db.patch(args.id, {
       cancelRequested: false,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+/**
+ * Single mutation that prepares the session for a new agent turn.
+ * Replaces 4-6 sequential mutations with one DB transaction.
+ */
+export const prepareSend = internalMutation({
+  args: {
+    id: v.id("sessions"),
+    title: v.optional(v.string()),
+    lastMessage: v.string(),
+    agentMode: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const patch: Record<string, any> = {
+      cancelRequested: false,
+      status: "running",
+      lastMessage: args.lastMessage,
+      updatedAt: Date.now(),
+    };
+    if (args.title) patch.title = args.title;
+    if (args.agentMode) patch.agent = args.agentMode;
+    await ctx.db.patch(args.id, patch);
+
+    // Initialize streaming state in the same transaction
+    const existing = await ctx.db
+      .query("streaming_state")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", args.id))
+      .unique();
+    if (existing) {
+      await ctx.db.delete(existing._id);
+    }
+    await ctx.db.insert("streaming_state", {
+      sessionId: args.id,
+      content: "",
+      reasoning: "",
+      toolCalls: "[]",
+      parts: "[]",
+      isStreaming: true,
       updatedAt: Date.now(),
     });
   },
