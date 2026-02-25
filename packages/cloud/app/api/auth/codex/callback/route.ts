@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { exchangeCodexCode, getPkceVerifier } from '@/lib/codex-auth';
 import { ConvexHttpClient } from 'convex/browser';
-import { api } from '../../../../convex/_generated/api';
+import { api } from '@/convex/_generated/api';
 
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get('code');
