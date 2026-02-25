@@ -1079,36 +1079,15 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
   },
 });
 
-// ─── Public action wrapper (called from frontend) ───
-//
-// Session state (status=running, streaming=true) is already set by the
-// frontend via sessions.prepareSend mutation BEFORE this action is called.
-// Schedules sendMessage immediately, then generates the AI title directly
-// in this action (avoids Convex action scheduling serialization).
+// ─── Title generation action (runs independently of the agent) ───
 
-export const send = action({
+export const generateSessionTitle = internalAction({
   args: {
     sessionId: v.id("sessions"),
     message: v.string(),
     model: v.optional(v.string()),
-    alphaMode: v.optional(v.boolean()),
-    reasoningEffort: v.optional(v.string()),
-    attachmentIds: v.optional(v.array(v.string())),
-    agentMode: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    // Schedule agent immediately — runs in parallel with title generation
-    await ctx.scheduler.runAfter(0, internal.agent.sendMessage, {
-      sessionId: args.sessionId,
-      message: args.message,
-      model: args.model,
-      alphaMode: args.alphaMode,
-      reasoningEffort: args.reasoningEffort,
-      agentMode: args.agentMode,
-    });
-
-    // Generate AI title (prepareSend already set a truncated placeholder).
-    // This replaces it with a concise AI-generated title + typing animation.
     try {
       const agentState = await ctx.runQuery(internal.agent_state.get, {
         sessionId: args.sessionId,
@@ -1143,5 +1122,39 @@ export const send = action({
     } catch {
       // Best effort — title failure shouldn't affect the agent
     }
+  },
+});
+
+// ─── Public action wrapper (called from frontend) ───
+//
+// Session state (status=running, streaming=true) is already set by the
+// frontend via sessions.prepareSend mutation BEFORE this action is called.
+// Schedules sendMessage and title generation as independent actions.
+
+export const send = action({
+  args: {
+    sessionId: v.id("sessions"),
+    message: v.string(),
+    model: v.optional(v.string()),
+    alphaMode: v.optional(v.boolean()),
+    reasoningEffort: v.optional(v.string()),
+    attachmentIds: v.optional(v.array(v.string())),
+    agentMode: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    // Schedule both independently — they run in separate execution contexts
+    await ctx.scheduler.runAfter(0, internal.agent.sendMessage, {
+      sessionId: args.sessionId,
+      message: args.message,
+      model: args.model,
+      alphaMode: args.alphaMode,
+      reasoningEffort: args.reasoningEffort,
+      agentMode: args.agentMode,
+    });
+    await ctx.scheduler.runAfter(0, internal.agent.generateSessionTitle, {
+      sessionId: args.sessionId,
+      message: args.message,
+      model: args.model,
+    });
   },
 });
