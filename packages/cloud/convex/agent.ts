@@ -414,7 +414,7 @@ async function generateTitle(
   providerType: string,
   headers?: Record<string, string>,
 ): Promise<string | null> {
-  if (apiKey === "server-managed") return null;
+  if (!apiKey || apiKey === "server-managed") return null;
 
   try {
     let title: string | undefined;
@@ -422,9 +422,7 @@ async function generateTitle(
       "Content-Type": "application/json",
       ...headers,
     };
-    if (apiKey) {
-      authHeaders["Authorization"] = `Bearer ${apiKey}`;
-    }
+    authHeaders["Authorization"] = `Bearer ${apiKey}`;
 
     if (providerType === "responses-api") {
       const resp = await fetch(`${baseUrl}/responses`, {
@@ -434,12 +432,13 @@ async function generateTitle(
           model,
           instructions: TITLE_PROMPT,
           input: userMessage.slice(0, 500),
-          // Must be 1000+ — reasoning models (kimi-k2.5) use ~400 internal
-          // thinking tokens before producing output. Lower values → empty content.
           max_output_tokens: 1000,
         }),
       });
-      if (!resp.ok) return null;
+      if (!resp.ok) {
+        console.warn("[titleGen]", resp.status, await resp.text().catch(() => ""));
+        return null;
+      }
       const data = (await resp.json()) as { output?: Array<{ content?: Array<{ text?: string }> }> };
       title = data.output?.[0]?.content?.[0]?.text?.trim();
     } else {
@@ -448,8 +447,6 @@ async function generateTitle(
         headers: authHeaders,
         body: JSON.stringify({
           model,
-          // Must be 1000+ — reasoning models (kimi-k2.5) use ~400 internal
-          // thinking tokens before producing output. Lower values → empty content.
           max_tokens: 1000,
           temperature: 0.3,
           messages: [
@@ -458,7 +455,10 @@ async function generateTitle(
           ],
         }),
       });
-      if (!resp.ok) return null;
+      if (!resp.ok) {
+        console.warn("[titleGen]", resp.status, await resp.text().catch(() => ""));
+        return null;
+      }
       const data = (await resp.json()) as {
         choices: Array<{ message: { content: string } }>;
       };
@@ -466,7 +466,8 @@ async function generateTitle(
     }
 
     return title && title.length > 0 && title.length <= 80 ? title : null;
-  } catch {
+  } catch (e) {
+    console.warn("[titleGen] error:", String(e));
     return null;
   }
 }
@@ -1086,11 +1087,10 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
 //
 // Session state (status=running, streaming=true) is already set by the
 // frontend via sessions.prepareSend mutation BEFORE this action is called.
-// prepareSend also sets a truncated title as an instant placeholder.
-//
-// This action schedules sendMessage and then generates an AI title.
-// When the AI title arrives, updateTitle sets titleGenerated=true which
-// triggers the typing animation in the sidebar.
+// prepareSend sets a truncated title as an instant placeholder.
+// This action schedules sendMessage, then schedules AI title generation
+// as a separate delayed action (5s) to avoid rate-limit competition with
+// the main agent request on free-tier APIs.
 
 export const send = action({
   args: {
@@ -1103,21 +1103,13 @@ export const send = action({
     agentMode: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    // Update title from first message (matches clone's TUI/enhancements approach)
+    // Check if this is the first message in the session
     const agentState = await ctx.runQuery(internal.agent_state.get, {
       sessionId: args.sessionId,
     });
     const hasPreviousMessages = agentState?.sageMessages
       ? JSON.parse(agentState.sageMessages).length > 0
       : false;
-
-    if (!hasPreviousMessages) {
-      const title = args.message.slice(0, 80) + (args.message.length > 80 ? "..." : "");
-      await ctx.runMutation(internal.sessions.updateTitle, {
-        id: args.sessionId,
-        title,
-      });
-    }
 
     // Schedule agent (fire-and-forget, runs in background)
     await ctx.scheduler.runAfter(0, internal.agent.sendMessage, {
@@ -1129,34 +1121,54 @@ export const send = action({
       agentMode: args.agentMode,
     });
 
-    // Try to generate a better AI title (replaces truncated placeholder)
+    // Schedule AI title generation with a 5-second delay so it doesn't
+    // compete with the main agent request for rate-limited free-tier APIs
     if (!hasPreviousMessages) {
-      try {
-        const session = await ctx.runQuery(internal.sessions.getInternal, { id: args.sessionId });
-        if (!session) return;
+      await ctx.scheduler.runAfter(5000, internal.agent.generateTitleBackground, {
+        sessionId: args.sessionId,
+        message: args.message,
+        model: args.model,
+      });
+    }
+  },
+});
 
-        const model = args.model || session.model || "gpt-5-mini";
-        const resolved = await resolveProviderForModel(model, ctx, session.userId);
+// Background AI title generation — runs after a delay to avoid rate limits
+export const generateTitleBackground = internalAction({
+  args: {
+    sessionId: v.id("sessions"),
+    message: v.string(),
+    model: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    try {
+      const session = await ctx.runQuery(internal.sessions.getInternal, { id: args.sessionId });
+      if (!session) return;
 
-        const aiTitle = await generateTitle(
-          args.message,
-          model,
-          resolved.apiKey,
-          resolved.baseUrl,
-          resolved.providerType,
-          resolved.headers,
-        );
+      // Skip if title was already AI-generated (e.g. by a retry)
+      if (session.titleGenerated) return;
 
-        if (aiTitle) {
-          await ctx.runMutation(internal.sessions.updateTitle, {
-            id: args.sessionId,
-            title: aiTitle,
-            titleGenerated: true,
-          });
-        }
-      } catch {
-        // Best effort — truncated title already set above
+      const model = args.model || session.model || "gpt-5-mini";
+      const resolved = await resolveProviderForModel(model, ctx, session.userId);
+
+      const aiTitle = await generateTitle(
+        args.message,
+        model,
+        resolved.apiKey,
+        resolved.baseUrl,
+        resolved.providerType,
+        resolved.headers,
+      );
+
+      if (aiTitle) {
+        await ctx.runMutation(internal.sessions.updateTitle, {
+          id: args.sessionId,
+          title: aiTitle,
+          titleGenerated: true,
+        });
       }
+    } catch (e) {
+      console.error("[generateTitleBackground] error:", String(e));
     }
   },
 });
