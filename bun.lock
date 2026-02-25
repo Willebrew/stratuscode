@@ -20,7 +20,7 @@
         "@stratuscode/tools": "workspace:*",
         "@types/react-syntax-highlighter": "^15.5.13",
         "@vercel/sandbox": "^1.4.0",
-        "@willebrew/sage-core": "0.1.9",
+        "@willebrew/sage-core": "0.2.0",
         "clsx": "^2.1.0",
         "convex": "^1.31.7",
         "diff2html": "^3.4.48",
@@ -58,7 +58,7 @@
       "dependencies": {
         "@stratuscode/shared": "workspace:*",
         "@stratuscode/storage": "workspace:*",
-        "@willebrew/sage-core": "0.1.9",
+        "@willebrew/sage-core": "0.2.0",
         "zod": "^3.23.8",
       },
       "devDependencies": {
@@ -82,7 +82,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@stratuscode/shared": "workspace:*",
-        "@willebrew/sage-core": "0.1.9",
+        "@willebrew/sage-core": "0.2.0",
       },
       "devDependencies": {
         "@types/bun": "^1.1.0",
@@ -97,7 +97,7 @@
       "dependencies": {
         "@stratuscode/shared": "workspace:*",
         "@stratuscode/storage": "workspace:*",
-        "@willebrew/sage-core": "0.1.9",
+        "@willebrew/sage-core": "0.2.0",
       },
       "devDependencies": {
         "@types/node": "^22.10.0",
@@ -112,7 +112,7 @@
         "@stratuscode/shared": "workspace:*",
         "@stratuscode/storage": "workspace:*",
         "@stratuscode/tools": "workspace:*",
-        "@willebrew/sage-core": "0.1.9",
+        "@willebrew/sage-core": "0.2.0",
         "chalk": "^5.3.0",
       },
       "devDependencies": {
@@ -425,7 +425,7 @@
 
     "@vercel/sandbox": ["@vercel/sandbox@1.4.1", "", { "dependencies": { "@vercel/oidc": "^3.1.0", "async-retry": "1.3.3", "jsonlines": "0.1.1", "ms": "2.1.3", "picocolors": "^1.1.1", "tar-stream": "3.1.7", "undici": "^7.16.0", "xdg-app-paths": "5.1.0", "zod": "3.24.4" } }, "sha512-5jaNLv6QJ0112ZFhCv9hQDCV3IYogpbEn5LzMcY5E8TZsf5tF0avat2tBe7McOJvgVs0SDkuzjvGjUMKtTkjrA=="],
 
-    "@willebrew/sage-core": ["@willebrew/sage-core@0.1.9", "https://npm.pkg.github.com/download/@willebrew/sage-core/0.1.9/0451a200599fa6bee2cac4912933a763fb3c9842", { "dependencies": { "ioredis": "^5.4.0", "jose": "^6.1.3", "zod": "^3.24.0" }, "peerDependencies": { "better-auth": "^1.0.0", "convex": "^1.17.0" } }, "sha512-nfIl/HCEvFSKNYv/22Br35zZYBeF/AtqWeInWnlLOXyPuz7DhY2E7GxP/u27NORluXjqFI2Qu1cVjYI1aiEr+Q=="],
+    "@willebrew/sage-core": ["@willebrew/sage-core@0.2.0", "https://npm.pkg.github.com/download/@willebrew/sage-core/0.2.0/b86e881a8ae296b0cbbb47bb032c9dc15bc52113", { "dependencies": { "ioredis": "^5.4.0", "jose": "^6.1.3", "zod": "^3.24.0" }, "peerDependencies": { "better-auth": "^1.0.0", "convex": "^1.17.0" } }, "sha512-udOpG+/21JPVDw0wM1xhZxeLQ+kQvJgz4Ye7w1kIy6kobPh5TkQIQh2s0/AXQZBN11oQEa38EnNOlSSsv6U0iA=="],
 
     "abbrev": ["abbrev@1.1.1", "", {}, "sha512-nne9/IiQ/hzIhY6pdDnbBtz7DjPTKrY00P/zvPSm5pOFkl6xuGrGnXn/VtTNNfNtAfZ9/1RtehkszU9qcTii0Q=="],
 
