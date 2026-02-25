@@ -155,7 +155,7 @@ export const clearCancel = internalMutation({
  * Single mutation that prepares the session for a new agent turn.
  * Replaces 4-6 sequential mutations with one DB transaction.
  */
-export const prepareSend = internalMutation({
+export const prepareSend = mutation({
   args: {
     id: v.id("sessions"),
     title: v.optional(v.string()),

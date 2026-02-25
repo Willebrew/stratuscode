@@ -83,6 +83,7 @@ export function useConvexChat(
 
   const sendUserMessageMutation = useMutation(api.messages.sendUserMessage);
   const linkAttachmentsMutation = useMutation(api.attachments.linkToMessage);
+  const prepareSendMutation = useMutation(api.sessions.prepareSend);
   const sendAction = useAction(api.agent.send);
   const cancelMutation = useMutation(api.sessions.requestCancel);
   const answerMutation = useMutation(api.streaming.answerQuestion);
@@ -269,19 +270,31 @@ export function useConvexChat(
       opts?: { alphaMode?: boolean; model?: string; reasoningEffort?: string; attachmentIds?: string[]; agentMode?: string }
     ) => {
       if (!sessionId || isLoading) return;
-      // Persist user message via mutation — updates subscription instantly (no flicker).
-      // This is durable: even if the action below fails, the message stays in the DB.
+
+      // 1. Persist user message — subscription updates instantly (user sees their message)
       const messageId = await sendUserMessageMutation({ sessionId, content: message });
-      // Link any attachments to this message so they show in chat history
+
+      // 2. Link any attachments
       if (opts?.attachmentIds?.length) {
         try {
           await linkAttachmentsMutation({ ids: opts.attachmentIds as any, messageId });
         } catch { /* best effort */ }
       }
-      // Fire the agent action — don't await it. The action sets session status
-      // to "running" via prepareSend (which triggers isLoading reactively), then
-      // schedules the agent in the background. Awaiting would block the UI thread
-      // until the action completes, adding unnecessary perceived latency.
+
+      // 3. Prepare session state via MUTATION (not action) — this is the key:
+      //    mutations update Convex subscriptions instantly, so isLoading=true and
+      //    isStreaming=true propagate to the UI immediately. If this was inside
+      //    the action, there'd be a 200-500ms gap with no loading indicator.
+      const title = message.slice(0, 80) + (message.length > 80 ? '...' : '');
+      await prepareSendMutation({
+        id: sessionId,
+        title,
+        lastMessage: message.slice(0, 200),
+        agentMode: opts?.agentMode,
+      });
+
+      // 4. Fire the agent action (fire-and-forget). Session is already "running"
+      //    from prepareSend, so the UI shows loading immediately.
       sendAction({
         sessionId,
         message,
@@ -291,13 +304,11 @@ export function useConvexChat(
         attachmentIds: opts?.attachmentIds as any,
         agentMode: opts?.agentMode,
       }).catch((e) => {
-        // If the action fails (expired sandbox, network error, etc.), reset session
-        // so it doesn't get stuck in "running" with no agent.
         console.error('[sendMessage] Action failed, resetting session:', e);
         cancelMutation({ id: sessionId }).catch(() => { /* best effort */ });
       });
     },
-    [sessionId, isLoading, sendUserMessageMutation, linkAttachmentsMutation, sendAction, cancelMutation]
+    [sessionId, isLoading, sendUserMessageMutation, linkAttachmentsMutation, prepareSendMutation, sendAction, cancelMutation]
   );
 
   const answerQuestion = useCallback(

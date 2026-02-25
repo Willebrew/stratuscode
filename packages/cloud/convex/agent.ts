@@ -864,6 +864,11 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
 });
 
 // ─── Public action wrapper (called from frontend) ───
+//
+// Session state (status=running, streaming=true) is already set by the
+// frontend via sessions.prepareSend mutation BEFORE this action is called.
+// This action only schedules the internal sendMessage — no queries, no
+// mutations, just scheduler. This makes it as fast as possible.
 
 export const send = action({
   args: {
@@ -876,29 +881,6 @@ export const send = action({
     agentMode: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    // User message is already persisted by the frontend via messages.sendUserMessage
-    // mutation (instant subscription update). We just need to set up session state
-    // and schedule the agent as fast as possible.
-
-    // Determine title for first message
-    const agentState = await ctx.runQuery(internal.agent_state.get, { sessionId: args.sessionId });
-    const hasPreviousMessages = agentState?.sageMessages
-      ? JSON.parse(agentState.sageMessages).length > 0
-      : false;
-    const title = !hasPreviousMessages
-      ? args.message.slice(0, 80) + (args.message.length > 80 ? "..." : "")
-      : undefined;
-
-    // Single mutation: clear cancel, set running, init streaming, update title/lastMessage/agent
-    await ctx.runMutation(internal.sessions.prepareSend, {
-      id: args.sessionId,
-      title,
-      lastMessage: args.message.slice(0, 200),
-      agentMode: args.agentMode,
-    });
-
-    // Schedule the internal action immediately — it handles provider resolution
-    // itself, so we don't waste time doing it here (especially Codex token refresh).
     await ctx.scheduler.runAfter(0, internal.agent.sendMessage, {
       sessionId: args.sessionId,
       message: args.message,
@@ -907,6 +889,5 @@ export const send = action({
       reasoningEffort: args.reasoningEffort,
       agentMode: args.agentMode,
     });
-
   },
 });
