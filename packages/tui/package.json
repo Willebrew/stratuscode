@@ -11,7 +11,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@willebrew/sage-core": "0.2.0",
+    "@willebrew/sage-core": "0.2.1",
     "@stratuscode/shared": "workspace:*",
     "@stratuscode/storage": "workspace:*",
     "@stratuscode/tools": "workspace:*",

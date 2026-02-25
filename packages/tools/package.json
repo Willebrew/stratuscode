@@ -21,7 +21,7 @@
   "dependencies": {
     "@stratuscode/shared": "workspace:*",
     "@stratuscode/storage": "workspace:*",
-    "@willebrew/sage-core": "0.2.0"
+    "@willebrew/sage-core": "0.2.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

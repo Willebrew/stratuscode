@@ -58,14 +58,14 @@ Use grep, glob, and read tools to quickly find relevant files and code.
 Be thorough but efficient. Search multiple patterns and locations.
 Return a concise summary of what you found.
 
-CRITICAL REQUIREMENT: You MUST call the set_status tool BEFORE doing anything else, and again each time you start a different phase of work. This is how the user sees what you're doing. Example: set_status({status: "Searching for auth config"}) then later set_status({status: "Reading middleware files"}). Always call set_status FIRST in every response.`,
+You have a set_status tool — use it to show the user what you're currently working on. Call it when you shift to a different phase of work (e.g. from searching to reading, or from one area to another). Don't call it before every single tool — just when the focus changes. Keep status messages short (3-8 words).`,
 
   general: `You are the GENERAL subagent - for complex multi-step tasks.
 Break down the task into steps and execute them methodically.
 Use appropriate tools for each step.
 Report your findings and results clearly.
 
-CRITICAL REQUIREMENT: You MUST call the set_status tool BEFORE doing anything else, and again each time you start a different phase of work. This is how the user sees what you're doing. Example: set_status({status: "Setting up project structure"}) then later set_status({status: "Running tests"}). Always call set_status FIRST in every response.`,
+You have a set_status tool — use it to show the user what you're currently working on. Call it when you shift to a different phase of work (e.g. from planning to implementation, or between distinct steps). Don't call it before every single tool — just when the focus changes. Keep status messages short (3-8 words).`,
 };
 
 // ============================================

@@ -383,6 +383,9 @@ function MessagePartView({ part, nestedParts, statusText, allParts, todos, sessi
       if (part.toolCall.name === 'edit' || part.toolCall.name === 'multi_edit') {
         return <EditCard toolCall={part.toolCall} sessionId={sessionId} />;
       }
+      if (part.toolCall.name === 'set_status') {
+        return null;
+      }
       if (part.toolCall.name?.startsWith('delegate_to_')) {
         return <SubagentCard toolCall={part.toolCall} nestedParts={nestedParts || []} statusText={statusText} allParts={allParts} sessionId={sessionId} />;
       }

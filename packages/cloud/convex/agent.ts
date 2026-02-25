@@ -518,7 +518,6 @@ export const sendMessage = internalAction({
     const flushSubagentStatus = async () => {
       for (const [agentName, text] of Object.entries(subagentTextBuffers)) {
         if (text) {
-          console.log(`[subagent-flush] agent=${agentName} text=${JSON.stringify(text.slice(0, 200))}`);
           await ctx.runMutation(internal.streaming.updateSubagentStatus, {
             sessionId: args.sessionId,
             agentName,
@@ -844,19 +843,24 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
             });
           },
           onSubagentEnd: async (agentName: string, result: string) => {
-            // Set final statusText from the child's result so completed cards
-            // show a meaningful summary instead of the last tool activity
-            const finalStatus = subagentTextBuffers[agentName] || "";
-            // Append the child's final text as the last line (this is the LLM's summary)
-            const resultLine = result?.trim().split('\n').filter(l => l.trim()).pop()?.trim() || "";
-            const statusText = resultLine
-              ? (finalStatus ? finalStatus + "\n" + resultLine : resultLine)
-              : finalStatus;
-            if (statusText) {
+            // Use the last set_status value as the completion label.
+            // If none was set, extract the first short sentence from the result.
+            const lastStatus = subagentTextBuffers[agentName] || "";
+            const lines = lastStatus.split('\n').filter((l: string) => l.trim());
+            const lastSetStatus = lines[lines.length - 1]?.trim() || "";
+
+            // Derive a short completion summary from the result if no set_status was used
+            let completionLabel = lastSetStatus;
+            if (!completionLabel && result) {
+              const firstLine = result.trim().split('\n')[0]?.trim() || "";
+              completionLabel = firstLine.length > 60 ? firstLine.slice(0, 57) + '...' : firstLine;
+            }
+
+            if (completionLabel) {
               await ctx.runMutation(internal.streaming.updateSubagentStatus, {
                 sessionId: args.sessionId,
                 agentName,
-                statusText,
+                statusText: lastStatus ? lastStatus + "\n" + completionLabel : completionLabel,
               });
             }
             delete subagentTextBuffers[agentName];
@@ -868,7 +872,6 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
             });
           },
           onSubagentToken: (agentName: string, token: string) => {
-            console.log(`[subagent-token] agent=${agentName} token=${JSON.stringify(token.slice(0, 100))}`);
             subagentTextBuffers[agentName] = (subagentTextBuffers[agentName] || "") + token;
             if (!subagentFlushTimeout) {
               subagentFlushTimeout = setTimeout(async () => {
