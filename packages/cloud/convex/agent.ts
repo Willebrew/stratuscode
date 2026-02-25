@@ -434,14 +434,28 @@ async function generateTitle(
           input: [{ role: "user", content: userMessage.slice(0, 500) }],
           max_output_tokens: 1000,
           store: false,
+          stream: true,
         }),
       });
       if (!resp.ok) {
         console.warn("[titleGen]", resp.status, await resp.text().catch(() => ""));
         return null;
       }
-      const data = (await resp.json()) as { output?: Array<{ content?: Array<{ text?: string }> }> };
-      title = data.output?.[0]?.content?.[0]?.text?.trim();
+      // Parse SSE stream to collect output text
+      const text = await resp.text();
+      let collected = "";
+      for (const line of text.split("\n")) {
+        if (!line.startsWith("data: ")) continue;
+        const payload = line.slice(6);
+        if (payload === "[DONE]") break;
+        try {
+          const evt = JSON.parse(payload);
+          if (evt.type === "response.output_text.delta" && evt.delta) {
+            collected += evt.delta;
+          }
+        } catch { /* skip unparseable lines */ }
+      }
+      title = collected.trim();
     } else {
       const resp = await fetch(`${baseUrl}/chat/completions`, {
         method: "POST",
