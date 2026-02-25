@@ -580,7 +580,7 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
               flushTimeout = setTimeout(async () => {
                 flushTimeout = null;
                 await flushTokens();
-              }, 100);
+              }, 50);
             }
           },
           onReasoning: (text: string) => {
@@ -589,7 +589,7 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
               flushTimeout = setTimeout(async () => {
                 flushTimeout = null;
                 await flushTokens();
-              }, 100);
+              }, 50);
             }
           },
           onToolCall: async (tc: any) => {
@@ -876,15 +876,9 @@ export const send = action({
     agentMode: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    // Resolve session and determine model
-    const session = await ctx.runQuery(internal.sessions.getInternal, { id: args.sessionId });
-    const model = args.model || session?.model || "gpt-5-mini";
-
-    // Auto-resolve provider from model ID + environment variables
-    const resolved = await resolveProviderForModel(model);
-
     // User message is already persisted by the frontend via messages.sendUserMessage
-    // mutation (instant subscription update). We just need to set up session state.
+    // mutation (instant subscription update). We just need to set up session state
+    // and schedule the agent as fast as possible.
 
     // Determine title for first message
     const agentState = await ctx.runQuery(internal.agent_state.get, { sessionId: args.sessionId });
@@ -903,15 +897,12 @@ export const send = action({
       agentMode: args.agentMode,
     });
 
-    // Schedule the internal action (fire-and-forget, runs in background)
+    // Schedule the internal action immediately — it handles provider resolution
+    // itself, so we don't waste time doing it here (especially Codex token refresh).
     await ctx.scheduler.runAfter(0, internal.agent.sendMessage, {
       sessionId: args.sessionId,
       message: args.message,
-      model,
-      apiKey: resolved.apiKey,
-      baseUrl: resolved.baseUrl,
-      providerType: resolved.providerType,
-      providerHeaders: resolved.headers ? JSON.stringify(resolved.headers) : undefined,
+      model: args.model,
       alphaMode: args.alphaMode,
       reasoningEffort: args.reasoningEffort,
       agentMode: args.agentMode,

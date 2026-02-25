@@ -278,25 +278,24 @@ export function useConvexChat(
           await linkAttachmentsMutation({ ids: opts.attachmentIds as any, messageId });
         } catch { /* best effort */ }
       }
-      try {
-        // Fire the agent action (user message already in DB)
-        await sendAction({
-          sessionId,
-          message,
-          model: opts?.model,
-          alphaMode: opts?.alphaMode,
-          reasoningEffort: opts?.reasoningEffort,
-          attachmentIds: opts?.attachmentIds as any,
-          agentMode: opts?.agentMode,
-        });
-      } catch (e) {
+      // Fire the agent action — don't await it. The action sets session status
+      // to "running" via prepareSend (which triggers isLoading reactively), then
+      // schedules the agent in the background. Awaiting would block the UI thread
+      // until the action completes, adding unnecessary perceived latency.
+      sendAction({
+        sessionId,
+        message,
+        model: opts?.model,
+        alphaMode: opts?.alphaMode,
+        reasoningEffort: opts?.reasoningEffort,
+        attachmentIds: opts?.attachmentIds as any,
+        agentMode: opts?.agentMode,
+      }).catch((e) => {
         // If the action fails (expired sandbox, network error, etc.), reset session
         // so it doesn't get stuck in "running" with no agent.
         console.error('[sendMessage] Action failed, resetting session:', e);
-        try {
-          await cancelMutation({ id: sessionId });
-        } catch { /* best effort */ }
-      }
+        cancelMutation({ id: sessionId }).catch(() => { /* best effort */ });
+      });
     },
     [sessionId, isLoading, sendUserMessageMutation, linkAttachmentsMutation, sendAction, cancelMutation]
   );
