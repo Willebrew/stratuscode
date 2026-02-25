@@ -403,40 +403,71 @@ async function resolveProviderForModel(
 
 // ─── Title generation ───
 
+const TITLE_PROMPT =
+  "Generate a concise 3-6 word title for this coding conversation. Return ONLY the title, no quotes, no punctuation at the end.";
+
 /**
  * Generate a concise title for a session from the user's first message.
- * Uses OpenAI gpt-5-mini (cheap & fast) regardless of session model.
+ * Uses the same model & provider the session is configured with.
  */
-async function generateTitle(userMessage: string): Promise<string | null> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
+async function generateTitle(
+  userMessage: string,
+  model: string,
+  apiKey: string,
+  baseUrl: string,
+  providerType: string,
+  headers?: Record<string, string>,
+): Promise<string | null> {
+  if (!apiKey || apiKey === "server-managed") return null;
 
   try {
-    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        max_tokens: 20,
-        temperature: 0.3,
-        messages: [
-          {
-            role: "system",
-            content:
-              "Generate a concise 3-6 word title for this coding conversation. Return ONLY the title, no quotes, no punctuation at the end.",
-          },
-          { role: "user", content: userMessage.slice(0, 500) },
-        ],
-      }),
-    });
-    if (!resp.ok) return null;
-    const data = (await resp.json()) as {
-      choices: Array<{ message: { content: string } }>;
-    };
-    const title = data.choices?.[0]?.message?.content?.trim();
+    let title: string | undefined;
+
+    if (providerType === "responses-api") {
+      // Codex / Responses API format
+      const resp = await fetch(`${baseUrl}/responses`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+          ...headers,
+        },
+        body: JSON.stringify({
+          model,
+          instructions: TITLE_PROMPT,
+          input: userMessage.slice(0, 500),
+          max_output_tokens: 40,
+        }),
+      });
+      if (!resp.ok) return null;
+      const data = (await resp.json()) as { output?: Array<{ content?: Array<{ text?: string }> }> };
+      title = data.output?.[0]?.content?.[0]?.text?.trim();
+    } else {
+      // Chat Completions API format (OpenAI, Anthropic, OpenRouter, etc.)
+      const resp = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+          ...headers,
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 40,
+          temperature: 0.3,
+          messages: [
+            { role: "system", content: TITLE_PROMPT },
+            { role: "user", content: userMessage.slice(0, 500) },
+          ],
+        }),
+      });
+      if (!resp.ok) return null;
+      const data = (await resp.json()) as {
+        choices: Array<{ message: { content: string } }>;
+      };
+      title = data.choices?.[0]?.message?.content?.trim();
+    }
+
     return title && title.length > 0 && title.length <= 80 ? title : null;
   } catch {
     return null;
@@ -485,6 +516,22 @@ export const sendMessage = internalAction({
     let tokenBuffer = "";
     let reasoningBuffer = "";
     let flushTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    // Subagent token batching — accumulates child LLM text for live status display
+    const subagentTextBuffers: Record<string, string> = {};
+    let subagentFlushTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const flushSubagentStatus = async () => {
+      for (const [agentName, text] of Object.entries(subagentTextBuffers)) {
+        if (text) {
+          await ctx.runMutation(internal.streaming.updateSubagentStatus, {
+            sessionId: args.sessionId,
+            agentName,
+            statusText: text,
+          });
+        }
+      }
+    };
 
     const flushTokens = async () => {
       if (tokenBuffer) {
@@ -802,6 +849,15 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
             });
           },
           onSubagentEnd: async (agentName: string, result: string) => {
+            // Flush any remaining subagent status text before closing
+            if (subagentTextBuffers[agentName]) {
+              await ctx.runMutation(internal.streaming.updateSubagentStatus, {
+                sessionId: args.sessionId,
+                agentName,
+                statusText: subagentTextBuffers[agentName],
+              });
+              delete subagentTextBuffers[agentName];
+            }
             await flushTokens();
             await ctx.runMutation(internal.streaming.addSubagentEnd, {
               sessionId: args.sessionId,
@@ -809,15 +865,26 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
               result,
             });
           },
+          onSubagentToken: (agentName: string, token: string) => {
+            subagentTextBuffers[agentName] = (subagentTextBuffers[agentName] || "") + token;
+            if (!subagentFlushTimeout) {
+              subagentFlushTimeout = setTimeout(async () => {
+                subagentFlushTimeout = null;
+                await flushSubagentStatus();
+              }, 150);
+            }
+          },
         },
       });
 
       // Clean up cancel polling
       if (cancelCheckInterval) clearInterval(cancelCheckInterval);
 
-      // Final flush of any remaining tokens
+      // Final flush of any remaining tokens and subagent status
       if (flushTimeout) clearTimeout(flushTimeout);
+      if (subagentFlushTimeout) clearTimeout(subagentFlushTimeout);
       await flushTokens();
+      await flushSubagentStatus();
 
       // If processDirectly reported an error and produced no content, surface it
       if (lastAgentError && !result?.content && !tokenBuffer) {
@@ -899,7 +966,7 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
 
       if (!hasPreviousMessages) {
         try {
-          const aiTitle = await generateTitle(args.message);
+          const aiTitle = await generateTitle(args.message, model, apiKey, baseUrl, providerType, providerHeaders);
           if (aiTitle) {
             await ctx.runMutation(internal.sessions.updateTitle, {
               id: args.sessionId,
@@ -940,9 +1007,11 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
 
       console.error(`[agent] ${isCancelled ? "Cancelled" : "Error"}:`, errorMessage);
 
-      // Flush any remaining buffered tokens first so partial content is saved
+      // Flush any remaining buffered tokens and subagent status first so partial content is saved
       if (flushTimeout) clearTimeout(flushTimeout);
+      if (subagentFlushTimeout) clearTimeout(subagentFlushTimeout);
       try { await flushTokens(); } catch { /* best effort */ }
+      try { await flushSubagentStatus(); } catch { /* best effort */ }
 
       // Save partial assistant message on cancel so work isn't lost
       if (isCancelled) {
