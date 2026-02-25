@@ -977,24 +977,7 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
         status: "idle",
       });
 
-      // ── 8. Generate AI title on first message ──
-
-      if (!hasPreviousMessages) {
-        try {
-          const aiTitle = await generateTitle(args.message, model, apiKey, baseUrl, providerType, providerHeaders);
-          if (aiTitle) {
-            await ctx.runMutation(internal.sessions.updateTitle, {
-              id: args.sessionId,
-              title: aiTitle,
-              titleGenerated: true,
-            });
-          }
-        } catch {
-          // Best effort — title generation failure shouldn't break the session
-        }
-      }
-
-      // ── 9. Snapshot sandbox for fast resume (after status update) ──
+      // ── 8. Snapshot sandbox for fast resume (after status update) ──
 
       try {
         const snapshot = await sandbox.snapshot();
@@ -1097,12 +1080,54 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
   },
 });
 
+// ─── Title generation action (runs in parallel with sendMessage) ───
+
+export const generateSessionTitle = internalAction({
+  args: {
+    sessionId: v.id("sessions"),
+    message: v.string(),
+    model: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    // Only generate on first message — check if agent state already has messages
+    const agentState = await ctx.runQuery(internal.agent_state.get, {
+      sessionId: args.sessionId,
+    });
+    const hasPrevious = agentState?.sageMessages
+      ? JSON.parse(agentState.sageMessages).length > 0
+      : false;
+    if (hasPrevious) return;
+
+    const session = await ctx.runQuery(internal.sessions.getInternal, { id: args.sessionId });
+    if (!session) return;
+
+    const model = args.model || session.model || "gpt-5-mini";
+    const resolved = await resolveProviderForModel(model, ctx, session.userId);
+
+    const aiTitle = await generateTitle(
+      args.message,
+      model,
+      resolved.apiKey,
+      resolved.baseUrl,
+      resolved.providerType,
+      resolved.headers,
+    );
+
+    if (aiTitle) {
+      await ctx.runMutation(internal.sessions.updateTitle, {
+        id: args.sessionId,
+        title: aiTitle,
+        titleGenerated: true,
+      });
+    }
+  },
+});
+
 // ─── Public action wrapper (called from frontend) ───
 //
 // Session state (status=running, streaming=true) is already set by the
 // frontend via sessions.prepareSend mutation BEFORE this action is called.
-// This action only schedules the internal sendMessage — no queries, no
-// mutations, just scheduler. This makes it as fast as possible.
+// This action schedules sendMessage AND generateSessionTitle in parallel.
 
 export const send = action({
   args: {
@@ -1115,6 +1140,7 @@ export const send = action({
     agentMode: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    // Schedule agent and title generation in parallel
     await ctx.scheduler.runAfter(0, internal.agent.sendMessage, {
       sessionId: args.sessionId,
       message: args.message,
@@ -1122,6 +1148,11 @@ export const send = action({
       alphaMode: args.alphaMode,
       reasoningEffort: args.reasoningEffort,
       agentMode: args.agentMode,
+    });
+    await ctx.scheduler.runAfter(0, internal.agent.generateSessionTitle, {
+      sessionId: args.sessionId,
+      message: args.message,
+      model: args.model,
     });
   },
 });
