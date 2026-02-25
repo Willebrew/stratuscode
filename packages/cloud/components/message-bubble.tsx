@@ -913,6 +913,12 @@ function SubagentCard({ toolCall, nestedParts, statusText, sessionId }: { toolCa
   // Derive label from LLM-generated statusText (live from child agent)
   const agentKind = toolCall.name?.replace('delegate_to_', '') || 'agent';
 
+  // Extract task from tool call args as a reliable fallback (always available)
+  const taskFromArgs = (() => {
+    try { return JSON.parse(toolCall.args || '{}').task || ''; }
+    catch { return ''; }
+  })();
+
   // Extract the last meaningful line from statusText for display
   const derivedLabel = (() => {
     if (statusText) {
@@ -921,12 +927,9 @@ function SubagentCard({ toolCall, nestedParts, statusText, sessionId }: { toolCa
       if (lastLine) return lastLine.length > 80 ? lastLine.slice(0, 77) + '...' : lastLine;
     }
     if (isFailed) return 'Subagent failed';
-    if (isRunning) return agentKind === 'explore' ? 'Exploring codebase...' : 'Starting...';
-    if (isCompleted) {
-      // For completed subagents, show final statusText or generic fallback
-      return agentKind === 'explore' ? 'Explored codebase' : 'Completed';
-    }
-    return 'Starting...';
+    if (isRunning) return taskFromArgs || 'Working...';
+    if (isCompleted) return taskFromArgs || 'Completed';
+    return taskFromArgs || 'Working...';
   })();
 
   // ── Typewriter that re-types when label changes ──

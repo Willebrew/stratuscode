@@ -298,7 +298,7 @@ export const addSubagentStart = internalMutation({
     if (!state) return;
 
     const parts = state.parts ? JSON.parse(state.parts) : [];
-    parts.push({ type: "subagent_start", agentName: args.agentName, task: args.task });
+    parts.push({ type: "subagent_start", agentName: args.agentName, task: args.task, statusText: args.task });
 
     await ctx.db.patch(state._id, {
       parts: JSON.stringify(parts),

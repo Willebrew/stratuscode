@@ -401,79 +401,6 @@ async function resolveProviderForModel(
   };
 }
 
-// ─── Title generation ───
-
-const TITLE_PROMPT =
-  "Generate a concise 3-6 word title for this coding conversation. Return ONLY the title, no quotes, no punctuation at the end.";
-
-/**
- * Generate a concise title for a session from the user's first message.
- * Uses the same model & provider the session is configured with.
- */
-async function generateTitle(
-  userMessage: string,
-  model: string,
-  apiKey: string,
-  baseUrl: string,
-  providerType: string,
-  headers?: Record<string, string>,
-): Promise<string | null> {
-  if (!apiKey || apiKey === "server-managed") return null;
-
-  try {
-    let title: string | undefined;
-
-    if (providerType === "responses-api") {
-      // Codex / Responses API format
-      const resp = await fetch(`${baseUrl}/responses`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-          ...headers,
-        },
-        body: JSON.stringify({
-          model,
-          instructions: TITLE_PROMPT,
-          input: userMessage.slice(0, 500),
-          max_output_tokens: 40,
-        }),
-      });
-      if (!resp.ok) return null;
-      const data = (await resp.json()) as { output?: Array<{ content?: Array<{ text?: string }> }> };
-      title = data.output?.[0]?.content?.[0]?.text?.trim();
-    } else {
-      // Chat Completions API format (OpenAI, Anthropic, OpenRouter, etc.)
-      const resp = await fetch(`${baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-          ...headers,
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: 40,
-          temperature: 0.3,
-          messages: [
-            { role: "system", content: TITLE_PROMPT },
-            { role: "user", content: userMessage.slice(0, 500) },
-          ],
-        }),
-      });
-      if (!resp.ok) return null;
-      const data = (await resp.json()) as {
-        choices: Array<{ message: { content: string } }>;
-      };
-      title = data.choices?.[0]?.message?.content?.trim();
-    }
-
-    return title && title.length > 0 && title.length <= 80 ? title : null;
-  } catch {
-    return null;
-  }
-}
-
 // ─── Main action ───
 
 export const sendMessage = internalAction({
@@ -524,6 +451,7 @@ export const sendMessage = internalAction({
     const flushSubagentStatus = async () => {
       for (const [agentName, text] of Object.entries(subagentTextBuffers)) {
         if (text) {
+          console.log(`[subagent-flush] agent=${agentName} text=${JSON.stringify(text.slice(0, 200))}`);
           await ctx.runMutation(internal.streaming.updateSubagentStatus, {
             sessionId: args.sessionId,
             agentName,
@@ -873,6 +801,7 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
             });
           },
           onSubagentToken: (agentName: string, token: string) => {
+            console.log(`[subagent-token] agent=${agentName} token=${JSON.stringify(token.slice(0, 100))}`);
             subagentTextBuffers[agentName] = (subagentTextBuffers[agentName] || "") + token;
             if (!subagentFlushTimeout) {
               subagentFlushTimeout = setTimeout(async () => {
@@ -1098,7 +1027,27 @@ export const send = action({
     agentMode: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    // Schedule agent immediately — it starts running right away
+    // Update title from first message (instant — no LLM call)
+    try {
+      const agentState = await ctx.runQuery(internal.agent_state.get, {
+        sessionId: args.sessionId,
+      });
+      const hasPrevious = agentState?.sageMessages
+        ? JSON.parse(agentState.sageMessages).length > 0
+        : false;
+      if (!hasPrevious) {
+        const title = args.message.slice(0, 80) + (args.message.length > 80 ? "..." : "");
+        await ctx.runMutation(internal.sessions.updateTitle, {
+          id: args.sessionId,
+          title,
+          titleGenerated: true,
+        });
+      }
+    } catch {
+      // Best effort — title failure shouldn't affect the agent
+    }
+
+    // Schedule agent — starts running right away
     await ctx.scheduler.runAfter(0, internal.agent.sendMessage, {
       sessionId: args.sessionId,
       message: args.message,
@@ -1107,42 +1056,5 @@ export const send = action({
       reasoningEffort: args.reasoningEffort,
       agentMode: args.agentMode,
     });
-
-    // Generate AI title directly in this action (runs in parallel with
-    // sendMessage since that's already scheduled and running)
-    try {
-      const agentState = await ctx.runQuery(internal.agent_state.get, {
-        sessionId: args.sessionId,
-      });
-      const hasPrevious = agentState?.sageMessages
-        ? JSON.parse(agentState.sageMessages).length > 0
-        : false;
-      if (hasPrevious) return;
-
-      const session = await ctx.runQuery(internal.sessions.getInternal, { id: args.sessionId });
-      if (!session) return;
-
-      const model = args.model || session.model || "gpt-5-mini";
-      const resolved = await resolveProviderForModel(model, ctx, session.userId);
-
-      const aiTitle = await generateTitle(
-        args.message,
-        model,
-        resolved.apiKey,
-        resolved.baseUrl,
-        resolved.providerType,
-        resolved.headers,
-      );
-
-      if (aiTitle) {
-        await ctx.runMutation(internal.sessions.updateTitle, {
-          id: args.sessionId,
-          title: aiTitle,
-          titleGenerated: true,
-        });
-      }
-    } catch {
-      // Best effort — title failure shouldn't affect the agent
-    }
   },
 });
