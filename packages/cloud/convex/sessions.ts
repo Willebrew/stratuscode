@@ -199,8 +199,8 @@ export const prepareSend = mutation({
       lastMessage: args.lastMessage,
       updatedAt: Date.now(),
     };
-    // Only set title on first message (don't overwrite existing titles)
-    if (args.title && (!session?.title || session.title === "New Chat")) {
+    // Set title on first message — don't overwrite AI-generated titles
+    if (args.title && !session?.titleGenerated) {
       patch.title = args.title;
     }
     if (args.agentMode) patch.agent = args.agentMode;

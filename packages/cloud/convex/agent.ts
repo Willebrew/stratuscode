@@ -1102,38 +1102,11 @@ export const generateSessionTitle = internalAction({
     if (!session) return;
 
     const model = args.model || session.model || "gpt-5-mini";
-
-    // For Codex models, use a different provider for title generation.
-    // The Codex API limits concurrent requests per account, so hitting it
-    // in parallel with the main agent would queue and only resolve after
-    // the agent finishes. Use OpenAI API if available, otherwise Zen free.
-    let titleModel = model;
-    let resolved: Awaited<ReturnType<typeof resolveProviderForModel>>;
-
-    if (model.toLowerCase().includes("codex")) {
-      if (process.env.OPENAI_API_KEY) {
-        resolved = {
-          apiKey: process.env.OPENAI_API_KEY,
-          baseUrl: "https://api.openai.com/v1",
-          providerType: "chat-completions",
-        };
-        titleModel = "gpt-4o-mini";
-      } else {
-        resolved = {
-          apiKey: "",
-          baseUrl: "https://opencode.ai/zen/v1",
-          providerType: "chat-completions",
-          headers: { "x-opencode-client": "cli" },
-        };
-        titleModel = "kimi-k2.5-free";
-      }
-    } else {
-      resolved = await resolveProviderForModel(model, ctx, session.userId);
-    }
+    const resolved = await resolveProviderForModel(model, ctx, session.userId);
 
     const aiTitle = await generateTitle(
       args.message,
-      titleModel,
+      model,
       resolved.apiKey,
       resolved.baseUrl,
       resolved.providerType,
