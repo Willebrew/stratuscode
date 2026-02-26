@@ -516,6 +516,24 @@ export const sendMessage = internalAction({
       return s?.runId === myRunId;
     };
 
+    // Retry wrapper for Convex mutations that may fail with OCC errors.
+    // Parallel subagents fire concurrent mutations on the same streaming_state
+    // document, causing OptimisticConcurrencyControl failures. Retrying after
+    // a short backoff resolves these transient conflicts.
+    const retryMutation = async <T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> => {
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          return await fn();
+        } catch (e: any) {
+          const isOCC = String(e?.message || e).includes("OptimisticConcurrencyControl")
+            || String(e?.data?.code || "").includes("OptimisticConcurrencyControl");
+          if (!isOCC || attempt === maxRetries) throw e;
+          await new Promise(r => setTimeout(r, 50 * (attempt + 1)));
+        }
+      }
+      throw new Error("retryMutation: unreachable");
+    };
+
     // Status already set to 'running' and user message already persisted
     // by the public `send` action before scheduling this internal action.
 
@@ -554,12 +572,12 @@ export const sendMessage = internalAction({
       for (const [agentId, text] of Object.entries(subagentTextBuffers)) {
         if (text) {
           const displayName = agentId.split('::')[0] || agentId;
-          await ctx.runMutation(internal.streaming.updateSubagentStatus, {
+          await retryMutation(() => ctx.runMutation(internal.streaming.updateSubagentStatus, {
             sessionId: args.sessionId,
             agentName: displayName,
             subagentId: agentId,
             statusText: text,
-          });
+          }));
         }
       }
     };
@@ -571,18 +589,18 @@ export const sendMessage = internalAction({
       if (reasoningBuffer) {
         const batch = reasoningBuffer;
         reasoningBuffer = "";
-        await ctx.runMutation(internal.streaming.appendReasoning, {
+        await retryMutation(() => ctx.runMutation(internal.streaming.appendReasoning, {
           sessionId: args.sessionId,
           content: batch,
-        });
+        }));
       }
       if (tokenBuffer) {
         const batch = tokenBuffer;
         tokenBuffer = "";
-        await ctx.runMutation(internal.streaming.appendToken, {
+        await retryMutation(() => ctx.runMutation(internal.streaming.appendToken, {
           sessionId: args.sessionId,
           content: batch,
-        });
+        }));
       }
     };
 
@@ -801,24 +819,24 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
             // Flush pending tokens before tool call
             await flushTokens();
 
-            await ctx.runMutation(internal.streaming.addToolCall, {
+            await retryMutation(() => ctx.runMutation(internal.streaming.addToolCall, {
               sessionId: args.sessionId,
               toolCallId: tc.id,
               toolName: tc.function?.name || tc.name || "",
               toolArgs: tc.function?.arguments || "",
-            });
+            }));
           },
           onToolResult: async (tc: any, result: string) => {
             const toolName = tc.function?.name || "";
             const toolArgs = tc.function?.arguments || "";
 
-            await ctx.runMutation(internal.streaming.updateToolResult, {
+            await retryMutation(() => ctx.runMutation(internal.streaming.updateToolResult, {
               sessionId: args.sessionId,
               toolCallId: tc.id,
               toolName,
               result: result.slice(0, 5000),
               toolArgs,
-            });
+            }));
 
             // Track file-modifying tools to set hasChanges
             if (!hasMarkedChanges && FILE_CHANGING_TOOLS.has(toolName)) {
@@ -886,12 +904,12 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
             activeSubagentStacks[agentName].push(uniqueId);
 
             await flushTokens();
-            await ctx.runMutation(internal.streaming.addSubagentStart, {
+            await retryMutation(() => ctx.runMutation(internal.streaming.addSubagentStart, {
               sessionId: args.sessionId,
               agentName: displayName,
               subagentId: uniqueId,
               task,
-            });
+            }));
           },
           onSubagentEnd: async (agentName: string, result: string) => {
             // Correlate with the matching start — FIFO per agent name
@@ -913,21 +931,21 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
             }
 
             if (completionLabel) {
-              await ctx.runMutation(internal.streaming.updateSubagentStatus, {
+              await retryMutation(() => ctx.runMutation(internal.streaming.updateSubagentStatus, {
                 sessionId: args.sessionId,
                 agentName: displayName,
                 subagentId: uniqueId,
                 statusText: lastStatus ? lastStatus + "\n" + completionLabel : completionLabel,
-              });
+              }));
             }
             delete subagentTextBuffers[uniqueId];
             await flushTokens();
-            await ctx.runMutation(internal.streaming.addSubagentEnd, {
+            await retryMutation(() => ctx.runMutation(internal.streaming.addSubagentEnd, {
               sessionId: args.sessionId,
               agentName: displayName,
               subagentId: uniqueId,
               result,
-            });
+            }));
           },
           onSubagentToken: (agentName: string, token: string) => {
             // Route token to the correct subagent instance.
