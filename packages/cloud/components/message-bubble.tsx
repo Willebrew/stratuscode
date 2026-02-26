@@ -33,21 +33,25 @@ function groupSubagentParts(parts: { part: MessagePart; idx: number }[]): Groupe
   const pendingDelegates: GroupedPart[] = [];
 
   // Stack of active delegates (between subagent_start and subagent_end).
-  // Content goes into the most recent (top of stack).
   const activeStack: GroupedPart[] = [];
 
   // Depth counter for truly nested child subagents (subagent inside subagent)
   let nestedChildDepth = 0;
+
+  // Round-robin counter for distributing content across parallel subagents.
+  // SAGE doesn't tell us which subagent owns a tool call, so we distribute
+  // evenly across all active parallel subagents for balanced visuals.
+  let parallelRR = 0;
 
   // Orphaned starts that arrived before their delegate_to_* (race condition)
   const orphanedStarts: { agentName?: string; subagentId?: string; statusText?: string }[] = [];
 
   for (const item of parts) {
     const part = item.part as any;
-    const active = activeStack.length > 0 ? activeStack[activeStack.length - 1]! : null;
 
     // ── Inside a nested child subagent: pass everything through ──
-    if (nestedChildDepth > 0 && active) {
+    if (nestedChildDepth > 0 && activeStack.length > 0) {
+      const active = activeStack[activeStack.length - 1]!;
       if (part.type === 'subagent_start') nestedChildDepth++;
       else if (part.type === 'subagent_end') nestedChildDepth--;
       active.nestedParts!.push(item.part);
@@ -56,12 +60,17 @@ function groupSubagentParts(parts: { part: MessagePart; idx: number }[]): Groupe
 
     // ── delegate_to_* tool call ──
     if (part.type === 'tool_call' && part.toolCall?.name?.startsWith('delegate_to_')) {
-      if (active) {
-        // Inside an active subagent → this is a CHILD delegation (nested)
-        active.nestedParts!.push(item.part);
+      if (activeStack.length === 1) {
+        // Inside exactly one active subagent → this is a CHILD delegation (nested)
+        activeStack[0]!.nestedParts!.push(item.part);
+      } else if (activeStack.length > 1) {
+        // Multiple parallel subagents active → child of one of them (nest in round-robin target)
+        const target = activeStack[parallelRR % activeStack.length]!;
+        target.nestedParts!.push(item.part);
+        parallelRR++;
       } else {
         // Top-level → new group (parallel sibling or first delegate)
-        const group: GroupedPart & { subagentId?: string } = { ...item, nestedParts: [] };
+        const group: GroupedPart = { ...item, nestedParts: [] };
 
         // Check for a matching orphaned start (race condition)
         const agentSuffix = part.toolCall.name.replace('delegate_to_', '');
@@ -94,12 +103,12 @@ function groupSubagentParts(parts: { part: MessagePart; idx: number }[]): Groupe
         delegate.statusText = part.statusText;
         delegate.subagentId = part.subagentId;
         activeStack.push(delegate);
-      } else if (active) {
-        // No pending delegates + inside active → nested child subagent
-        active.nestedParts!.push(item.part);
+      } else if (activeStack.length === 1) {
+        // No pending delegates + exactly one active → nested child subagent
+        activeStack[0]!.nestedParts!.push(item.part);
         nestedChildDepth = 1;
       } else {
-        // No pending delegates + no active → orphaned start (race condition)
+        // No pending delegates + 0 or 2+ active → orphaned start (race condition)
         orphanedStarts.push({ agentName: part.agentName, subagentId: part.subagentId, statusText: part.statusText });
       }
       continue;
@@ -123,9 +132,14 @@ function groupSubagentParts(parts: { part: MessagePart; idx: number }[]): Groupe
     }
 
     // ── Regular content (text, reasoning, tool_call, etc.) ──
-    if (active) {
-      // Inside an active subagent → add to its nested content
-      active.nestedParts!.push(item.part);
+    if (activeStack.length === 1) {
+      // Exactly one active subagent → nest inside it
+      activeStack[0]!.nestedParts!.push(item.part);
+    } else if (activeStack.length > 1) {
+      // Multiple parallel subagents → distribute round-robin
+      const target = activeStack[parallelRR % activeStack.length]!;
+      target.nestedParts!.push(item.part);
+      parallelRR++;
     } else {
       // Top-level
       grouped.push(item);

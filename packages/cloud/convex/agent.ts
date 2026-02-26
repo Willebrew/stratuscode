@@ -1197,11 +1197,14 @@ export const send = action({
     // Schedule AI title generation with a 5-second delay so it doesn't
     // compete with the main agent request for rate-limited free-tier APIs
     if (!hasPreviousMessages) {
+      console.log("[titleGen] scheduling for model:", args.model);
       await ctx.scheduler.runAfter(5000, internal.agent.generateTitleBackground, {
         sessionId: args.sessionId,
         message: args.message,
         model: args.model,
       });
+    } else {
+      console.log("[titleGen] skipped — hasPreviousMessages");
     }
   },
 });
@@ -1216,13 +1219,20 @@ export const generateTitleBackground = internalAction({
   handler: async (ctx, args) => {
     try {
       const session = await ctx.runQuery(internal.sessions.getInternal, { id: args.sessionId });
-      if (!session) return;
+      if (!session) {
+        console.log("[titleGen] session not found");
+        return;
+      }
 
       // Skip if title was already AI-generated (e.g. by a retry)
-      if (session.titleGenerated) return;
+      if (session.titleGenerated) {
+        console.log("[titleGen] already generated, skipping");
+        return;
+      }
 
       const model = args.model || session.model || "gpt-5-mini";
       const resolved = await resolveProviderForModel(model, ctx, session.userId);
+      console.log("[titleGen] model:", model, "provider:", resolved.providerType, "baseUrl:", resolved.baseUrl, "hasKey:", !!resolved.apiKey);
 
       const aiTitle = await generateTitle(
         args.message,
@@ -1233,6 +1243,7 @@ export const generateTitleBackground = internalAction({
         resolved.headers,
       );
 
+      console.log("[titleGen] result:", aiTitle);
       if (aiTitle) {
         await ctx.runMutation(internal.sessions.updateTitle, {
           id: args.sessionId,
