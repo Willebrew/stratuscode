@@ -193,10 +193,12 @@ export const prepareSend = mutation({
   },
   handler: async (ctx, args) => {
     const session = await ctx.db.get(args.id);
+    const runId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
     const patch: Record<string, any> = {
       cancelRequested: false,
       status: "running",
       lastMessage: args.lastMessage,
+      runId,
       updatedAt: Date.now(),
     };
     // Set truncated title as instant placeholder — AI title replaces it later

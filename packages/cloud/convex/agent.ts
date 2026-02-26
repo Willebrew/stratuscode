@@ -505,6 +505,17 @@ export const sendMessage = internalAction({
     const session = await ctx.runQuery(internal.sessions.getInternal, { id: args.sessionId });
     if (!session) throw new Error("Session not found");
 
+    // Capture the runId assigned by prepareSend so we can guard cleanup paths
+    const myRunId = session.runId;
+
+    // Guard: check if this action is still the current run for this session.
+    // If the user pressed stop and sent a new message, prepareSend will have
+    // generated a new runId — this action's cleanup should bail out.
+    const isMyRun = async () => {
+      const s = await ctx.runQuery(internal.sessions.getInternal, { id: args.sessionId });
+      return s?.runId === myRunId;
+    };
+
     // Status already set to 'running' and user message already persisted
     // by the public `send` action before scheduling this internal action.
 
@@ -534,11 +545,13 @@ export const sendMessage = internalAction({
     let subagentFlushTimeout: ReturnType<typeof setTimeout> | null = null;
 
     const flushSubagentStatus = async () => {
-      for (const [agentName, text] of Object.entries(subagentTextBuffers)) {
+      for (const [agentId, text] of Object.entries(subagentTextBuffers)) {
         if (text) {
+          const displayName = agentId.split('::')[0] || agentId;
           await ctx.runMutation(internal.streaming.updateSubagentStatus, {
             sessionId: args.sessionId,
-            agentName,
+            agentName: displayName,
+            subagentId: agentId,
             statusText: text,
           });
         }
@@ -852,18 +865,22 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
             console.error("[agent] Error:", err.message);
             lastAgentError = err;
           },
-          onSubagentStart: async (agentName: string, task: string) => {
+          onSubagentStart: async (agentId: string, task: string) => {
+            // agentId is "name::toolCallId" — extract display name
+            const displayName = agentId.split('::')[0] || agentId;
             await flushTokens();
             await ctx.runMutation(internal.streaming.addSubagentStart, {
               sessionId: args.sessionId,
-              agentName,
+              agentName: displayName,
+              subagentId: agentId,
               task,
             });
           },
-          onSubagentEnd: async (agentName: string, result: string) => {
+          onSubagentEnd: async (agentId: string, result: string) => {
+            const displayName = agentId.split('::')[0] || agentId;
             // Use the last set_status value as the completion label.
             // If none was set, extract the first short sentence from the result.
-            const lastStatus = subagentTextBuffers[agentName] || "";
+            const lastStatus = subagentTextBuffers[agentId] || "";
             const lines = lastStatus.split('\n').filter((l: string) => l.trim());
             const lastSetStatus = lines[lines.length - 1]?.trim() || "";
 
@@ -877,20 +894,22 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
             if (completionLabel) {
               await ctx.runMutation(internal.streaming.updateSubagentStatus, {
                 sessionId: args.sessionId,
-                agentName,
+                agentName: displayName,
+                subagentId: agentId,
                 statusText: lastStatus ? lastStatus + "\n" + completionLabel : completionLabel,
               });
             }
-            delete subagentTextBuffers[agentName];
+            delete subagentTextBuffers[agentId];
             await flushTokens();
             await ctx.runMutation(internal.streaming.addSubagentEnd, {
               sessionId: args.sessionId,
-              agentName,
+              agentName: displayName,
+              subagentId: agentId,
               result,
             });
           },
-          onSubagentToken: (agentName: string, token: string) => {
-            subagentTextBuffers[agentName] = (subagentTextBuffers[agentName] || "") + token;
+          onSubagentToken: (agentId: string, token: string) => {
+            subagentTextBuffers[agentId] = (subagentTextBuffers[agentId] || "") + token;
             if (!subagentFlushTimeout) {
               subagentFlushTimeout = setTimeout(async () => {
                 subagentFlushTimeout = null;
@@ -917,6 +936,9 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
 
       // ── 7. Finalize ──
 
+      // Guard: if a new run started while we were finishing, bail out
+      if (!await isMyRun()) return;
+
       await ctx.runMutation(internal.streaming.finish, { sessionId: args.sessionId });
 
       // Build parts array for the final message
@@ -925,20 +947,20 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
       });
 
       const parts: any[] = [];
-      if (streamState?.reasoning) {
-        parts.push({ type: "reasoning", content: streamState.reasoning });
-      }
 
-      // Use ordered parts (preserves subagent markers with statusText)
+      // Use ordered parts (preserves reasoning + subagent markers inline)
       const orderedParts = streamState?.parts ? JSON.parse(streamState.parts) : null;
       if (orderedParts && orderedParts.length > 0) {
         for (const p of orderedParts) {
-          if (p.type === "text" || p.type === "tool_call" || p.type === "subagent_start" || p.type === "subagent_end") {
+          if (p.type === "reasoning" || p.type === "text" || p.type === "tool_call" || p.type === "subagent_start" || p.type === "subagent_end") {
             parts.push(p);
           }
         }
       } else {
-        // Legacy fallback: flat toolCalls + text
+        // Legacy fallback: single reasoning blob + flat toolCalls + text
+        if (streamState?.reasoning) {
+          parts.push({ type: "reasoning", content: streamState.reasoning });
+        }
         const toolCalls = streamState?.toolCalls ? JSON.parse(streamState.toolCalls) : [];
         const textContent = streamState?.content || result.content || "";
         for (const tc of toolCalls) {
@@ -989,10 +1011,13 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
       });
 
       // Set status to idle BEFORE snapshotting so UI responds immediately
-      await ctx.runMutation(internal.sessions.updateStatus, {
-        id: args.sessionId,
-        status: "idle",
-      });
+      // Guard: if a new run started, don't overwrite its status
+      if (await isMyRun()) {
+        await ctx.runMutation(internal.sessions.updateStatus, {
+          id: args.sessionId,
+          status: "idle",
+        });
+      }
 
       // ── 8. Snapshot sandbox for fast resume (after status update) ──
 
@@ -1028,26 +1053,31 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
       try { await flushTokens(); } catch { /* best effort */ }
       try { await flushSubagentStatus(); } catch { /* best effort */ }
 
+      // Guard: if a new run started (user sent a new message after stop),
+      // bail out entirely — don't touch the new run's streaming state or status.
+      const stillMyRun = await isMyRun();
+
       // Save partial assistant message on cancel so work isn't lost
-      if (isCancelled) {
+      if (isCancelled && stillMyRun) {
         try {
           const streamState = await ctx.runQuery(internal.streaming.getInternal, {
             sessionId: args.sessionId,
           });
           if (streamState && (streamState.content || streamState.toolCalls !== "[]")) {
             const parts: any[] = [];
-            if (streamState.reasoning) {
-              parts.push({ type: "reasoning", content: streamState.reasoning });
-            }
-            // Use ordered parts if available, fall back to legacy toolCalls
+            // Use ordered parts if available (includes inline reasoning), fall back to legacy
             const orderedParts = streamState.parts ? JSON.parse(streamState.parts) : null;
             if (orderedParts && orderedParts.length > 0) {
               for (const p of orderedParts) {
-                if (p.type === "text" || p.type === "tool_call" || p.type === "subagent_start" || p.type === "subagent_end") {
+                if (p.type === "reasoning" || p.type === "text" || p.type === "tool_call" || p.type === "subagent_start" || p.type === "subagent_end") {
                   parts.push(p);
                 }
               }
             } else {
+              // Legacy fallback: single reasoning blob + flat toolCalls + text
+              if (streamState.reasoning) {
+                parts.push({ type: "reasoning", content: streamState.reasoning });
+              }
               const tcs = streamState.toolCalls ? JSON.parse(streamState.toolCalls) : [];
               for (const tc of tcs) {
                 parts.push({
@@ -1070,12 +1100,15 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
       }
 
       // Finish streaming and set status AFTER saving partial message
-      await ctx.runMutation(internal.streaming.finish, { sessionId: args.sessionId });
-      await ctx.runMutation(internal.sessions.updateStatus, {
-        id: args.sessionId,
-        status: isCancelled ? "idle" : "error",
-        errorMessage: isCancelled ? undefined : errorMessage,
-      });
+      // Only if this is still our run — otherwise the new run owns streaming state
+      if (stillMyRun) {
+        await ctx.runMutation(internal.streaming.finish, { sessionId: args.sessionId });
+        await ctx.runMutation(internal.sessions.updateStatus, {
+          id: args.sessionId,
+          status: isCancelled ? "idle" : "error",
+          errorMessage: isCancelled ? undefined : errorMessage,
+        });
+      }
 
       // Snapshot sandbox AFTER status update so UI responds immediately
       if (sandbox) {

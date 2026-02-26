@@ -162,15 +162,15 @@ export function useConvexChat(
     // Build streaming parts helper — uses ordered parts array for correct interleaving
     const buildStreamingParts = (): MessagePart[] => {
       const result: MessagePart[] = [];
-      if (streamingState?.reasoning) {
-        result.push({ type: 'reasoning', content: streamingState.reasoning });
-      }
 
       // Use ordered parts if available (new format), fall back to legacy grouping
       const orderedParts = streamingState?.parts ? JSON.parse(streamingState.parts) : null;
       if (orderedParts && orderedParts.length > 0) {
         for (const part of orderedParts) {
-          if (part.type === 'text' && part.content) {
+          if (part.type === 'reasoning' && part.content) {
+            // Include reasoning parts inline for interleaved think-act-think
+            result.push({ type: 'reasoning', content: part.content });
+          } else if (part.type === 'text' && part.content) {
             result.push({ type: 'text', content: part.content });
           } else if (part.type === 'tool_call' && part.toolCall) {
             result.push({
@@ -190,7 +190,10 @@ export function useConvexChat(
           }
         }
       } else {
-        // Legacy fallback: text then tool calls
+        // Legacy fallback: single reasoning blob + text then tool calls
+        if (streamingState?.reasoning) {
+          result.push({ type: 'reasoning', content: streamingState.reasoning });
+        }
         if (streamingState?.content) {
           result.push({ type: 'text', content: streamingState.content });
         }

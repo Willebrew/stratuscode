@@ -397,11 +397,15 @@ export async function processWithToolLoop(
             };
           }
 
+          // Generate unique instance ID so concurrent subagents of the same
+          // type don't collide on callbacks and status tracking
+          const subagentInstanceId = `${definition.name}::${toolCall.id}`;
+
           const task = additionalContext
             ? `${description}\n\nAdditional context:\n${additionalContext}`
             : description;
 
-          context.callbacks?.onSubagentStart?.(definition.name, task);
+          context.callbacks?.onSubagentStart?.(subagentInstanceId, task);
 
           const subagentResult = await executeSubagent(definition, task, {
             parentContext: context,
@@ -413,7 +417,7 @@ export async function processWithToolLoop(
             },
           });
 
-          context.callbacks?.onSubagentEnd?.(definition.name, subagentResult.content);
+          context.callbacks?.onSubagentEnd?.(subagentInstanceId, subagentResult.content);
 
           const result = subagentResult.error
             ? JSON.stringify({

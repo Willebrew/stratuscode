@@ -78,8 +78,19 @@ export const appendReasoning = internalMutation({
       .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
       .unique();
     if (!state) return;
+
+    // Update ordered parts — append to last reasoning part or create new one
+    const parts = state.parts ? JSON.parse(state.parts) : [];
+    const last = parts[parts.length - 1];
+    if (last && last.type === "reasoning") {
+      last.content += args.content;
+    } else {
+      parts.push({ type: "reasoning", content: args.content });
+    }
+
     await ctx.db.patch(state._id, {
       reasoning: state.reasoning + args.content,
+      parts: JSON.stringify(parts),
       updatedAt: Date.now(),
     });
   },
@@ -288,6 +299,7 @@ export const addSubagentStart = internalMutation({
   args: {
     sessionId: v.id("sessions"),
     agentName: v.string(),
+    subagentId: v.optional(v.string()),
     task: v.string(),
   },
   handler: async (ctx, args) => {
@@ -298,7 +310,9 @@ export const addSubagentStart = internalMutation({
     if (!state) return;
 
     const parts = state.parts ? JSON.parse(state.parts) : [];
-    parts.push({ type: "subagent_start", agentName: args.agentName, task: args.task, statusText: args.task });
+    const part: any = { type: "subagent_start", agentName: args.agentName, task: args.task, statusText: args.task };
+    if (args.subagentId) part.subagentId = args.subagentId;
+    parts.push(part);
 
     await ctx.db.patch(state._id, {
       parts: JSON.stringify(parts),
@@ -311,6 +325,7 @@ export const updateSubagentStatus = internalMutation({
   args: {
     sessionId: v.id("sessions"),
     agentName: v.string(),
+    subagentId: v.optional(v.string()),
     statusText: v.string(),
   },
   handler: async (ctx, args) => {
@@ -321,11 +336,16 @@ export const updateSubagentStatus = internalMutation({
     if (!state) return;
 
     const parts = state.parts ? JSON.parse(state.parts) : [];
-    // Find the LAST subagent_start matching this agentName and update its statusText
+    // Find the LAST subagent_start matching this subagentId (or agentName for legacy)
     for (let i = parts.length - 1; i >= 0; i--) {
-      if (parts[i].type === "subagent_start" && parts[i].agentName === args.agentName) {
-        parts[i].statusText = args.statusText;
-        break;
+      if (parts[i].type === "subagent_start") {
+        const match = args.subagentId
+          ? parts[i].subagentId === args.subagentId
+          : parts[i].agentName === args.agentName;
+        if (match) {
+          parts[i].statusText = args.statusText;
+          break;
+        }
       }
     }
 
@@ -340,6 +360,7 @@ export const addSubagentEnd = internalMutation({
   args: {
     sessionId: v.id("sessions"),
     agentName: v.string(),
+    subagentId: v.optional(v.string()),
     result: v.string(),
   },
   handler: async (ctx, args) => {
@@ -350,7 +371,9 @@ export const addSubagentEnd = internalMutation({
     if (!state) return;
 
     const parts = state.parts ? JSON.parse(state.parts) : [];
-    parts.push({ type: "subagent_end", agentName: args.agentName, result: args.result });
+    const part: any = { type: "subagent_end", agentName: args.agentName, result: args.result };
+    if (args.subagentId) part.subagentId = args.subagentId;
+    parts.push(part);
 
     await ctx.db.patch(state._id, {
       parts: JSON.stringify(parts),

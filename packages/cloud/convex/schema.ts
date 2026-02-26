@@ -23,6 +23,7 @@ export default defineSchema({
     }),
     cancelRequested: v.boolean(),
     hasChanges: v.optional(v.boolean()),
+    runId: v.optional(v.string()),
     errorMessage: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),

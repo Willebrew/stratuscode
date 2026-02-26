@@ -20,9 +20,9 @@ type GroupedPart = { part: MessagePart; idx: number; nestedParts?: MessagePart[]
  */
 function groupSubagentParts(parts: { part: MessagePart; idx: number }[]): GroupedPart[] {
   const grouped: GroupedPart[] = [];
-  let activeSubagent: { part: MessagePart; idx: number; nestedParts: MessagePart[]; hasStarted: boolean; statusText?: string } | null = null;
+  let activeSubagent: { part: MessagePart; idx: number; nestedParts: MessagePart[]; hasStarted: boolean; statusText?: string; subagentId?: string } | null = null;
   let nestingDepth = 0;
-  let orphanedStarts = 0;
+  let orphanedStarts: { agentName?: string; subagentId?: string }[] = [];
 
   for (const item of parts) {
     const { part } = item;
@@ -30,10 +30,19 @@ function groupSubagentParts(parts: { part: MessagePart; idx: number }[]): Groupe
     if (activeSubagent) {
       if ((part as any).type === 'subagent_start') {
         if (!activeSubagent.hasStarted) {
-          activeSubagent.hasStarted = true;
-          // Capture statusText from the subagent_start marker for live display
-          if ((part as any).statusText) {
-            activeSubagent.statusText = (part as any).statusText;
+          // Match by subagentId when available, fall back to agentName for legacy messages
+          const startPart = part as any;
+          const matchesById = activeSubagent.subagentId && startPart.subagentId
+            ? startPart.subagentId === activeSubagent.subagentId
+            : true; // legacy: assume first start matches
+          if (matchesById) {
+            activeSubagent.hasStarted = true;
+            if (startPart.statusText) {
+              activeSubagent.statusText = startPart.statusText;
+            }
+          } else {
+            nestingDepth++;
+            activeSubagent.nestedParts.push(part);
           }
         } else {
           nestingDepth++;
@@ -62,17 +71,28 @@ function groupSubagentParts(parts: { part: MessagePart; idx: number }[]): Groupe
     }
 
     if (part.type === 'tool_call' && part.toolCall.name?.startsWith('delegate_to_')) {
-      const hasRacedStart = orphanedStarts > 0;
-      if (hasRacedStart) orphanedStarts--;
+      // Check for a matching orphaned start (by subagentId or agentName)
+      const agentSuffix = part.toolCall.name.replace('delegate_to_', '');
+      let hasRacedStart = false;
+      for (let i = 0; i < orphanedStarts.length; i++) {
+        const os = orphanedStarts[i]!;
+        if (os.subagentId?.startsWith(agentSuffix) || os.agentName === agentSuffix) {
+          hasRacedStart = true;
+          orphanedStarts.splice(i, 1);
+          break;
+        }
+      }
 
       nestingDepth = 0;
-      activeSubagent = { ...item, nestedParts: [], hasStarted: hasRacedStart };
+      const subagentId = (part as any).subagentId;
+      activeSubagent = { ...item, nestedParts: [], hasStarted: hasRacedStart, subagentId };
       grouped.push(activeSubagent);
       continue;
     }
 
     if ((part as any).type === 'subagent_start') {
-      orphanedStarts++;
+      const startPart = part as any;
+      orphanedStarts.push({ agentName: startPart.agentName, subagentId: startPart.subagentId });
       continue;
     }
     if ((part as any).type === 'subagent_end') continue;
@@ -150,26 +170,9 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
   // Agent message — render parts in chronological order, no avatar
   // Deduplicate: collect question texts from tool_call parts so we can suppress
   // text parts that just echo the same question the QuestionCard already renders.
-  // Collect reasoning context from the agent parts if it exists.
-  let reasoningContent = '';
-  // Check if standard text has started streaming, which implies reasoning is complete.
-  let hasText = false;
-
-  // Deduplicate: collect question texts from tool_call parts so we can suppress
-  // text parts that just echo the same question the QuestionCard already renders.
   const questionTexts = new Set<string>();
   const seenQuestionKeys = new Set<string>();
   const deduplicatedParts: { part: MessagePart; idx: number }[] = [];
-
-  // Pass 0: check for reasoning and text
-  for (const part of message.parts) {
-    if (part.type === 'reasoning') {
-      reasoningContent += part.content + '\n';
-    }
-    if (part.type === 'text' && part.content.trim().length > 0) {
-      hasText = true;
-    }
-  }
 
   // First pass: collect question texts from tool calls
   for (const part of message.parts) {
@@ -211,8 +214,10 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
     deduplicatedParts.push({ part, idx: i });
   }
 
-  const isThinkingCompleted = !message.streaming || message.parts.length > 0;
-  const isGeneratingContent = message.streaming && message.parts.length > 0;
+  const hasNonReasoningParts = message.parts.some(p => p.type !== 'reasoning');
+  const hasReasoningParts = message.parts.some(p => p.type === 'reasoning');
+  const isThinkingCompleted = !message.streaming || hasNonReasoningParts;
+  const isGeneratingContent = message.streaming && hasNonReasoningParts;
 
   // Stable key for timer Map, avoiding the "streaming" temporary ID
   const timerKey = sessionId ? `${sessionId}-${index}` : index.toString();
@@ -294,20 +299,21 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
 
   return (
     <div className="flex flex-col gap-2 relative group pb-1">
-      {/* Show the AgentThinkingIndicator — stays mounted throughout streaming */}
-      {(reasoningContent || message.streaming) && (
+      {/* Show initial thinking indicator when streaming but no parts yet */}
+      {message.streaming && !hasReasoningParts && !hasNonReasoningParts && (
         <AgentThinkingIndicator
           messageId={message.id}
           label="Thinking"
-          isCompleted={isThinkingCompleted}
-          reasoning={reasoningContent.trim()}
+          isCompleted={false}
+          reasoning=""
           seconds={thinkingSeconds}
         />
       )}
 
       {/* Render parts — group subagent tool calls inside their delegate card */}
+      {/* Reasoning parts render inline as AgentThinkingIndicator blocks */}
       {groupSubagentParts(deduplicatedParts).map(({ part, idx, nestedParts, statusText }) => (
-        <MessagePartView key={idx} part={part} nestedParts={nestedParts} statusText={statusText} allParts={message.parts} todos={todos} sessionId={sessionId} onSend={onSend} onAnswer={onAnswer} isStreaming={message.streaming} />
+        <MessagePartView key={idx} part={part} nestedParts={nestedParts} statusText={statusText} allParts={message.parts} todos={todos} sessionId={sessionId} onSend={onSend} onAnswer={onAnswer} isStreaming={message.streaming} messageId={message.id} thinkingSeconds={thinkingSeconds} />
       ))}
 
       {/* Show generation swoop logo under the response if streaming content */}
@@ -364,10 +370,25 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
   );
 });
 
-function MessagePartView({ part, nestedParts, statusText, allParts, todos, sessionId, onSend, onAnswer, isStreaming }: { part: MessagePart; nestedParts?: MessagePart[]; statusText?: string; allParts?: MessagePart[]; todos?: TodoItem[]; sessionId?: string; onSend?: (msg: string) => void; onAnswer?: (answer: string) => void; isStreaming?: boolean }) {
+function MessagePartView({ part, nestedParts, statusText, allParts, todos, sessionId, onSend, onAnswer, isStreaming, messageId, thinkingSeconds }: { part: MessagePart; nestedParts?: MessagePart[]; statusText?: string; allParts?: MessagePart[]; todos?: TodoItem[]; sessionId?: string; onSend?: (msg: string) => void; onAnswer?: (answer: string) => void; isStreaming?: boolean; messageId?: string; thinkingSeconds?: number }) {
   switch (part.type) {
-    case 'reasoning':
-      return null;
+    case 'reasoning': {
+      // Determine if this reasoning block is "complete" — a non-reasoning part follows it
+      const partIndex = allParts?.indexOf(part) ?? -1;
+      const isLastReasoning = partIndex >= 0
+        ? !allParts!.slice(partIndex + 1).some(p => p.type !== 'reasoning')
+        : true;
+      const isReasoningCompleted = !isStreaming || !isLastReasoning;
+      return (
+        <AgentThinkingIndicator
+          messageId={messageId || 'reasoning'}
+          label="Thinking"
+          isCompleted={isReasoningCompleted}
+          reasoning={part.content}
+          seconds={isLastReasoning ? (thinkingSeconds ?? 0) : undefined}
+        />
+      );
+    }
     case 'text':
       return <MarkdownRenderer content={part.content} isStreaming={isStreaming} />;
     case 'tool_call':
