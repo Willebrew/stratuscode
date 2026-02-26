@@ -11,93 +11,125 @@ import { AgentThinkingIndicator, WaveText } from './agent-thinking-indicator';
 import { AnimatedStratusLogo } from './animated-stratus-logo';
 import type { ChatMessage, ToolCallInfo, MessagePart, TodoItem } from '@/hooks/use-convex-chat';
 
-type GroupedPart = { part: MessagePart; idx: number; nestedParts?: MessagePart[]; statusText?: string };
+type GroupedPart = { part: MessagePart; idx: number; nestedParts?: MessagePart[]; statusText?: string; subagentId?: string };
 
 /**
  * Group a flat list of parts so that subagent content is nested inside
  * the corresponding delegate_to_* tool call. Handles nested subagents
  * (subagent spawning subagent) via a depth counter.
  */
+/**
+ * Group a flat list of parts so that subagent content is nested inside
+ * the corresponding delegate_to_* tool call. Supports:
+ * - Sequential subagents (one at a time)
+ * - Parallel subagents (multiple delegate_to_* in one LLM response)
+ * - Nested subagents (subagent spawning a child subagent)
+ * - Race conditions (subagent_start arriving before its delegate_to_* tool call)
+ */
 function groupSubagentParts(parts: { part: MessagePart; idx: number }[]): GroupedPart[] {
   const grouped: GroupedPart[] = [];
-  let activeSubagent: { part: MessagePart; idx: number; nestedParts: MessagePart[]; hasStarted: boolean; statusText?: string; subagentId?: string } | null = null;
-  let nestingDepth = 0;
-  let orphanedStarts: { agentName?: string; subagentId?: string }[] = [];
+
+  // Queue of delegate groups waiting for their subagent_start
+  const pendingDelegates: GroupedPart[] = [];
+
+  // Stack of active delegates (between subagent_start and subagent_end).
+  // Content goes into the most recent (top of stack).
+  const activeStack: GroupedPart[] = [];
+
+  // Depth counter for truly nested child subagents (subagent inside subagent)
+  let nestedChildDepth = 0;
+
+  // Orphaned starts that arrived before their delegate_to_* (race condition)
+  const orphanedStarts: { agentName?: string; subagentId?: string; statusText?: string }[] = [];
 
   for (const item of parts) {
-    const { part } = item;
+    const part = item.part as any;
+    const active = activeStack.length > 0 ? activeStack[activeStack.length - 1]! : null;
 
-    if (activeSubagent) {
-      if ((part as any).type === 'subagent_start') {
-        if (!activeSubagent.hasStarted) {
-          // Match by subagentId when available, fall back to agentName for legacy messages
-          const startPart = part as any;
-          const matchesById = activeSubagent.subagentId && startPart.subagentId
-            ? startPart.subagentId === activeSubagent.subagentId
-            : true; // legacy: assume first start matches
-          if (matchesById) {
-            activeSubagent.hasStarted = true;
-            if (startPart.statusText) {
-              activeSubagent.statusText = startPart.statusText;
-            }
-          } else {
-            nestingDepth++;
-            activeSubagent.nestedParts.push(part);
+    // ── Inside a nested child subagent: pass everything through ──
+    if (nestedChildDepth > 0 && active) {
+      if (part.type === 'subagent_start') nestedChildDepth++;
+      else if (part.type === 'subagent_end') nestedChildDepth--;
+      active.nestedParts!.push(item.part);
+      continue;
+    }
+
+    // ── delegate_to_* tool call ──
+    if (part.type === 'tool_call' && part.toolCall?.name?.startsWith('delegate_to_')) {
+      if (active) {
+        // Inside an active subagent → this is a CHILD delegation (nested)
+        active.nestedParts!.push(item.part);
+      } else {
+        // Top-level → new group (parallel sibling or first delegate)
+        const group: GroupedPart & { subagentId?: string } = { ...item, nestedParts: [] };
+
+        // Check for a matching orphaned start (race condition)
+        const agentSuffix = part.toolCall.name.replace('delegate_to_', '');
+        let matchedOrphan = false;
+        for (let i = 0; i < orphanedStarts.length; i++) {
+          const os = orphanedStarts[i]!;
+          if (os.subagentId?.startsWith(agentSuffix) || os.agentName === agentSuffix) {
+            group.statusText = os.statusText;
+            group.subagentId = os.subagentId;
+            activeStack.push(group);
+            orphanedStarts.splice(i, 1);
+            matchedOrphan = true;
+            break;
           }
-        } else {
-          nestingDepth++;
-          activeSubagent.nestedParts.push(part);
         }
-        continue;
-      }
 
-      if ((part as any).type === 'subagent_end') {
-        if (nestingDepth > 0) {
-          nestingDepth--;
-          activeSubagent.nestedParts.push(part);
-        } else {
-          activeSubagent = null;
+        if (!matchedOrphan) {
+          pendingDelegates.push(group);
         }
-        continue;
+        grouped.push(group);
       }
-
-      if (!activeSubagent.hasStarted && part.type === 'text') {
-        grouped.push(item);
-        continue;
-      }
-
-      activeSubagent.nestedParts.push(part);
       continue;
     }
 
-    if (part.type === 'tool_call' && part.toolCall.name?.startsWith('delegate_to_')) {
-      // Check for a matching orphaned start (by subagentId or agentName)
-      const agentSuffix = part.toolCall.name.replace('delegate_to_', '');
-      let hasRacedStart = false;
-      for (let i = 0; i < orphanedStarts.length; i++) {
-        const os = orphanedStarts[i]!;
-        if (os.subagentId?.startsWith(agentSuffix) || os.agentName === agentSuffix) {
-          hasRacedStart = true;
-          orphanedStarts.splice(i, 1);
-          break;
-        }
+    // ── subagent_start ──
+    if (part.type === 'subagent_start') {
+      if (pendingDelegates.length > 0) {
+        // Match to the next pending delegate (FIFO)
+        const delegate = pendingDelegates.shift()!;
+        delegate.statusText = part.statusText;
+        delegate.subagentId = part.subagentId;
+        activeStack.push(delegate);
+      } else if (active) {
+        // No pending delegates + inside active → nested child subagent
+        active.nestedParts!.push(item.part);
+        nestedChildDepth = 1;
+      } else {
+        // No pending delegates + no active → orphaned start (race condition)
+        orphanedStarts.push({ agentName: part.agentName, subagentId: part.subagentId, statusText: part.statusText });
       }
-
-      nestingDepth = 0;
-      const subagentId = (part as any).subagentId;
-      activeSubagent = { ...item, nestedParts: [], hasStarted: hasRacedStart, subagentId };
-      grouped.push(activeSubagent);
       continue;
     }
 
-    if ((part as any).type === 'subagent_start') {
-      const startPart = part as any;
-      orphanedStarts.push({ agentName: startPart.agentName, subagentId: startPart.subagentId });
+    // ── subagent_end ──
+    if (part.type === 'subagent_end') {
+      // Find and close the matching active delegate
+      const endId = part.subagentId;
+      let closedIdx = -1;
+      if (endId) {
+        closedIdx = activeStack.findIndex(g => g.subagentId === endId);
+      }
+      if (closedIdx === -1 && activeStack.length > 0) {
+        closedIdx = 0; // FIFO fallback for legacy messages without subagentId
+      }
+      if (closedIdx >= 0) {
+        activeStack.splice(closedIdx, 1);
+      }
       continue;
     }
-    if ((part as any).type === 'subagent_end') continue;
 
-    grouped.push(item);
+    // ── Regular content (text, reasoning, tool_call, etc.) ──
+    if (active) {
+      // Inside an active subagent → add to its nested content
+      active.nestedParts!.push(item.part);
+    } else {
+      // Top-level
+      grouped.push(item);
+    }
   }
 
   return grouped;
@@ -312,8 +344,8 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
 
       {/* Render parts — group subagent tool calls inside their delegate card */}
       {/* Reasoning parts render inline as AgentThinkingIndicator blocks */}
-      {groupSubagentParts(deduplicatedParts).map(({ part, idx, nestedParts, statusText }) => (
-        <MessagePartView key={idx} part={part} nestedParts={nestedParts} statusText={statusText} allParts={message.parts} todos={todos} sessionId={sessionId} onSend={onSend} onAnswer={onAnswer} isStreaming={message.streaming} messageId={message.id} thinkingSeconds={thinkingSeconds} />
+      {groupSubagentParts(deduplicatedParts).map((group) => (
+        <MessagePartView key={group.idx} part={group.part} nestedParts={group.nestedParts} statusText={group.statusText} subagentId={group.subagentId} allParts={message.parts} todos={todos} sessionId={sessionId} onSend={onSend} onAnswer={onAnswer} isStreaming={message.streaming} messageId={message.id} thinkingSeconds={thinkingSeconds} />
       ))}
 
       {/* Show generation swoop logo under the response if streaming content */}
@@ -370,7 +402,7 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
   );
 });
 
-function MessagePartView({ part, nestedParts, statusText, allParts, todos, sessionId, onSend, onAnswer, isStreaming, messageId, thinkingSeconds }: { part: MessagePart; nestedParts?: MessagePart[]; statusText?: string; allParts?: MessagePart[]; todos?: TodoItem[]; sessionId?: string; onSend?: (msg: string) => void; onAnswer?: (answer: string) => void; isStreaming?: boolean; messageId?: string; thinkingSeconds?: number }) {
+function MessagePartView({ part, nestedParts, statusText, subagentId, allParts, todos, sessionId, onSend, onAnswer, isStreaming, messageId, thinkingSeconds }: { part: MessagePart; nestedParts?: MessagePart[]; statusText?: string; subagentId?: string; allParts?: MessagePart[]; todos?: TodoItem[]; sessionId?: string; onSend?: (msg: string) => void; onAnswer?: (answer: string) => void; isStreaming?: boolean; messageId?: string; thinkingSeconds?: number }) {
   switch (part.type) {
     case 'reasoning': {
       // Determine if this reasoning block is "complete" — a non-reasoning part follows it
@@ -408,7 +440,7 @@ function MessagePartView({ part, nestedParts, statusText, allParts, todos, sessi
         return null;
       }
       if (part.toolCall.name?.startsWith('delegate_to_')) {
-        return <SubagentCard toolCall={part.toolCall} nestedParts={nestedParts || []} statusText={statusText} allParts={allParts} sessionId={sessionId} />;
+        return <SubagentCard toolCall={part.toolCall} nestedParts={nestedParts || []} statusText={statusText} subagentId={subagentId} allParts={allParts} sessionId={sessionId} />;
       }
       return <ToolCallCard toolCall={part.toolCall} />;
   }
@@ -918,7 +950,7 @@ function EditCard({ toolCall, sessionId }: { toolCall: ToolCallInfo; sessionId?:
 }
 
 // ── SubagentCard — dropdown like the thinking indicator ──
-function SubagentCard({ toolCall, nestedParts, statusText: groupedStatusText, allParts, sessionId }: { toolCall: ToolCallInfo; nestedParts: MessagePart[]; statusText?: string; allParts?: MessagePart[]; sessionId?: string }) {
+function SubagentCard({ toolCall, nestedParts, statusText: groupedStatusText, subagentId, allParts, sessionId }: { toolCall: ToolCallInfo; nestedParts: MessagePart[]; statusText?: string; subagentId?: string; allParts?: MessagePart[]; sessionId?: string }) {
   const isRunning = toolCall.status === 'running';
   const isCompleted = toolCall.status === 'completed';
   const isFailed = toolCall.status === 'failed';
@@ -943,9 +975,19 @@ function SubagentCard({ toolCall, nestedParts, statusText: groupedStatusText, al
   })();
 
   // Read statusText directly from raw parts — bypasses grouping logic
-  // Find the LAST subagent_start matching this agent for the latest status
+  // Match by subagentId first (for parallel subagents), fall back to agentName (legacy)
   const liveStatusText = (() => {
     if (allParts) {
+      // Try matching by subagentId first (precise match for parallel subagents)
+      if (subagentId) {
+        for (let i = allParts.length - 1; i >= 0; i--) {
+          const p = allParts[i] as any;
+          if (p?.type === 'subagent_start' && p.subagentId === subagentId && p.statusText) {
+            return p.statusText as string;
+          }
+        }
+      }
+      // Fall back to agentName match (legacy messages without subagentId)
       for (let i = allParts.length - 1; i >= 0; i--) {
         const p = allParts[i] as any;
         if (p?.type === 'subagent_start' && p.agentName === agentKind && p.statusText) {
