@@ -544,6 +544,12 @@ export const sendMessage = internalAction({
     const subagentTextBuffers: Record<string, string> = {};
     let subagentFlushTimeout: ReturnType<typeof setTimeout> | null = null;
 
+    // SAGE passes definition.name (e.g. "explore") to callbacks — not unique per
+    // invocation. Generate unique IDs here so concurrent same-type subagents don't
+    // collide. Uses a counter + stack per agent name for correlation.
+    let subagentCounter = 0;
+    const activeSubagentStacks: Record<string, string[]> = {}; // agentName → [uniqueId, ...]
+
     const flushSubagentStatus = async () => {
       for (const [agentId, text] of Object.entries(subagentTextBuffers)) {
         if (text) {
@@ -559,18 +565,21 @@ export const sendMessage = internalAction({
     };
 
     const flushTokens = async () => {
-      if (tokenBuffer) {
-        const batch = tokenBuffer;
-        tokenBuffer = "";
-        await ctx.runMutation(internal.streaming.appendToken, {
-          sessionId: args.sessionId,
-          content: batch,
-        });
-      }
+      // Flush reasoning BEFORE text — reasoning tokens arrive before text
+      // tokens within a single LLM turn. Flushing in the wrong order causes
+      // fragmented parts (text → new reasoning part instead of reasoning → text).
       if (reasoningBuffer) {
         const batch = reasoningBuffer;
         reasoningBuffer = "";
         await ctx.runMutation(internal.streaming.appendReasoning, {
+          sessionId: args.sessionId,
+          content: batch,
+        });
+      }
+      if (tokenBuffer) {
+        const batch = tokenBuffer;
+        tokenBuffer = "";
+        await ctx.runMutation(internal.streaming.appendToken, {
           sessionId: args.sessionId,
           content: batch,
         });
@@ -865,22 +874,34 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
             console.error("[agent] Error:", err.message);
             lastAgentError = err;
           },
-          onSubagentStart: async (agentId: string, task: string) => {
-            // agentId is "name::toolCallId" — extract display name
-            const displayName = agentId.split('::')[0] || agentId;
+          onSubagentStart: async (agentName: string, task: string) => {
+            // SAGE passes definition.name (e.g. "explore") — not unique per invocation.
+            // Generate a unique ID so concurrent same-type subagents don't collide.
+            const uniqueId = agentName.includes('::')
+              ? agentName // Already unique (from core's loop.ts)
+              : `${agentName}::${++subagentCounter}`;
+            const displayName = agentName.includes('::') ? agentName.split('::')[0]! : agentName;
+
+            if (!activeSubagentStacks[agentName]) activeSubagentStacks[agentName] = [];
+            activeSubagentStacks[agentName].push(uniqueId);
+
             await flushTokens();
             await ctx.runMutation(internal.streaming.addSubagentStart, {
               sessionId: args.sessionId,
               agentName: displayName,
-              subagentId: agentId,
+              subagentId: uniqueId,
               task,
             });
           },
-          onSubagentEnd: async (agentId: string, result: string) => {
-            const displayName = agentId.split('::')[0] || agentId;
+          onSubagentEnd: async (agentName: string, result: string) => {
+            // Correlate with the matching start — FIFO per agent name
+            const stack = activeSubagentStacks[agentName] || [];
+            const uniqueId = stack.shift() || agentName;
+            const displayName = agentName.includes('::') ? agentName.split('::')[0]! : agentName;
+
             // Use the last set_status value as the completion label.
             // If none was set, extract the first short sentence from the result.
-            const lastStatus = subagentTextBuffers[agentId] || "";
+            const lastStatus = subagentTextBuffers[uniqueId] || "";
             const lines = lastStatus.split('\n').filter((l: string) => l.trim());
             const lastSetStatus = lines[lines.length - 1]?.trim() || "";
 
@@ -895,21 +916,26 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
               await ctx.runMutation(internal.streaming.updateSubagentStatus, {
                 sessionId: args.sessionId,
                 agentName: displayName,
-                subagentId: agentId,
+                subagentId: uniqueId,
                 statusText: lastStatus ? lastStatus + "\n" + completionLabel : completionLabel,
               });
             }
-            delete subagentTextBuffers[agentId];
+            delete subagentTextBuffers[uniqueId];
             await flushTokens();
             await ctx.runMutation(internal.streaming.addSubagentEnd, {
               sessionId: args.sessionId,
               agentName: displayName,
-              subagentId: agentId,
+              subagentId: uniqueId,
               result,
             });
           },
-          onSubagentToken: (agentId: string, token: string) => {
-            subagentTextBuffers[agentId] = (subagentTextBuffers[agentId] || "") + token;
+          onSubagentToken: (agentName: string, token: string) => {
+            // Route token to the correct subagent instance.
+            // For concurrent same-type subagents, tokens go to the LAST active instance
+            // (best-effort since SAGE doesn't provide per-invocation IDs in token callbacks).
+            const stack = activeSubagentStacks[agentName] || [];
+            const targetId = stack[stack.length - 1] || agentName;
+            subagentTextBuffers[targetId] = (subagentTextBuffers[targetId] || "") + token;
             if (!subagentFlushTimeout) {
               subagentFlushTimeout = setTimeout(async () => {
                 subagentFlushTimeout = null;

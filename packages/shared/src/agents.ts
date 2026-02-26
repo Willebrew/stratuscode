@@ -320,6 +320,12 @@ WHEN TO DELEGATE:
 - When the user explicitly asks you to "spawn a subagent", "delegate", or "use an agent", ALWAYS use a delegation tool.
 - Prefer delegation over doing exploration work yourself when the task is self-contained.
 
+PARALLEL SUBAGENTS:
+- You CAN call multiple delegation tools in a SINGLE response to run subagents in parallel.
+- When multiple independent tasks need exploration or execution, return all delegate_to_* calls at once.
+- Example: to explore both auth and database code, call delegate_to_explore twice with different tasks in the same response.
+- Parallel subagents run simultaneously and return results together — this is much faster than sequential delegation.
+
 IMPORTANT:
 - Delegation tools are REAL tools — call them like any other tool with the "task" parameter.
 - The child agent will execute independently and return its complete result to you.
