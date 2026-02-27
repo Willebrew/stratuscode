@@ -1303,15 +1303,16 @@ function SubagentCard({ toolCall, nestedParts, statusText: groupedStatusText, su
             className="overflow-hidden"
           >
             <div className="mt-1 ml-1 flex flex-col gap-2">
-              {nestedParts.length > 0 ? (
-                groupIntoChains(groupSubagentParts(nestedParts.map((part, i) => ({ part, idx: i })))).map((seg, i) =>
+              {nestedParts.length > 0 ? (() => {
+                const segments = groupIntoChains(groupSubagentParts(nestedParts.map((part, i) => ({ part, idx: i }))));
+                return segments.map((seg, i) =>
                   seg.type === 'chain' ? (
-                    <ToolChain key={`sc-${i}`} items={seg.items} />
+                    <ToolChain key={`sc-${i}`} items={seg.items} showDone={isCompleted && i === segments.length - 1} />
                   ) : (
                     <MessagePartView key={seg.item.idx} part={seg.item.part} nestedParts={seg.item.nestedParts} statusText={seg.item.statusText} sessionId={sessionId} />
                   )
-                )
-              ) : isCompleted && toolCall.result ? (
+                );
+              })() : isCompleted && toolCall.result ? (
                 <div className="text-sm text-muted-foreground/80">
                   <MarkdownRenderer content={toolCall.result} />
                 </div>
@@ -1326,11 +1327,8 @@ function SubagentCard({ toolCall, nestedParts, statusText: groupedStatusText, su
 
 // ── ToolChain — timeline container for consecutive tool calls ──
 
-function ToolChain({ items }: { items: GroupedPart[] }) {
-  // Each item is 24px tall (py-0 + min-h-[24px]). Dots are 18px centered in each row.
-  // Line connects from center of first dot to center of last dot.
-  // With items packed tight, first dot center = 12px, last = (n-1)*24 + 12.
-  const count = items.length;
+function ToolChain({ items, showDone }: { items: GroupedPart[]; showDone?: boolean }) {
+  const count = items.length + (showDone ? 1 : 0);
 
   return (
     <div className="relative" style={{ paddingLeft: '28px' }}>
@@ -1351,6 +1349,19 @@ function ToolChain({ items }: { items: GroupedPart[] }) {
       {items.map((group) => (
         <ToolChainItem key={group.idx} group={group} />
       ))}
+      {showDone && (
+        <div className="relative flex items-center gap-2" style={{ height: '24px' }}>
+          <div
+            className="absolute flex items-center justify-center rounded-full bg-background"
+            style={{ left: '-28px', width: '18px', height: '18px' }}
+          >
+            <div className="w-[18px] h-[18px] rounded-full flex items-center justify-center bg-green-500/15">
+              <Check className="w-2.5 h-2.5 text-green-500" />
+            </div>
+          </div>
+          <span className="text-[13px] text-green-600/70 dark:text-green-400/70">Done</span>
+        </div>
+      )}
     </div>
   );
 }
