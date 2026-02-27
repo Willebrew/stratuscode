@@ -1394,12 +1394,14 @@ function ToolChainItem({ group }: { group: GroupedPart }) {
 
   return (
     <div className="relative flex items-center gap-2 py-1 min-h-[28px]">
-      {/* Dot on timeline — centered on the border-left line */}
-      <div className={clsx(
-        "absolute w-[20px] h-[20px] rounded-full flex items-center justify-center",
-        isFailed ? "bg-red-500/15" : isRunning ? "bg-foreground/10" : "bg-foreground/[0.07]",
-      )} style={{ left: '-27px' }}>
-        {dotContent}
+      {/* Dot on timeline — solid background to cover the line behind it */}
+      <div className="absolute w-[20px] h-[20px] rounded-full bg-background flex items-center justify-center" style={{ left: '-27px' }}>
+        <div className={clsx(
+          "w-[20px] h-[20px] rounded-full flex items-center justify-center",
+          isFailed ? "bg-red-500/15" : isRunning ? "bg-foreground/10" : "bg-foreground/[0.07]",
+        )}>
+          {dotContent}
+        </div>
       </div>
 
       {/* Tool name */}
