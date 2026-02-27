@@ -1096,12 +1096,13 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
         }
       }
 
-      // Save the complete assistant message
+      // Save the complete assistant message (include thinkingSeconds for UI timer)
       await ctx.runMutation(internal.messages.create, {
         sessionId: args.sessionId,
         role: "assistant",
         content: result.content || streamState?.content || "",
         parts,
+        thinkingSeconds: typeof streamState?.thinkingSeconds === 'number' ? streamState.thinkingSeconds : undefined,
       });
 
       // Save agent state for next turn
@@ -1218,6 +1219,7 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
               role: "assistant",
               content: streamState.content || "(cancelled)",
               parts,
+              thinkingSeconds: typeof streamState.thinkingSeconds === 'number' ? streamState.thinkingSeconds : undefined,
             });
           } catch { /* best effort */ }
         }
@@ -1265,13 +1267,11 @@ export const send = action({
     agentMode: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    // Check if this is the first message in the session
-    const agentState = await ctx.runQuery(internal.agent_state.get, {
-      sessionId: args.sessionId,
+    // Check if title has already been AI-generated for this session
+    const session = await ctx.runQuery(internal.sessions.getInternal, {
+      id: args.sessionId,
     });
-    const hasPreviousMessages = agentState?.sageMessages
-      ? JSON.parse(agentState.sageMessages).length > 0
-      : false;
+    const titleAlreadyGenerated = !!session?.titleGenerated;
 
     // Schedule agent (fire-and-forget, runs in background)
     await ctx.scheduler.runAfter(0, internal.agent.sendMessage, {
@@ -1284,8 +1284,10 @@ export const send = action({
     });
 
     // Schedule AI title generation with a 5-second delay so it doesn't
-    // compete with the main agent request for rate-limited free-tier APIs
-    if (!hasPreviousMessages) {
+    // compete with the main agent request for rate-limited free-tier APIs.
+    // Use titleGenerated flag (not message count) so sessions that had
+    // their agent_state cleared or were continued still get a title.
+    if (!titleAlreadyGenerated) {
       console.log("[titleGen] scheduling for model:", args.model);
       await ctx.scheduler.runAfter(5000, internal.agent.generateTitleBackground, {
         sessionId: args.sessionId,
@@ -1293,7 +1295,7 @@ export const send = action({
         model: args.model,
       });
     } else {
-      console.log("[titleGen] skipped — hasPreviousMessages");
+      console.log("[titleGen] skipped — already generated");
     }
   },
 });

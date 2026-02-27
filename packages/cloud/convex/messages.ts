@@ -20,6 +20,7 @@ export const create = internalMutation({
     role: v.string(),
     content: v.string(),
     parts: v.array(v.any()),
+    thinkingSeconds: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const id = await ctx.db.insert("messages", {
@@ -28,6 +29,7 @@ export const create = internalMutation({
       content: args.content,
       parts: args.parts,
       createdAt: Date.now(),
+      ...(args.thinkingSeconds !== undefined ? { thinkingSeconds: args.thinkingSeconds } : {}),
     });
     return id;
   },
