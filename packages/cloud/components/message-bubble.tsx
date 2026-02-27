@@ -140,6 +140,10 @@ function groupSubagentParts(parts: { part: MessagePart; idx: number }[]): Groupe
       const target = activeStack[parallelRR % activeStack.length]!;
       target.nestedParts!.push(item.part);
       parallelRR++;
+    } else if (pendingDelegates.length > 0) {
+      // delegate_to_* was seen but subagent_start hasn't arrived yet (race condition).
+      // Route content into the pending delegate so tool calls aren't orphaned at top-level.
+      pendingDelegates[0]!.nestedParts!.push(item.part);
     } else {
       // Top-level
       grouped.push(item);

@@ -1229,6 +1229,22 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
             cancelParts.push(p);
           }
         }
+        // Close any open subagents and mark running delegate tool calls as completed
+        const openSubagents: string[] = [];
+        for (const p of cancelParts) {
+          if (p.type === "subagent_start" && p.subagentId) {
+            openSubagents.push(p.subagentId);
+          } else if (p.type === "subagent_end" && p.subagentId) {
+            const idx = openSubagents.indexOf(p.subagentId);
+            if (idx >= 0) openSubagents.splice(idx, 1);
+          } else if (p.type === "tool_call" && p.toolCall?.name?.startsWith("delegate_to_") && p.toolCall.status === "running") {
+            p.toolCall.status = "completed";
+            p.toolCall.result = p.toolCall.result || "(cancelled)";
+          }
+        }
+        for (const id of openSubagents) {
+          cancelParts.push({ type: "subagent_end", subagentId: id, result: "(cancelled)" });
+        }
         if (isCancelled && cancelParts.length > 0) {
           try {
             const cancelContent = cancelParts
