@@ -1327,21 +1327,30 @@ function SubagentCard({ toolCall, nestedParts, statusText: groupedStatusText, su
 // ── ToolChain — timeline container for consecutive tool calls ──
 
 function ToolChain({ items }: { items: GroupedPart[] }) {
+  // Each item is 24px tall (py-0 + min-h-[24px]). Dots are 18px centered in each row.
+  // Line connects from center of first dot to center of last dot.
+  // With items packed tight, first dot center = 12px, last = (n-1)*24 + 12.
+  const count = items.length;
+
   return (
-    <div className="relative pl-7 py-1">
-      {/* Vertical connecting line — border on the inner wrapper, hugs items tightly */}
-      <div
-        className="flex flex-col"
-        style={{
-          borderLeft: '2px solid color-mix(in srgb, var(--foreground) 15%, transparent)',
-          marginLeft: '10px',
-          paddingLeft: '16px',
-        }}
-      >
-        {items.map((group) => (
-          <ToolChainItem key={group.idx} group={group} />
-        ))}
-      </div>
+    <div className="relative" style={{ paddingLeft: '28px' }}>
+      {/* Vertical connecting line — only between first and last dot centers */}
+      {count > 1 && (
+        <div
+          className="absolute"
+          style={{
+            left: '8px',
+            top: '12px',
+            bottom: '12px',
+            width: '2px',
+            borderRadius: '1px',
+            background: 'color-mix(in srgb, var(--foreground) 12%, transparent)',
+          }}
+        />
+      )}
+      {items.map((group) => (
+        <ToolChainItem key={group.idx} group={group} />
+      ))}
     </div>
   );
 }
@@ -1390,21 +1399,23 @@ function ToolChainItem({ group }: { group: GroupedPart }) {
     ? <Loader2 className="w-2.5 h-2.5 animate-spin text-foreground/60" />
     : isFailed
       ? <X className="w-2.5 h-2.5 text-red-500" />
-      : getToolIcon(toolCall.name, 'w-2.5 h-2.5');
+      : getToolIcon(toolCall.name, 'w-2.5 h-2.5 text-muted-foreground');
 
   return (
-    <div className="relative flex items-center gap-2 py-1 min-h-[28px]">
-      {/* Dot on timeline — solid background to cover the line behind it */}
-      <div className="absolute w-[20px] h-[20px] rounded-full bg-background flex items-center justify-center" style={{ left: '-27px' }}>
+    <div className="relative flex items-center gap-2" style={{ height: '24px' }}>
+      {/* Dot — solid bg-background knocks out the line, colored circle on top */}
+      <div
+        className="absolute flex items-center justify-center rounded-full bg-background"
+        style={{ left: '-28px', width: '18px', height: '18px' }}
+      >
         <div className={clsx(
-          "w-[20px] h-[20px] rounded-full flex items-center justify-center",
-          isFailed ? "bg-red-500/15" : isRunning ? "bg-foreground/10" : "bg-foreground/[0.07]",
+          "w-[18px] h-[18px] rounded-full flex items-center justify-center",
+          isFailed ? "bg-red-500/15" : isRunning ? "bg-foreground/10" : "bg-foreground/[0.06]",
         )}>
           {dotContent}
         </div>
       </div>
 
-      {/* Tool name */}
       <span className={clsx(
         "text-[13px] text-muted-foreground truncate",
         isRunning && "animate-shimmer-text"
