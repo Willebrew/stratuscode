@@ -81,7 +81,7 @@ export function AgentThinkingIndicator({
               transition={{ duration: 0.3, ease: "easeOut" }}
               className="text-[13px] text-muted-foreground flex items-center h-full"
             >
-              Thought for {seconds}s
+              Thought for {Math.max(1, seconds)}s
             </motion.div>
           ) : (
             <motion.div
@@ -95,9 +95,11 @@ export function AgentThinkingIndicator({
               <AnimatedStratusLogo mode="thinking" size={20} />
               <span className="text-[13px] text-muted-foreground inline-flex items-center gap-1.5">
                 <WaveText text={label} />
-                <span className="font-mono text-[11px] tabular-nums opacity-60">
-                  {seconds}s
-                </span>
+                {seconds > 0 && (
+                  <span className="font-mono text-[11px] tabular-nums opacity-60">
+                    {seconds}s
+                  </span>
+                )}
               </span>
             </motion.div>
           )}

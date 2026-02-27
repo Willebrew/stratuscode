@@ -299,8 +299,13 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
   const isThinkingStage = message.stage === 'thinking';
 
   const [thinkingSeconds, setThinkingSeconds] = useState(() => {
-    if (message.thinkingSeconds !== undefined) return message.thinkingSeconds;
-    return _frozenTimers.get(timerKey) ?? _lastTicks.get(timerKey) ?? 0;
+    if (message.thinkingSeconds !== undefined && message.thinkingSeconds > 0) return message.thinkingSeconds;
+    // Floor at 1 for any frozen/ticked value so we never show "0s"
+    const frozen = _frozenTimers.get(timerKey);
+    if (frozen !== undefined && frozen > 0) return frozen;
+    const ticked = _lastTicks.get(timerKey);
+    if (ticked !== undefined && ticked > 0) return ticked;
+    return 0;
   });
 
   // Record when thinking starts
@@ -314,6 +319,7 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
       _frozenTimers.set(timerKey, message.thinkingSeconds);
     } else if (_startTimes.has(timerKey)) {
       const elapsed = Math.max(
+        1, // Never show "0s"
         _lastTicks.get(timerKey) ?? 0,
         Math.round((Date.now() - _startTimes.get(timerKey)!) / 1000)
       );
@@ -329,16 +335,23 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
       return;
     }
 
-    // Source 2: locally frozen value
+    // Source 2: locally frozen value (already floored at 1 when frozen)
     const frozen = _frozenTimers.get(timerKey);
     if (frozen !== undefined && frozen > 0) {
       setThinkingSeconds(frozen);
       return;
     }
 
-    // Source 3: live counting
+    // Source 3: live counting while thinking is active
     const start = _startTimes.get(timerKey);
-    if (!start || isThinkingCompleted) return;
+    if (!start || isThinkingCompleted) {
+      // Thinking completed but no frozen value and no DB value — the model
+      // thought for less than 1s. Show 1s so we never display "0s".
+      if (isThinkingCompleted && hasReasoningParts) {
+        setThinkingSeconds(1);
+      }
+      return;
+    }
 
     const tick = () => {
       const elapsed = Math.round((Date.now() - start) / 1000);
@@ -393,7 +406,7 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
               ) : isThinkingStage ? (
                 <>
                   <WaveText text="Thinking" />
-                  <span className="font-mono text-[11px] tabular-nums opacity-60">{thinkingSeconds}s</span>
+                  {thinkingSeconds > 0 && <span className="font-mono text-[11px] tabular-nums opacity-60">{thinkingSeconds}s</span>}
                 </>
               ) : (
                 <WaveText text={generatingPhrase} />
@@ -478,7 +491,7 @@ function MessagePartView({ part, nestedParts, statusText, subagentId, allParts, 
           label="Thinking"
           isCompleted={isReasoningCompleted}
           reasoning={part.content}
-          seconds={isLastReasoning ? (thinkingSeconds ?? 0) : undefined}
+          seconds={isLastReasoning ? (thinkingSeconds || undefined) : undefined}
         />
       );
     }
