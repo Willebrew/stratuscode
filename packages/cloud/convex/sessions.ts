@@ -217,9 +217,10 @@ export const prepareSend = mutation({
     if (existing) {
       await ctx.db.delete(existing._id);
     }
-    // If the session already has a snapshot, sandbox resume is fast — skip
+    // If the session already has a sandbox or snapshot, resume is fast — skip
     // "booting" and go straight to "waiting" (waiting for LLM).
-    const initialStage = session?.snapshotId ? "waiting" : "booting";
+    const hasPreviousSandbox = !!(session?.sandboxId || session?.snapshotId);
+    const initialStage = hasPreviousSandbox ? "waiting" : "booting";
     await ctx.db.insert("streaming_state", {
       sessionId: args.id,
       content: "",
