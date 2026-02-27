@@ -201,9 +201,10 @@ export const prepareSend = mutation({
       runId,
       updatedAt: Date.now(),
     };
-    // Set truncated title as instant placeholder — AI title replaces it later
-    // via updateTitle with titleGenerated=true (triggers typing animation)
-    if (args.title && !session?.titleGenerated) {
+    // Set truncated title as instant placeholder only on the FIRST message.
+    // AI title replaces it later via updateTitle with titleGenerated=true.
+    // After the first message, never overwrite (even if AI title gen fails).
+    if (args.title && !session?.titleGenerated && !session?.lastMessage) {
       patch.title = args.title;
     }
     if (args.agentMode) patch.agent = args.agentMode;

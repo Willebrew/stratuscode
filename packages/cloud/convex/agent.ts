@@ -1036,29 +1036,33 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
       const parts: any[] = [];
 
       // Use ordered parts (preserves reasoning + subagent markers inline)
-      // Merge all reasoning into one block and all text into one block to avoid
-      // fragmented display from models that interleave reasoning/text tokens.
+      // Merge reasoning into one block at the top. Preserve the interleaved
+      // order of text / tool_calls / subagent markers. Consecutive text parts
+      // are merged but text-tool-text ordering is maintained.
       const orderedParts = streamState?.parts ? JSON.parse(streamState.parts) : null;
       if (orderedParts && orderedParts.length > 0) {
         let mergedReasoning = "";
-        let mergedText = "";
-        const otherParts: any[] = [];
+        let pendingText = "";
+        const flushText = () => {
+          if (pendingText.trim()) {
+            parts.push({ type: "text", content: pendingText });
+          }
+          pendingText = "";
+        };
         for (const p of orderedParts) {
           if (p.type === "reasoning") {
             mergedReasoning += (mergedReasoning ? "\n" : "") + (p.content || "");
           } else if (p.type === "text") {
-            mergedText += p.content || "";
-          } else if (p.type === "tool_call" || p.type === "subagent_start" || p.type === "subagent_end") {
-            otherParts.push(p);
+            pendingText += p.content || "";
+          } else {
+            flushText();
+            parts.push(p);
           }
         }
+        flushText();
         if (mergedReasoning.trim()) {
-          parts.push({ type: "reasoning", content: mergedReasoning });
+          parts.unshift({ type: "reasoning", content: mergedReasoning });
         }
-        if (mergedText.trim()) {
-          parts.push({ type: "text", content: mergedText });
-        }
-        parts.push(...otherParts);
       } else {
         // Legacy fallback: single reasoning blob + flat toolCalls + text
         if (streamState?.reasoning) {
