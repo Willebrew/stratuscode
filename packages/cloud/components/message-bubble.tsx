@@ -102,11 +102,13 @@ function getToolDisplayName(toolCall: ToolCallInfo): string {
   return baseName;
 }
 
-// Tools that should remain as full interactive cards (not chain items)
-const NON_CHAIN_TOOLS = new Set(['question', 'plan_exit']);
-
-// Tools that get expandable chain items (show diff/content when expanded)
-const EXPANDABLE_CHAIN_TOOLS = new Set(['write_to_file', 'write', 'edit', 'multi_edit']);
+// Simple tools that render as timeline chain items (single-line, no card body)
+const CHAIN_TOOLS = new Set([
+  'read_file', 'read', 'ls', 'grep', 'glob', 'bash',
+  'websearch', 'webfetch', 'lsp',
+  'git_commit', 'git_push', 'pr_create',
+  'todoread', 'todowrite', 'plan_enter', 'task',
+]);
 
 type ChainSegment =
   | { type: 'chain'; items: GroupedPart[] }
@@ -126,20 +128,17 @@ function groupIntoChains(parts: GroupedPart[]): ChainSegment[] {
   for (const group of parts) {
     const part = group.part as any;
 
-    // Tool calls go into chains (except question/plan_exit which stay as cards)
     if (part.type === 'tool_call') {
       const toolName = part.toolCall?.name || '';
-      if (NON_CHAIN_TOOLS.has(toolName)) {
+      if (toolName === 'set_status') continue;
+      if (CHAIN_TOOLS.has(toolName)) {
+        currentChain.push(group);
+      } else {
+        // Everything else (write, edit, question, plan_exit, subagents) as full cards
         flushChain();
         segments.push({ type: 'part', item: group });
-      } else if (toolName === 'set_status') {
-        // Filter out set_status entirely
-        continue;
-      } else {
-        currentChain.push(group);
       }
     } else {
-      // Text, reasoning, etc. break the chain
       flushChain();
       segments.push({ type: 'part', item: group });
     }
@@ -556,10 +555,10 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
         )}
       </AnimatePresence>
 
-      {/* Render parts — group into timeline chains for tool calls */}
+      {/* Render parts — group simple tool calls into timeline chains */}
       {groupIntoChains(groupSubagentParts(deduplicatedParts)).map((segment, segIdx) =>
         segment.type === 'chain' ? (
-          <ToolChain key={`chain-${segIdx}`} items={segment.items} isStreaming={message.streaming} sessionId={sessionId} />
+          <ToolChain key={`chain-${segIdx}`} items={segment.items} isStreaming={message.streaming} />
         ) : (
           <MessagePartView key={segment.item.idx} part={segment.item.part} nestedParts={segment.item.nestedParts} statusText={segment.item.statusText} subagentId={segment.item.subagentId} allParts={deduplicatedParts.map(d => d.part)} todos={todos} sessionId={sessionId} onSend={onSend} onAnswer={onAnswer} isStreaming={message.streaming} messageId={message.id} thinkingSeconds={thinkingSeconds} />
         )
@@ -1303,14 +1302,17 @@ function SubagentCard({ toolCall, nestedParts, statusText: groupedStatusText, su
             transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
             className="overflow-hidden"
           >
-            <div className="mt-1 ml-1">
-              {nestedParts.length > 0 ? (
-                <NestedToolChain parts={nestedParts} sessionId={sessionId} />
-              ) : isCompleted && toolCall.result ? (
-                <div className="text-sm text-muted-foreground/80 pl-2">
+            <div className="mt-1 ml-3 pl-3 border-l-2 border-border/30 flex flex-col gap-2">
+              {/* Render nested parts — re-apply grouping for nested subagents */}
+              {groupSubagentParts(nestedParts.map((part, i) => ({ part, idx: i }))).map(({ part, idx, nestedParts: childNested, statusText: childStatus }) => (
+                <MessagePartView key={idx} part={part} nestedParts={childNested} statusText={childStatus} sessionId={sessionId} />
+              ))}
+              {/* Show subagent result text when no nested parts (subagent generated only text, no tool calls) */}
+              {nestedParts.length === 0 && isCompleted && toolCall.result && (
+                <div className="text-sm text-muted-foreground/80">
                   <MarkdownRenderer content={toolCall.result} />
                 </div>
-              ) : null}
+              )}
             </div>
           </motion.div>
         )}
@@ -1321,7 +1323,7 @@ function SubagentCard({ toolCall, nestedParts, statusText: groupedStatusText, su
 
 // ── ToolChain — timeline container for consecutive tool calls ──
 
-function ToolChain({ items, isStreaming, sessionId }: { items: GroupedPart[]; isStreaming?: boolean; sessionId?: string }) {
+function ToolChain({ items, isStreaming }: { items: GroupedPart[]; isStreaming?: boolean }) {
   const allDone = items.every(g => {
     const tc = (g.part as any).toolCall;
     return tc?.status === 'completed' || tc?.status === 'failed';
@@ -1333,8 +1335,8 @@ function ToolChain({ items, isStreaming, sessionId }: { items: GroupedPart[]; is
       {/* Vertical connecting line */}
       <div className="absolute left-[9px] top-[14px] bottom-[14px] w-px bg-border/40" />
       <div className="flex flex-col gap-0.5">
-        {items.map((group, i) => (
-          <ToolChainItem key={group.idx} group={group} isLast={i === items.length - 1 && !showDone} sessionId={sessionId} />
+        {items.map((group) => (
+          <ToolChainItem key={group.idx} group={group} />
         ))}
         {showDone && (
           <div className="relative flex items-center gap-2 py-1">
@@ -1349,18 +1351,14 @@ function ToolChain({ items, isStreaming, sessionId }: { items: GroupedPart[]; is
   );
 }
 
-function ToolChainItem({ group, isLast, sessionId }: { group: GroupedPart; isLast: boolean; sessionId?: string }) {
+function ToolChainItem({ group }: { group: GroupedPart }) {
   const part = group.part as any;
   const toolCall: ToolCallInfo = part.toolCall;
-  const isSubagent = toolCall.name?.startsWith('delegate_to_');
-  const isExpandable = EXPANDABLE_CHAIN_TOOLS.has(toolCall.name) || isSubagent;
-  const [isExpanded, setIsExpanded] = useState(false);
 
   const isRunning = toolCall.status === 'running';
   const isFailed = toolCall.status === 'failed';
   const isCompleted = toolCall.status === 'completed';
 
-  // ── Display name ──
   const displayName = getToolDisplayName(toolCall);
 
   // ── Typewriter for display name ──
@@ -1393,115 +1391,29 @@ function ToolChainItem({ group, isLast, sessionId }: { group: GroupedPart; isLas
 
   const shownName = typedName || (wasBornDone.current ? displayName : '\u00A0');
 
-  // ── Node icon (dot on the timeline) ──
   const dotContent = isRunning
     ? <Loader2 className="w-2.5 h-2.5 animate-spin text-foreground/60" />
     : isFailed
       ? <X className="w-2.5 h-2.5 text-red-500" />
       : getToolIcon(toolCall.name, 'w-2.5 h-2.5');
 
-  // For subagents, handle nested parts
-  const nestedParts = group.nestedParts || [];
-  const agentKind = isSubagent ? toolCall.name?.replace('delegate_to_', '') : '';
-
-  // Auto-expand subagents while running
-  useEffect(() => {
-    if (isSubagent && isRunning && !isExpanded) setIsExpanded(true);
-    if (isSubagent && !isRunning && isExpanded && !wasBornDone.current) setIsExpanded(false);
-  }, [isRunning, isSubagent]);
-
   return (
-    <div className="relative">
-      {/* Timeline node row */}
-      <div
-        onClick={isExpandable ? () => setIsExpanded(!isExpanded) : undefined}
-        className={clsx(
-          "relative flex items-center gap-2 py-1 min-h-[28px]",
-          isExpandable && "cursor-pointer hover:opacity-80",
-        )}
-      >
-        {/* Dot on timeline */}
-        <div className={clsx(
-          "absolute -left-6 w-[18px] h-[18px] rounded-full flex items-center justify-center",
-          isFailed ? "bg-red-500/15" : isRunning ? "bg-foreground/10" : "bg-foreground/[0.07]",
-        )}>
-          {dotContent}
-        </div>
-
-        {/* Tool name text */}
-        <span className={clsx(
-          "text-[13px] text-muted-foreground truncate",
-          isRunning && "animate-shimmer-text"
-        )}>
-          {shownName}
-        </span>
-
-        {/* Expand chevron for expandable items */}
-        {isExpandable && (
-          <motion.div
-            animate={{ rotate: isExpanded ? 90 : 0 }}
-            transition={{ duration: 0.15 }}
-            className="ml-auto shrink-0"
-          >
-            <ChevronRight className="w-3 h-3 text-muted-foreground/50" />
-          </motion.div>
-        )}
+    <div className="relative flex items-center gap-2 py-1 min-h-[28px]">
+      {/* Dot on timeline */}
+      <div className={clsx(
+        "absolute -left-6 w-[18px] h-[18px] rounded-full flex items-center justify-center",
+        isFailed ? "bg-red-500/15" : isRunning ? "bg-foreground/10" : "bg-foreground/[0.07]",
+      )}>
+        {dotContent}
       </div>
 
-      {/* Expanded content */}
-      <AnimatePresence initial={false}>
-        {isExpanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden"
-          >
-            <div className="ml-0 mb-1">
-              {isSubagent ? (
-                // Subagent nested content — render as a nested chain
-                <div className="mt-1">
-                  {nestedParts.length > 0 ? (
-                    <NestedToolChain parts={nestedParts} sessionId={sessionId} />
-                  ) : isCompleted && toolCall.result ? (
-                    <div className="text-xs text-muted-foreground/80 pl-1">
-                      <MarkdownRenderer content={toolCall.result} />
-                    </div>
-                  ) : null}
-                </div>
-              ) : (
-                // Expandable tool (write/edit) — show the card body inline
-                <div className="mt-1">
-                  {toolCall.name === 'write_to_file' || toolCall.name === 'write' ? (
-                    <FileWriteCard toolCall={toolCall} sessionId={sessionId} />
-                  ) : (toolCall.name === 'edit' || toolCall.name === 'multi_edit') ? (
-                    <EditCard toolCall={toolCall} sessionId={sessionId} />
-                  ) : null}
-                </div>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-// Renders nested parts (inside a subagent) as a mini tool chain
-function NestedToolChain({ parts, sessionId }: { parts: MessagePart[]; sessionId?: string }) {
-  const grouped = groupSubagentParts(parts.map((part, i) => ({ part, idx: i })));
-  const segments = groupIntoChains(grouped);
-
-  return (
-    <div className="flex flex-col gap-1">
-      {segments.map((seg, i) =>
-        seg.type === 'chain' ? (
-          <ToolChain key={i} items={seg.items} isStreaming={false} sessionId={sessionId} />
-        ) : (
-          <MessagePartView key={seg.item.idx} part={seg.item.part} nestedParts={seg.item.nestedParts} statusText={seg.item.statusText} sessionId={sessionId} />
-        )
-      )}
+      {/* Tool name */}
+      <span className={clsx(
+        "text-[13px] text-muted-foreground truncate",
+        isRunning && "animate-shimmer-text"
+      )}>
+        {shownName}
+      </span>
     </div>
   );
 }
