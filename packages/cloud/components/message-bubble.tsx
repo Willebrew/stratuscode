@@ -1302,17 +1302,20 @@ function SubagentCard({ toolCall, nestedParts, statusText: groupedStatusText, su
             transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
             className="overflow-hidden"
           >
-            <div className="mt-1 ml-3 pl-3 border-l-2 border-border/30 flex flex-col gap-2">
-              {/* Render nested parts — re-apply grouping for nested subagents */}
-              {groupSubagentParts(nestedParts.map((part, i) => ({ part, idx: i }))).map(({ part, idx, nestedParts: childNested, statusText: childStatus }) => (
-                <MessagePartView key={idx} part={part} nestedParts={childNested} statusText={childStatus} sessionId={sessionId} />
-              ))}
-              {/* Show subagent result text when no nested parts (subagent generated only text, no tool calls) */}
-              {nestedParts.length === 0 && isCompleted && toolCall.result && (
+            <div className="mt-1 ml-1 flex flex-col gap-2">
+              {nestedParts.length > 0 ? (
+                groupIntoChains(groupSubagentParts(nestedParts.map((part, i) => ({ part, idx: i })))).map((seg, i) =>
+                  seg.type === 'chain' ? (
+                    <ToolChain key={`sc-${i}`} items={seg.items} isStreaming={false} />
+                  ) : (
+                    <MessagePartView key={seg.item.idx} part={seg.item.part} nestedParts={seg.item.nestedParts} statusText={seg.item.statusText} sessionId={sessionId} />
+                  )
+                )
+              ) : isCompleted && toolCall.result ? (
                 <div className="text-sm text-muted-foreground/80">
                   <MarkdownRenderer content={toolCall.result} />
                 </div>
-              )}
+              ) : null}
             </div>
           </motion.div>
         )}
@@ -1333,7 +1336,7 @@ function ToolChain({ items, isStreaming }: { items: GroupedPart[]; isStreaming?:
   return (
     <div className="relative pl-7 py-1">
       {/* Vertical connecting line — runs through center of dots */}
-      <div className="absolute left-[11px] top-[18px] bottom-[18px] w-[2px] rounded-full bg-border/60" />
+      <div className="absolute left-[11px] top-[18px] bottom-[18px] w-[2px] rounded-full bg-foreground/[0.12]" />
       <div className="flex flex-col">
         {items.map((group) => (
           <ToolChainItem key={group.idx} group={group} />
