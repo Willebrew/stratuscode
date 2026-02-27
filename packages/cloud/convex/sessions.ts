@@ -48,7 +48,7 @@ export const create = mutation({
       branch: args.branch,
       sessionBranch: "",
       agent: args.agent ?? "build",
-      model: args.model ?? "gpt-5-mini",
+      model: args.model ?? "gpt-5.3-codex",
       status: "idle",
       title: `${args.owner}/${args.repo}`,
       lastMessage: "",
@@ -380,7 +380,7 @@ export const recoverStaleSession = mutation({
  *
  * Uses the by_status index to efficiently find only running sessions,
  * then checks the streaming_state heartbeat to confirm staleness.
- * Runs every 2 minutes via convex/crons.ts — one invocation handles
+ * Runs every 2 minutes via convex/crons.ts -- one invocation handles
  * every stuck session regardless of message volume.
  */
 export const sweepStaleSessions = internalMutation({

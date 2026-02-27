@@ -163,7 +163,7 @@ describe("sessions", () => {
       expect(session).not.toBeNull();
       expect(session!.status).toBe("idle");
       expect(session!.agent).toBe("build");
-      expect(session!.model).toBe("gpt-5-mini");
+      expect(session!.model).toBe("gpt-5.3-codex");
       expect(session!.title).toBe("alice/repo-a");
       expect(session!.lastMessage).toBe("");
       expect(session!.sessionBranch).toBe("");
@@ -776,3 +776,4 @@ describe("sessions", () => {
     });
   });
 });
+

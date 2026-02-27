@@ -10,6 +10,7 @@ import type { TodoItem } from '@/hooks/use-convex-chat';
 import type { Id } from '../convex/_generated/dataModel';
 
 interface ChatInputProps {
+  onResize?: (height: number) => void;
   onSend: (message: string, attachmentIds?: string[]) => void;
   isLoading: boolean;
   placeholder?: string;
@@ -27,6 +28,8 @@ interface ChatInputProps {
 }
 
 export function ChatInput({
+  onResize,
+
   onSend,
   isLoading,
   placeholder,
@@ -54,9 +57,11 @@ export function ChatInput({
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
+      const h = Math.min(textareaRef.current.scrollHeight, 200);
+      textareaRef.current.style.height = `${h}px`;
+      if (onResize) onResize(h + 24); // include padding/controls height estimate
     }
-  }, [message]);
+  }, [message, onResize]);
 
   // Close menu on outside click
   useEffect(() => {
@@ -429,3 +434,5 @@ export function ChatInput({
     </form>
   );
 }
+
+

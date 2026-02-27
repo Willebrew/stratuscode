@@ -557,7 +557,7 @@ export const sendMessage = internalAction({
     const githubToken = process.env.GITHUB_TOKEN;
     if (!githubToken) throw new Error("GITHUB_TOKEN not configured");
 
-    const model = args.model || session.model || "gpt-5-mini";
+    const model = args.model || session.model || "gpt-5.3-codex";
 
     // Resolve provider from Convex DB or env vars (server-side only)
     const resolved = await resolveProviderForModel(model, ctx, session.userId);
@@ -1368,3 +1368,4 @@ export const generateTitleBackground = internalAction({
     }
   },
 });
+

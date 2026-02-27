@@ -28,7 +28,7 @@ describe('config-loader: loadConfig', () => {
 
     try {
       const { config, sources } = loadConfig(tmpDir);
-      expect(config.model).toBe('gpt-5.2-codex');
+      expect(config.model).toBe('gpt-5.3-codex');
       expect(config.agent!.name).toBe('stratuscode');
       expect(config.agent!.maxDepth).toBe(300);
       expect(config.parallelToolCalls).toBe(true);
@@ -337,3 +337,4 @@ describe('config-loader: env var provider creation', () => {
     }
   });
 });
+

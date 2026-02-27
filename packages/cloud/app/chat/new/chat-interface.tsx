@@ -14,7 +14,6 @@ interface ChatInterfaceProps {
 export function ChatInterface({ sessionId: sessionIdStr }: ChatInterfaceProps) {
   const convexSessionId = sessionIdStr as Id<'sessions'>;
   const { registerSendFn } = useSendFn();
-
   const {
     messages,
     messagesLoading,
@@ -110,3 +109,4 @@ export function ChatInterface({ sessionId: sessionIdStr }: ChatInterfaceProps) {
     </div>
   );
 }
+
