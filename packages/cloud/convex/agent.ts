@@ -428,7 +428,8 @@ async function generateTitle(
   providerType: string,
   headers?: Record<string, string>,
 ): Promise<string | null> {
-  if (!apiKey || apiKey === "server-managed") return null;
+  // Skip only for explicitly server-managed keys (not for keyless free-tier APIs)
+  if (apiKey === "server-managed") return null;
 
   try {
     let title: string | undefined;
@@ -436,7 +437,9 @@ async function generateTitle(
       "Content-Type": "application/json",
       ...headers,
     };
-    authHeaders["Authorization"] = `Bearer ${apiKey}`;
+    if (apiKey) {
+      authHeaders["Authorization"] = `Bearer ${apiKey}`;
+    }
 
     if (providerType === "responses-api") {
       const resp = await fetch(`${baseUrl}/responses`, {
@@ -573,6 +576,7 @@ export const sendMessage = internalAction({
     let flushTimeout: ReturnType<typeof setTimeout> | null = null;
     let stageCleared = false; // Set "thinking" stage on first reasoning, clear on first text
     let thinkingStageActive = false; // Track if we set stage to "thinking"
+    let thinkingStartedAt = 0; // Timestamp when reasoning started (for thinkingSeconds)
 
     // Subagent token batching — accumulates child LLM text for live status display
     const subagentTextBuffers: Record<string, string> = {};
@@ -834,8 +838,13 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
               ctx.runMutation(internal.streaming.updateStage, { sessionId: args.sessionId, stage: undefined });
             } else if (thinkingStageActive) {
               // Reasoning was happening, now text starts — clear thinking stage
+              // and record how long thinking took
               thinkingStageActive = false;
               ctx.runMutation(internal.streaming.updateStage, { sessionId: args.sessionId, stage: undefined });
+              if (thinkingStartedAt > 0) {
+                const seconds = Math.round((Date.now() - thinkingStartedAt) / 1000);
+                ctx.runMutation(internal.streaming.setThinkingSeconds, { sessionId: args.sessionId, seconds });
+              }
             }
             tokenBuffer += token;
             if (!flushTimeout) {
@@ -849,6 +858,7 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
             if (!stageCleared) {
               stageCleared = true;
               thinkingStageActive = true;
+              thinkingStartedAt = Date.now();
               // Set stage to "thinking" so frontend shows thinking indicator
               // even before reasoning parts flush to the DB
               ctx.runMutation(internal.streaming.updateStage, { sessionId: args.sessionId, stage: "thinking" });
@@ -866,6 +876,14 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
             const sess = await ctx.runQuery(internal.sessions.getInternal, { id: args.sessionId });
             if (sess?.cancelRequested) {
               throw new Error("CANCELLED_BY_USER");
+            }
+
+            // Record thinking seconds if thinking was active (ends on tool call too)
+            if (thinkingStageActive && thinkingStartedAt > 0) {
+              thinkingStageActive = false;
+              const seconds = Math.round((Date.now() - thinkingStartedAt) / 1000);
+              await ctx.runMutation(internal.streaming.setThinkingSeconds, { sessionId: args.sessionId, seconds });
+              await ctx.runMutation(internal.streaming.updateStage, { sessionId: args.sessionId, stage: undefined });
             }
 
             // Flush pending tokens before tool call
