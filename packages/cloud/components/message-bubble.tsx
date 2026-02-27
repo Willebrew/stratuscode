@@ -558,7 +558,7 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
       {/* Render parts — group simple tool calls into timeline chains */}
       {groupIntoChains(groupSubagentParts(deduplicatedParts)).map((segment, segIdx) =>
         segment.type === 'chain' ? (
-          <ToolChain key={`chain-${segIdx}`} items={segment.items} isStreaming={message.streaming} />
+          <ToolChain key={`chain-${segIdx}`} items={segment.items} />
         ) : (
           <MessagePartView key={segment.item.idx} part={segment.item.part} nestedParts={segment.item.nestedParts} statusText={segment.item.statusText} subagentId={segment.item.subagentId} allParts={deduplicatedParts.map(d => d.part)} todos={todos} sessionId={sessionId} onSend={onSend} onAnswer={onAnswer} isStreaming={message.streaming} messageId={message.id} thinkingSeconds={thinkingSeconds} />
         )
@@ -1306,7 +1306,7 @@ function SubagentCard({ toolCall, nestedParts, statusText: groupedStatusText, su
               {nestedParts.length > 0 ? (
                 groupIntoChains(groupSubagentParts(nestedParts.map((part, i) => ({ part, idx: i })))).map((seg, i) =>
                   seg.type === 'chain' ? (
-                    <ToolChain key={`sc-${i}`} items={seg.items} isStreaming={false} />
+                    <ToolChain key={`sc-${i}`} items={seg.items} />
                   ) : (
                     <MessagePartView key={seg.item.idx} part={seg.item.part} nestedParts={seg.item.nestedParts} statusText={seg.item.statusText} sessionId={sessionId} />
                   )
@@ -1326,29 +1326,21 @@ function SubagentCard({ toolCall, nestedParts, statusText: groupedStatusText, su
 
 // ── ToolChain — timeline container for consecutive tool calls ──
 
-function ToolChain({ items, isStreaming }: { items: GroupedPart[]; isStreaming?: boolean }) {
-  const allDone = items.every(g => {
-    const tc = (g.part as any).toolCall;
-    return tc?.status === 'completed' || tc?.status === 'failed';
-  });
-  const showDone = allDone && !isStreaming;
-
+function ToolChain({ items }: { items: GroupedPart[] }) {
   return (
     <div className="relative pl-7 py-1">
-      {/* Vertical connecting line — runs through center of dots */}
-      <div className="absolute left-[11px] top-[18px] bottom-[18px] w-[2px] rounded-full bg-foreground/[0.12]" />
-      <div className="flex flex-col">
+      {/* Vertical connecting line — border on the inner wrapper, hugs items tightly */}
+      <div
+        className="flex flex-col"
+        style={{
+          borderLeft: '2px solid color-mix(in srgb, var(--foreground) 15%, transparent)',
+          marginLeft: '10px',
+          paddingLeft: '16px',
+        }}
+      >
         {items.map((group) => (
           <ToolChainItem key={group.idx} group={group} />
         ))}
-        {showDone && (
-          <div className="relative flex items-center gap-2.5 py-1 min-h-[28px]">
-            <div className="absolute -left-7 w-[22px] h-[22px] rounded-full bg-green-500/15 flex items-center justify-center">
-              <Check className="w-3 h-3 text-green-500" />
-            </div>
-            <span className="text-xs text-green-500/70 font-medium">Done</span>
-          </div>
-        )}
       </div>
     </div>
   );
@@ -1401,12 +1393,12 @@ function ToolChainItem({ group }: { group: GroupedPart }) {
       : getToolIcon(toolCall.name, 'w-2.5 h-2.5');
 
   return (
-    <div className="relative flex items-center gap-2.5 py-1 min-h-[28px]">
-      {/* Dot on timeline */}
+    <div className="relative flex items-center gap-2 py-1 min-h-[28px]">
+      {/* Dot on timeline — centered on the border-left line */}
       <div className={clsx(
-        "absolute -left-7 w-[22px] h-[22px] rounded-full flex items-center justify-center",
+        "absolute w-[20px] h-[20px] rounded-full flex items-center justify-center",
         isFailed ? "bg-red-500/15" : isRunning ? "bg-foreground/10" : "bg-foreground/[0.07]",
-      )}>
+      )} style={{ left: '-27px' }}>
         {dotContent}
       </div>
 
