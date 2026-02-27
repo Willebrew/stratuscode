@@ -557,6 +557,7 @@ export const sendMessage = internalAction({
     let tokenBuffer = "";
     let reasoningBuffer = "";
     let flushTimeout: ReturnType<typeof setTimeout> | null = null;
+    let stageCleared = false; // Clear "thinking" stage on first token/reasoning
 
     // Subagent token batching — accumulates child LLM text for live status display
     const subagentTextBuffers: Record<string, string> = {};
@@ -664,6 +665,12 @@ export const sendMessage = internalAction({
       // have expired when resuming from a snapshot)
       const freshRepoUrl = `https://x-access-token:${githubToken}@github.com/${session.owner}/${session.repo}.git`;
       await sandbox.runCommand("bash", ["-c", `cd '${workDir}' && git remote set-url origin '${freshRepoUrl}'`]);
+
+      // Sandbox is ready — transition to "thinking" stage
+      await ctx.runMutation(internal.streaming.updateStage, {
+        sessionId: args.sessionId,
+        stage: "thinking",
+      });
 
       // ── 2. Load agent state for resume ──
 
@@ -792,6 +799,10 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
         abort: abortController.signal,
         callbacks: {
           onToken: (token: string) => {
+            if (!stageCleared) {
+              stageCleared = true;
+              ctx.runMutation(internal.streaming.updateStage, { sessionId: args.sessionId, stage: undefined });
+            }
             tokenBuffer += token;
             if (!flushTimeout) {
               flushTimeout = setTimeout(async () => {
@@ -801,6 +812,10 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
             }
           },
           onReasoning: (text: string) => {
+            if (!stageCleared) {
+              stageCleared = true;
+              ctx.runMutation(internal.streaming.updateStage, { sessionId: args.sessionId, stage: undefined });
+            }
             reasoningBuffer += text;
             if (!flushTimeout) {
               flushTimeout = setTimeout(async () => {

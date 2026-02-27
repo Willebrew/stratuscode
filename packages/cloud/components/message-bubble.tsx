@@ -275,8 +275,9 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
     return _frozenTimers.get(timerKey) ?? _lastTicks.get(timerKey) ?? 0;
   });
 
-  // Record when thinking starts (sync in render)
-  if (!isThinkingCompleted && !_startTimes.has(timerKey)) {
+  // Record when thinking starts (sync in render) — only when actually thinking,
+  // not during "booting" stage (sandbox cloning / environment setup)
+  if (!isThinkingCompleted && !_startTimes.has(timerKey) && message.stage !== 'booting') {
     _startTimes.set(timerKey, Date.now());
   }
 
@@ -345,15 +346,22 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
 
   return (
     <div className="flex flex-col gap-2 relative group pb-1">
-      {/* Show initial thinking indicator when streaming but no parts yet */}
+      {/* Show stage-appropriate indicator when streaming but no parts yet */}
       {message.streaming && !hasReasoningParts && !hasNonReasoningParts && (
-        <AgentThinkingIndicator
-          messageId={message.id}
-          label="Thinking"
-          isCompleted={false}
-          reasoning=""
-          seconds={thinkingSeconds}
-        />
+        message.stage === 'booting' ? (
+          <div className="flex items-center gap-2 text-foreground/40 min-h-[32px]">
+            <AnimatedStratusLogo mode="generating" size={20} />
+            <span className="text-sm font-medium">Setting up environment...</span>
+          </div>
+        ) : (
+          <AgentThinkingIndicator
+            messageId={message.id}
+            label="Thinking"
+            isCompleted={false}
+            reasoning=""
+            seconds={thinkingSeconds}
+          />
+        )
       )}
 
       {/* Render parts — group subagent tool calls inside their delegate card */}

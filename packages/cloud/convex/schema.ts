@@ -85,6 +85,7 @@ export default defineSchema({
     pendingQuestion: v.optional(v.string()), // JSON of question data
     pendingAnswer: v.optional(v.string()), // JSON of answer data
     thinkingSeconds: v.optional(v.number()), // Set server-side the instant reasoning stops
+    stage: v.optional(v.string()), // "booting" | "thinking" | undefined (content flowing)
     isStreaming: v.boolean(),
     updatedAt: v.number(),
   })

@@ -223,6 +223,7 @@ export const prepareSend = mutation({
       reasoning: "",
       toolCalls: "[]",
       parts: "[]",
+      stage: "booting",
       isStreaming: true,
       updatedAt: Date.now(),
     });

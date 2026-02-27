@@ -17,6 +17,7 @@ export interface ChatMessage {
   parts: MessagePart[];
   streaming?: boolean;
   thinkingSeconds?: number;
+  stage?: string; // "booting" | "thinking" | undefined
 }
 
 export interface ToolCallInfo {
@@ -228,6 +229,7 @@ export function useConvexChat(
         parts: buildStreamingParts(),
         streaming: true,
         thinkingSeconds: typeof streamingState.thinkingSeconds === 'number' ? streamingState.thinkingSeconds : undefined,
+        stage: streamingState.stage ?? undefined,
       });
     } else if (
       (streamingState?.content || streamingState?.reasoning)

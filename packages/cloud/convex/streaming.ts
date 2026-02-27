@@ -415,6 +415,18 @@ export const updateToolCallArgs = internalMutation({
   },
 });
 
+export const updateStage = internalMutation({
+  args: { sessionId: v.id("sessions"), stage: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const state = await ctx.db
+      .query("streaming_state")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
+      .unique();
+    if (!state) return;
+    await ctx.db.patch(state._id, { stage: args.stage, updatedAt: Date.now() });
+  },
+});
+
 export const finish = internalMutation({
   args: { sessionId: v.id("sessions") },
   handler: async (ctx, args) => {
