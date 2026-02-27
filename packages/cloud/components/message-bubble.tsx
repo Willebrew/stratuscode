@@ -214,50 +214,68 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
   }
 
   // Agent message — render parts in chronological order, no avatar
-  // Deduplicate: collect question texts from tool_call parts so we can suppress
-  // text parts that just echo the same question the QuestionCard already renders.
+  // Pre-process: merge all reasoning parts into a single block at the front,
+  // and concatenate all text parts into one. Some models interleave reasoning
+  // and text tokens which creates fragmented parts — merge them for clean display.
   const questionTexts = new Set<string>();
   const seenQuestionKeys = new Set<string>();
   const deduplicatedParts: { part: MessagePart; idx: number }[] = [];
 
-  // First pass: collect question texts from tool calls
-  for (const part of message.parts) {
-    if (part.type === 'tool_call' && part.toolCall.name === 'question') {
-      try {
-        const parsed = JSON.parse(part.toolCall.args);
-        if (parsed.question) questionTexts.add(parsed.question);
-      } catch { /* ignore */ }
+  // Merge reasoning + text, preserve other part types in order
+  let mergedReasoning = '';
+  let mergedText = '';
+  const otherParts: { part: MessagePart; idx: number }[] = [];
+
+  for (let i = 0; i < message.parts.length; i++) {
+    const part = message.parts[i]!;
+    if (part.type === 'reasoning') {
+      mergedReasoning += (mergedReasoning ? '\n' : '') + part.content;
+    } else if (part.type === 'text') {
+      mergedText += part.content;
+    } else {
+      otherParts.push({ part, idx: i });
     }
   }
 
-  // Second pass: filter out duplicate text parts and duplicate question tool calls
-  for (let i = 0; i < message.parts.length; i++) {
-    const part = message.parts[i]!;
-
-    // Skip text parts whose content matches a question tool call's question
-    if (part.type === 'text' && questionTexts.size > 0) {
-      const trimmed = part.content.trim();
-      let isDuplicate = false;
-      for (const qt of questionTexts) {
-        if (trimmed.includes(qt) || qt.includes(trimmed)) {
-          isDuplicate = true;
-          break;
-        }
+  // Build merged parts: reasoning first, then text, then tool calls etc
+  let nextIdx = 0;
+  if (mergedReasoning.trim()) {
+    deduplicatedParts.push({ part: { type: 'reasoning', content: mergedReasoning }, idx: nextIdx++ });
+  }
+  if (mergedText.trim()) {
+    // Filter out text that duplicates a question tool call
+    for (const part of message.parts) {
+      if (part.type === 'tool_call' && part.toolCall.name === 'question') {
+        try {
+          const parsed = JSON.parse(part.toolCall.args);
+          if (parsed.question) questionTexts.add(parsed.question);
+        } catch { /* ignore */ }
       }
-      if (isDuplicate) continue;
     }
+    let isDuplicateText = false;
+    if (questionTexts.size > 0) {
+      const trimmed = mergedText.trim();
+      for (const qt of questionTexts) {
+        if (trimmed.includes(qt) || qt.includes(trimmed)) { isDuplicateText = true; break; }
+      }
+    }
+    if (!isDuplicateText) {
+      deduplicatedParts.push({ part: { type: 'text', content: mergedText }, idx: nextIdx++ });
+    }
+  }
 
-    // Skip duplicate question tool calls (same question text)
-    if (part.type === 'tool_call' && (part as any).toolCall?.name === 'question') {
+  // Add non-reasoning, non-text parts (tool calls, subagent markers, etc)
+  for (const op of otherParts) {
+    // Skip duplicate question tool calls
+    if (op.part.type === 'tool_call' && (op.part as any).toolCall?.name === 'question') {
       try {
-        const parsed = JSON.parse((part as any).toolCall.args);
+        const parsed = JSON.parse((op.part as any).toolCall.args);
         const key = parsed.question || '';
         if (seenQuestionKeys.has(key)) continue;
         seenQuestionKeys.add(key);
       } catch { /* ignore */ }
     }
-
-    deduplicatedParts.push({ part, idx: i });
+    deduplicatedParts.push({ part: op.part, idx: nextIdx++ });
   }
 
   const hasNonReasoningParts = message.parts.some(p => p.type !== 'reasoning');
@@ -379,7 +397,7 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
       {/* Render parts — group subagent tool calls inside their delegate card */}
       {/* Reasoning parts render inline as AgentThinkingIndicator blocks */}
       {groupSubagentParts(deduplicatedParts).map((group) => (
-        <MessagePartView key={group.idx} part={group.part} nestedParts={group.nestedParts} statusText={group.statusText} subagentId={group.subagentId} allParts={message.parts} todos={todos} sessionId={sessionId} onSend={onSend} onAnswer={onAnswer} isStreaming={message.streaming} messageId={message.id} thinkingSeconds={thinkingSeconds} />
+        <MessagePartView key={group.idx} part={group.part} nestedParts={group.nestedParts} statusText={group.statusText} subagentId={group.subagentId} allParts={deduplicatedParts.map(d => d.part)} todos={todos} sessionId={sessionId} onSend={onSend} onAnswer={onAnswer} isStreaming={message.streaming} messageId={message.id} thinkingSeconds={thinkingSeconds} />
       ))}
 
       {/* Show generation swoop logo under the response if streaming content */}

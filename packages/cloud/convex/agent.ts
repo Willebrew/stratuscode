@@ -1023,13 +1023,29 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
       const parts: any[] = [];
 
       // Use ordered parts (preserves reasoning + subagent markers inline)
+      // Merge all reasoning into one block and all text into one block to avoid
+      // fragmented display from models that interleave reasoning/text tokens.
       const orderedParts = streamState?.parts ? JSON.parse(streamState.parts) : null;
       if (orderedParts && orderedParts.length > 0) {
+        let mergedReasoning = "";
+        let mergedText = "";
+        const otherParts: any[] = [];
         for (const p of orderedParts) {
-          if (p.type === "reasoning" || p.type === "text" || p.type === "tool_call" || p.type === "subagent_start" || p.type === "subagent_end") {
-            parts.push(p);
+          if (p.type === "reasoning") {
+            mergedReasoning += (mergedReasoning ? "\n" : "") + (p.content || "");
+          } else if (p.type === "text") {
+            mergedText += p.content || "";
+          } else if (p.type === "tool_call" || p.type === "subagent_start" || p.type === "subagent_end") {
+            otherParts.push(p);
           }
         }
+        if (mergedReasoning.trim()) {
+          parts.push({ type: "reasoning", content: mergedReasoning });
+        }
+        if (mergedText.trim()) {
+          parts.push({ type: "text", content: mergedText });
+        }
+        parts.push(...otherParts);
       } else {
         // Legacy fallback: single reasoning blob + flat toolCalls + text
         if (streamState?.reasoning) {
