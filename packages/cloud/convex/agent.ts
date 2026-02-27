@@ -61,18 +61,22 @@ You are in PLAN mode. Follow this workflow:
 
 ## Plan Workflow
 
-### Phase 1: Initial Understanding
-Goal: Understand the user's request by reading code and asking clarifying questions.
-1. Explore the codebase to understand the relevant code and existing patterns.
-2. After exploring, use the **question** tool to clarify ambiguities.
+### Phase 1: Explore (use delegation for speed)
+Goal: Understand the codebase and the user's request.
+- Spawn 2-3 explore subagents in parallel to investigate different areas simultaneously.
+  Example: one explores the component layer, another the API/backend, a third checks tests or schemas.
+- After subagents report, synthesize their findings.
+- Use the **question** tool to clarify ambiguities with the user.
 
 ### Phase 2: Design
-Goal: Design an implementation approach based on your exploration and the user's answers.
+Goal: Design an implementation approach based on exploration and user answers.
+- Identify which steps can be parallelized during build mode (note this in the plan).
+- Reference specific file paths and existing functions/utilities to reuse.
 
 ### Phase 3: Create Plan
 Goal: Write a structured plan using the todowrite tool AND the plan file.
-1. Create a clear, ordered todo list capturing each implementation step using todowrite.
-2. Write a detailed plan to the plan file at: ${planFilePath}
+1. Create a clear, ordered todo list with todowrite.
+2. Write a detailed plan to: ${planFilePath}
    This is the ONLY file you are allowed to edit in plan mode.
 
 ### Phase 4: Call plan_exit
@@ -90,7 +94,12 @@ function BUILD_SWITCH_REMINDER(planFilePath: string): string {
 Your operational mode has changed from plan to build.
 You are permitted to make file changes, run shell commands, and utilize your full arsenal of tools.
 A plan file exists at: ${planFilePath}
-Read the plan file first, then work through each task, updating status as you go.
+
+EXECUTION STRATEGY:
+1. Read the plan file first.
+2. Identify which tasks can be done in parallel — spawn general subagents for independent pieces.
+3. For unfamiliar areas, spawn an explore subagent before modifying code.
+4. Work through each task, updating todo status as you go.
 </system-reminder>`;
 }
 
@@ -1117,38 +1126,21 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
         lastMessage: preview,
       });
 
-      // ── 8. Set idle immediately, then snapshot in background ──
-      // Set idle FIRST so the UI responds instantly (stop button disappears).
-      // Then snapshot — saving snapshotId is always safe (non-destructive).
-      // Only guard sandboxId clearing with isMyRun() to protect a new run's sandbox.
+      // ── 8. Set idle — keep sandbox alive for instant reconnection ──
+      // Do NOT snapshot here. snapshot() stops the sandbox, which causes a
+      // race: if the user sends a new message while snapshotting is in
+      // progress, the new run sees status="snapshotting" and falls through
+      // to a fresh clone (losing all files). Instead, keep the sandbox
+      // running — next run reconnects instantly via Sandbox.get(sandboxId).
+      // The sandbox stays alive for ~13 minutes (the timeout set at creation).
+      // If it expires, the next run will do a fresh clone (cold start).
       if (await isMyRun()) {
         await ctx.runMutation(internal.sessions.updateStatus, {
           id: args.sessionId,
           status: "idle",
         });
       }
-
-      // Always try to snapshot — even if a new run just started, the saved
-      // snapshotId will be available for the run AFTER that one.
-      try {
-        const snapshot = await sandbox.snapshot();
-        await ctx.runMutation(internal.sessions.setSnapshotId, {
-          id: args.sessionId,
-          snapshotId: snapshot.snapshotId,
-        });
-        // snapshot() stops the sandbox — only clear sandboxId if no new run
-        // started (a new run may have set its own sandboxId already)
-        if (await isMyRun()) {
-          await ctx.runMutation(internal.sessions.setSandboxId, {
-            id: args.sessionId,
-            sandboxId: undefined,
-          });
-        }
-        console.log(`[agent] Snapshot saved: ${snapshot.snapshotId}`);
-      } catch (e) {
-        console.warn("[agent] Failed to snapshot sandbox:", e);
-        // Leave sandboxId in place so next run can try reconnecting
-      }
+      console.log(`[agent] Success — sandbox ${sandbox.sandboxId} kept alive for reconnection`);
     } catch (error) {
       // Clean up cancel polling on error path
       if (cancelCheckInterval) clearInterval(cancelCheckInterval);
@@ -1170,15 +1162,35 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
       // bail out entirely — don't touch the new run's streaming state or status.
       const stillMyRun = await isMyRun();
 
-      // Save partial assistant message on cancel so work isn't lost
-      if (isCancelled && stillMyRun) {
-        try {
-          const streamState = await ctx.runQuery(internal.streaming.getInternal, {
-            sessionId: args.sessionId,
-          });
-          if (streamState && (streamState.content || streamState.toolCalls !== "[]")) {
+      // Save partial assistant message on cancel so work isn't lost.
+      // IMPORTANT: Finish streaming FIRST, then persist the message.
+      // This prevents duplication where both the streaming message and the
+      // persisted message are briefly visible at the same time.
+      if (stillMyRun) {
+        // Read streaming state before finishing (we need it to build parts)
+        let streamState: any = null;
+        if (isCancelled) {
+          try {
+            streamState = await ctx.runQuery(internal.streaming.getInternal, {
+              sessionId: args.sessionId,
+            });
+          } catch { /* best effort */ }
+        }
+
+        // Finish streaming first — content disappears from UI
+        await ctx.runMutation(internal.streaming.finish, { sessionId: args.sessionId });
+
+        // Set status
+        await ctx.runMutation(internal.sessions.updateStatus, {
+          id: args.sessionId,
+          status: isCancelled ? "idle" : "error",
+          errorMessage: isCancelled ? undefined : errorMessage,
+        });
+
+        // Now persist the partial message — it appears as a real message
+        if (isCancelled && streamState && (streamState.content || streamState.toolCalls !== "[]")) {
+          try {
             const parts: any[] = [];
-            // Use ordered parts if available (includes inline reasoning), fall back to legacy
             const orderedParts = streamState.parts ? JSON.parse(streamState.parts) : null;
             if (orderedParts && orderedParts.length > 0) {
               for (const p of orderedParts) {
@@ -1187,7 +1199,6 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
                 }
               }
             } else {
-              // Legacy fallback: single reasoning blob + flat toolCalls + text
               if (streamState.reasoning) {
                 parts.push({ type: "reasoning", content: streamState.reasoning });
               }
@@ -1208,19 +1219,8 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
               content: streamState.content || "(cancelled)",
               parts,
             });
-          }
-        } catch { /* best effort */ }
-      }
-
-      // Finish streaming and set status AFTER saving partial message
-      // Only if this is still our run — otherwise the new run owns streaming state
-      if (stillMyRun) {
-        await ctx.runMutation(internal.streaming.finish, { sessionId: args.sessionId });
-        await ctx.runMutation(internal.sessions.updateStatus, {
-          id: args.sessionId,
-          status: isCancelled ? "idle" : "error",
-          errorMessage: isCancelled ? undefined : errorMessage,
-        });
+          } catch { /* best effort */ }
+        }
       }
 
       // Snapshot sandbox AFTER status update so UI responds immediately
