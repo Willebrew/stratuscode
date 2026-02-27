@@ -666,10 +666,10 @@ export const sendMessage = internalAction({
       const freshRepoUrl = `https://x-access-token:${githubToken}@github.com/${session.owner}/${session.repo}.git`;
       await sandbox.runCommand("bash", ["-c", `cd '${workDir}' && git remote set-url origin '${freshRepoUrl}'`]);
 
-      // Sandbox is ready — transition to "thinking" stage
+      // Sandbox is ready — transition to "waiting" stage (waiting for LLM response)
       await ctx.runMutation(internal.streaming.updateStage, {
         sessionId: args.sessionId,
-        stage: "thinking",
+        stage: "waiting",
       });
 
       // ── 2. Load agent state for resume ──
