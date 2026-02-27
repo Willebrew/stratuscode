@@ -217,13 +217,9 @@ export const prepareSend = mutation({
     if (existing) {
       await ctx.db.delete(existing._id);
     }
-    // If the session already has a sandbox or snapshot, resume is fast — skip
-    // "booting" and go straight to "waiting" (waiting for LLM).
-    // Also check if the session has had messages before (lastMessage non-empty)
-    // as a fallback — sandbox/snapshot fields might be cleared between runs.
-    const hasPreviousRun = !!(session?.sandboxId || session?.snapshotId || (session?.lastMessage && session.lastMessage.length > 0));
-    const initialStage = hasPreviousRun ? "waiting" : "booting";
-    console.log(`[prepareSend] session=${args.id} sandboxId=${session?.sandboxId} snapshotId=${session?.snapshotId} lastMessage=${(session?.lastMessage || '').slice(0,20)} → stage=${initialStage}`);
+    // Always start with "waiting" — the agent will set "booting" if it
+    // actually needs to create a fresh sandbox (which is slow).
+    const initialStage = "waiting";
     await ctx.db.insert("streaming_state", {
       sessionId: args.id,
       content: "",

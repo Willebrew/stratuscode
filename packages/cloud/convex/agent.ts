@@ -644,7 +644,11 @@ export const sendMessage = internalAction({
       }
 
       if (!sandbox) {
-        // Fresh clone
+        // Fresh clone needed — this is the slow path, show "booting" in UI
+        await ctx.runMutation(internal.streaming.updateStage, {
+          sessionId: args.sessionId,
+          stage: "booting",
+        });
         sandbox = await createFreshSandbox(
           session.owner,
           session.repo,
