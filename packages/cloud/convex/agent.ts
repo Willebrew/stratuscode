@@ -618,6 +618,7 @@ export const sendMessage = internalAction({
 
     try {
       // ── 1. Create or resume sandbox ──
+      console.log(`[agent] Sandbox resolve: snapshotId=${session.snapshotId || "none"}, sandboxId=${session.sandboxId || "none"}`);
 
       if (session.snapshotId) {
         // Resume from snapshot
@@ -627,8 +628,9 @@ export const sendMessage = internalAction({
             source: { type: "snapshot", snapshotId: session.snapshotId },
             timeout: 800_000,
           });
+          console.log(`[agent] Resumed from snapshot ${session.snapshotId}`);
         } catch (e) {
-          console.warn("Snapshot expired or failed, creating fresh sandbox:", e);
+          console.warn("[agent] Snapshot expired or failed, creating fresh sandbox:", e);
           sandbox = null;
         }
       }
@@ -637,14 +639,21 @@ export const sendMessage = internalAction({
         // Try to reconnect to existing sandbox
         try {
           sandbox = await Sandbox.get({ ...getSandboxCredentials(), sandboxId: session.sandboxId });
-          if (sandbox.status !== "running") sandbox = null;
-        } catch {
+          if (sandbox.status !== "running") {
+            console.log(`[agent] Sandbox ${session.sandboxId} not running (status=${sandbox.status}), will fresh clone`);
+            sandbox = null;
+          } else {
+            console.log(`[agent] Reconnected to sandbox ${session.sandboxId}`);
+          }
+        } catch (e) {
+          console.warn(`[agent] Failed to reconnect to sandbox ${session.sandboxId}:`, e);
           sandbox = null;
         }
       }
 
       if (!sandbox) {
         // Fresh clone needed — this is the slow path, show "booting" in UI
+        console.log("[agent] Fresh clone needed — no snapshot or sandbox available");
         await ctx.runMutation(internal.streaming.updateStage, {
           sessionId: args.sessionId,
           stage: "booting",
@@ -1104,20 +1113,10 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
         lastMessage: preview,
       });
 
-      // Set status to idle BEFORE snapshotting so UI responds immediately
-      // Guard: if a new run started, don't overwrite its status
-      if (await isMyRun()) {
-        await ctx.runMutation(internal.sessions.updateStatus, {
-          id: args.sessionId,
-          status: "idle",
-        });
-      }
-
-      // ── 8. Snapshot sandbox for fast resume (after status update) ──
-      // Guard: only snapshot if this is still our run — a new run may have
-      // already started using its own sandbox, and our mutations would
-      // overwrite its sandboxId/snapshotId.
-
+      // ── 8. Snapshot sandbox, then set idle ──
+      // CRITICAL: snapshot BEFORE setting idle. If we set idle first, the user
+      // can instantly send a new message (changing runId), causing the snapshot
+      // isMyRun() check to fail — leaving no snapshot for the next run.
       if (await isMyRun()) {
         try {
           const snapshot = await sandbox.snapshot();
@@ -1133,10 +1132,18 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
           console.log(`[agent] Snapshot saved: ${snapshot.snapshotId}`);
         } catch (e) {
           console.warn("[agent] Failed to snapshot sandbox:", e);
-          // Sandbox may still be running, that's okay — next turn will reconnect
+          // Leave sandboxId in place so next run can try reconnecting
+        }
+
+        // NOW set idle — snapshot is saved, safe for user to send next message
+        if (await isMyRun()) {
+          await ctx.runMutation(internal.sessions.updateStatus, {
+            id: args.sessionId,
+            status: "idle",
+          });
         }
       } else {
-        console.log("[agent] Skipping snapshot — new run started");
+        console.log("[agent] Skipping cleanup — new run started");
       }
     } catch (error) {
       // Clean up cancel polling on error path
