@@ -291,25 +291,28 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
   // Stable key for timer Map, avoiding the "streaming" temporary ID
   const timerKey = sessionId ? `${sessionId}-${index}` : index.toString();
 
-  // --- Timer: module-level Maps survive component remounts ---
-  // Check if we already have a frozen value from a previous mount, or a persisted value
+  // --- Thinking timer ---
+  // Three sources of truth, in priority order:
+  // 1. message.thinkingSeconds (from DB or streaming state) — authoritative
+  // 2. _frozenTimers (frozen locally when thinking completed during streaming)
+  // 3. Live counting from _startTimes (while thinking is in progress)
+  const isThinkingStage = message.stage === 'thinking';
+
   const [thinkingSeconds, setThinkingSeconds] = useState(() => {
     if (message.thinkingSeconds !== undefined) return message.thinkingSeconds;
     return _frozenTimers.get(timerKey) ?? _lastTicks.get(timerKey) ?? 0;
   });
 
-  // Record when thinking starts (sync in render) — either when the agent
-  // signals stage="thinking" or when reasoning tokens actually arrive
-  const isThinkingStage = message.stage === 'thinking';
+  // Record when thinking starts
   if (!isThinkingCompleted && !_startTimes.has(timerKey) && (hasReasoningParts || isThinkingStage)) {
     _startTimes.set(timerKey, Date.now());
   }
 
-  // Freeze immediately in render when thinking completes
-  if (isThinkingCompleted && _startTimes.has(timerKey) && !_frozenTimers.has(timerKey)) {
-    if (message.thinkingSeconds !== undefined) {
+  // Freeze when thinking completes (during streaming or on persisted message)
+  if (isThinkingCompleted && hasReasoningParts && !_frozenTimers.has(timerKey)) {
+    if (message.thinkingSeconds !== undefined && message.thinkingSeconds > 0) {
       _frozenTimers.set(timerKey, message.thinkingSeconds);
-    } else {
+    } else if (_startTimes.has(timerKey)) {
       const elapsed = Math.max(
         _lastTicks.get(timerKey) ?? 0,
         Math.round((Date.now() - _startTimes.get(timerKey)!) / 1000)
@@ -319,20 +322,21 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
   }
 
   useEffect(() => {
-    // Already frozen — just sync state
-    const frozen = _frozenTimers.get(timerKey);
-    if (frozen !== undefined) {
-      setThinkingSeconds(frozen);
-      return;
-    }
-
-    // Persisted override on reload
-    if (isThinkingCompleted && message.thinkingSeconds !== undefined) {
+    // Source 1: message.thinkingSeconds from DB/streaming — always wins
+    if (message.thinkingSeconds !== undefined && message.thinkingSeconds > 0) {
       _frozenTimers.set(timerKey, message.thinkingSeconds);
       setThinkingSeconds(message.thinkingSeconds);
       return;
     }
 
+    // Source 2: locally frozen value
+    const frozen = _frozenTimers.get(timerKey);
+    if (frozen !== undefined && frozen > 0) {
+      setThinkingSeconds(frozen);
+      return;
+    }
+
+    // Source 3: live counting
     const start = _startTimes.get(timerKey);
     if (!start || isThinkingCompleted) return;
 

@@ -577,6 +577,7 @@ export const sendMessage = internalAction({
     let stageCleared = false; // Set "thinking" stage on first reasoning, clear on first text
     let thinkingStageActive = false; // Track if we set stage to "thinking"
     let thinkingStartedAt = 0; // Timestamp when reasoning started (for thinkingSeconds)
+    let thinkingElapsedSeconds: number | undefined; // Final thinking duration — passed to messages.create
 
     // Subagent token batching — accumulates child LLM text for live status display
     const subagentTextBuffers: Record<string, string> = {};
@@ -842,8 +843,9 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
               thinkingStageActive = false;
               ctx.runMutation(internal.streaming.updateStage, { sessionId: args.sessionId, stage: undefined });
               if (thinkingStartedAt > 0) {
-                const seconds = Math.round((Date.now() - thinkingStartedAt) / 1000);
-                ctx.runMutation(internal.streaming.setThinkingSeconds, { sessionId: args.sessionId, seconds });
+                thinkingElapsedSeconds = Math.round((Date.now() - thinkingStartedAt) / 1000);
+                // Fire-and-forget: update streaming state for live UI display
+                ctx.runMutation(internal.streaming.setThinkingSeconds, { sessionId: args.sessionId, seconds: thinkingElapsedSeconds });
               }
             }
             tokenBuffer += token;
@@ -881,8 +883,8 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
             // Record thinking seconds if thinking was active (ends on tool call too)
             if (thinkingStageActive && thinkingStartedAt > 0) {
               thinkingStageActive = false;
-              const seconds = Math.round((Date.now() - thinkingStartedAt) / 1000);
-              await ctx.runMutation(internal.streaming.setThinkingSeconds, { sessionId: args.sessionId, seconds });
+              thinkingElapsedSeconds = Math.round((Date.now() - thinkingStartedAt) / 1000);
+              await ctx.runMutation(internal.streaming.setThinkingSeconds, { sessionId: args.sessionId, seconds: thinkingElapsedSeconds });
               await ctx.runMutation(internal.streaming.updateStage, { sessionId: args.sessionId, stage: undefined });
             }
 
@@ -1114,13 +1116,15 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
         }
       }
 
-      // Save the complete assistant message (include thinkingSeconds for UI timer)
+      // Save the complete assistant message (include thinkingSeconds for UI timer).
+      // Use the local variable (set synchronously in callbacks) instead of the
+      // streaming state field which may not have committed yet (fire-and-forget).
       await ctx.runMutation(internal.messages.create, {
         sessionId: args.sessionId,
         role: "assistant",
         content: result.content || streamState?.content || "",
         parts,
-        thinkingSeconds: typeof streamState?.thinkingSeconds === 'number' ? streamState.thinkingSeconds : undefined,
+        thinkingSeconds: thinkingElapsedSeconds,
       });
 
       // Save agent state for next turn
@@ -1237,7 +1241,7 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
               role: "assistant",
               content: streamState.content || "(cancelled)",
               parts,
-              thinkingSeconds: typeof streamState.thinkingSeconds === 'number' ? streamState.thinkingSeconds : undefined,
+              thinkingSeconds: thinkingElapsedSeconds,
             });
           } catch { /* best effort */ }
         }
