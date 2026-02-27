@@ -221,63 +221,66 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
   const seenQuestionKeys = new Set<string>();
   const deduplicatedParts: { part: MessagePart; idx: number }[] = [];
 
-  // Merge reasoning + text, preserve other part types in order
+  // Collect question texts for duplicate filtering
+  for (const part of message.parts) {
+    if (part.type === 'tool_call' && part.toolCall.name === 'question') {
+      try {
+        const parsed = JSON.parse(part.toolCall.args);
+        if (parsed.question) questionTexts.add(parsed.question);
+      } catch { /* ignore */ }
+    }
+  }
+
+  // Merge all reasoning into one block at the top, then preserve
+  // the original interleaved order of text / tool_calls / subagents.
+  // Consecutive text parts are merged but text-tool-text stays in order.
   let mergedReasoning = '';
-  let mergedText = '';
-  const otherParts: { part: MessagePart; idx: number }[] = [];
+  let nextIdx = 0;
+  let pendingText = '';
+
+  const flushText = () => {
+    if (!pendingText.trim()) { pendingText = ''; return; }
+    // Check if this text duplicates a question tool call
+    let isDup = false;
+    if (questionTexts.size > 0) {
+      const trimmed = pendingText.trim();
+      for (const qt of questionTexts) {
+        if (trimmed.includes(qt) || qt.includes(trimmed)) { isDup = true; break; }
+      }
+    }
+    if (!isDup) {
+      deduplicatedParts.push({ part: { type: 'text', content: pendingText }, idx: nextIdx++ });
+    }
+    pendingText = '';
+  };
 
   for (let i = 0; i < message.parts.length; i++) {
     const part = message.parts[i]!;
     if (part.type === 'reasoning') {
       mergedReasoning += (mergedReasoning ? '\n' : '') + part.content;
     } else if (part.type === 'text') {
-      // Skip raw error JSON that leaks from failed subagent/tool calls
       if (isErrorJSON(part.content)) continue;
-      mergedText += part.content;
+      pendingText += part.content;
     } else {
-      otherParts.push({ part, idx: i });
-    }
-  }
-
-  // Build merged parts: reasoning first, then text, then tool calls etc
-  let nextIdx = 0;
-  if (mergedReasoning.trim()) {
-    deduplicatedParts.push({ part: { type: 'reasoning', content: mergedReasoning }, idx: nextIdx++ });
-  }
-  if (mergedText.trim()) {
-    // Filter out text that duplicates a question tool call
-    for (const part of message.parts) {
-      if (part.type === 'tool_call' && part.toolCall.name === 'question') {
+      // Non-text/reasoning part — flush any pending text first to preserve order
+      flushText();
+      // Skip duplicate question tool calls
+      if (part.type === 'tool_call' && (part as any).toolCall?.name === 'question') {
         try {
-          const parsed = JSON.parse(part.toolCall.args);
-          if (parsed.question) questionTexts.add(parsed.question);
+          const parsed = JSON.parse((part as any).toolCall.args);
+          const key = parsed.question || '';
+          if (seenQuestionKeys.has(key)) continue;
+          seenQuestionKeys.add(key);
         } catch { /* ignore */ }
       }
-    }
-    let isDuplicateText = false;
-    if (questionTexts.size > 0) {
-      const trimmed = mergedText.trim();
-      for (const qt of questionTexts) {
-        if (trimmed.includes(qt) || qt.includes(trimmed)) { isDuplicateText = true; break; }
-      }
-    }
-    if (!isDuplicateText) {
-      deduplicatedParts.push({ part: { type: 'text', content: mergedText }, idx: nextIdx++ });
+      deduplicatedParts.push({ part, idx: nextIdx++ });
     }
   }
+  flushText(); // flush any trailing text
 
-  // Add non-reasoning, non-text parts (tool calls, subagent markers, etc)
-  for (const op of otherParts) {
-    // Skip duplicate question tool calls
-    if (op.part.type === 'tool_call' && (op.part as any).toolCall?.name === 'question') {
-      try {
-        const parsed = JSON.parse((op.part as any).toolCall.args);
-        const key = parsed.question || '';
-        if (seenQuestionKeys.has(key)) continue;
-        seenQuestionKeys.add(key);
-      } catch { /* ignore */ }
-    }
-    deduplicatedParts.push({ part: op.part, idx: nextIdx++ });
+  // Prepend merged reasoning at the top
+  if (mergedReasoning.trim()) {
+    deduplicatedParts.unshift({ part: { type: 'reasoning', content: mergedReasoning }, idx: -1 });
   }
 
   const hasNonReasoningParts = message.parts.some(p => p.type !== 'reasoning');

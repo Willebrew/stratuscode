@@ -1113,37 +1113,37 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
         lastMessage: preview,
       });
 
-      // ── 8. Snapshot sandbox, then set idle ──
-      // CRITICAL: snapshot BEFORE setting idle. If we set idle first, the user
-      // can instantly send a new message (changing runId), causing the snapshot
-      // isMyRun() check to fail — leaving no snapshot for the next run.
+      // ── 8. Set idle immediately, then snapshot in background ──
+      // Set idle FIRST so the UI responds instantly (stop button disappears).
+      // Then snapshot — saving snapshotId is always safe (non-destructive).
+      // Only guard sandboxId clearing with isMyRun() to protect a new run's sandbox.
       if (await isMyRun()) {
-        try {
-          const snapshot = await sandbox.snapshot();
-          await ctx.runMutation(internal.sessions.setSnapshotId, {
-            id: args.sessionId,
-            snapshotId: snapshot.snapshotId,
-          });
-          // snapshot() stops the sandbox, so clear the sandboxId
+        await ctx.runMutation(internal.sessions.updateStatus, {
+          id: args.sessionId,
+          status: "idle",
+        });
+      }
+
+      // Always try to snapshot — even if a new run just started, the saved
+      // snapshotId will be available for the run AFTER that one.
+      try {
+        const snapshot = await sandbox.snapshot();
+        await ctx.runMutation(internal.sessions.setSnapshotId, {
+          id: args.sessionId,
+          snapshotId: snapshot.snapshotId,
+        });
+        // snapshot() stops the sandbox — only clear sandboxId if no new run
+        // started (a new run may have set its own sandboxId already)
+        if (await isMyRun()) {
           await ctx.runMutation(internal.sessions.setSandboxId, {
             id: args.sessionId,
             sandboxId: undefined,
           });
-          console.log(`[agent] Snapshot saved: ${snapshot.snapshotId}`);
-        } catch (e) {
-          console.warn("[agent] Failed to snapshot sandbox:", e);
-          // Leave sandboxId in place so next run can try reconnecting
         }
-
-        // NOW set idle — snapshot is saved, safe for user to send next message
-        if (await isMyRun()) {
-          await ctx.runMutation(internal.sessions.updateStatus, {
-            id: args.sessionId,
-            status: "idle",
-          });
-        }
-      } else {
-        console.log("[agent] Skipping cleanup — new run started");
+        console.log(`[agent] Snapshot saved: ${snapshot.snapshotId}`);
+      } catch (e) {
+        console.warn("[agent] Failed to snapshot sandbox:", e);
+        // Leave sandboxId in place so next run can try reconnecting
       }
     } catch (error) {
       // Clean up cancel polling on error path
