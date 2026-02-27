@@ -3,7 +3,7 @@
 import clsx from 'clsx';
 
 import { useState, useEffect, useRef, memo } from 'react';
-import { ChevronRight, ChevronDown, Loader2, Check, X, Wrench, HelpCircle, FileCode, Rocket, Download, Paperclip, Copy, ThumbsUp, ThumbsDown, RotateCcw, FileEdit, FolderOpen, Search, Terminal, Eye, GitBranch, ClipboardList, Send, Bot } from 'lucide-react';
+import { ChevronRight, Loader2, Check, X, Wrench, HelpCircle, FileCode, Rocket, Download, Paperclip, Copy, ThumbsUp, ThumbsDown, RotateCcw, FileEdit, FolderOpen, Search, Terminal, Eye, GitBranch, ClipboardList, Send } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MarkdownRenderer } from './markdown-renderer';
 import { InlineDiff } from './inline-diff';
@@ -12,6 +12,142 @@ import { AnimatedStratusLogo } from './animated-stratus-logo';
 import type { ChatMessage, ToolCallInfo, MessagePart, TodoItem } from '@/hooks/use-convex-chat';
 
 type GroupedPart = { part: MessagePart; idx: number; nestedParts?: MessagePart[]; statusText?: string; subagentId?: string };
+
+// ── Module-level tool display config (shared by ToolChain + ToolCallCard) ──
+
+const TOOL_DISPLAY_NAMES: Record<string, string> = {
+  write_to_file: 'Writing File',
+  write: 'Writing File',
+  edit: 'Editing File',
+  multi_edit: 'Editing Files',
+  read_file: 'Reading File',
+  read: 'Reading File',
+  ls: 'Listing Directory',
+  grep: 'Searching Code',
+  glob: 'Finding Files',
+  bash: 'Running Command',
+  websearch: 'Searching Web',
+  webfetch: 'Fetching Page',
+  lsp: 'Code Intelligence',
+  git_commit: 'Committing Changes',
+  git_push: 'Pushing to Remote',
+  pr_create: 'Creating Pull Request',
+  todoread: 'Checking Tasks',
+  todowrite: 'Updating Tasks',
+  question: 'Asking Question',
+  plan_enter: 'Entering Plan Mode',
+  plan_exit: 'Plan Approval',
+  task: 'Delegating Task',
+  delegate_to_explore: 'Exploring Codebase',
+  delegate_to_general: 'Running Subagent',
+};
+
+const TOOL_ICON_NAMES: Record<string, string> = {
+  write_to_file: 'FileCode',
+  write: 'FileCode',
+  edit: 'FileEdit',
+  multi_edit: 'FileEdit',
+  read_file: 'Eye',
+  read: 'Eye',
+  ls: 'FolderOpen',
+  grep: 'Search',
+  glob: 'Search',
+  bash: 'Terminal',
+  websearch: 'Search',
+  webfetch: 'Download',
+  lsp: 'FileCode',
+  git_commit: 'GitBranch',
+  git_push: 'GitBranch',
+  pr_create: 'GitBranch',
+  todoread: 'ClipboardList',
+  todowrite: 'ClipboardList',
+  question: 'HelpCircle',
+  plan_enter: 'ClipboardList',
+  plan_exit: 'Rocket',
+  task: 'Send',
+};
+
+const ICON_COMPONENTS: Record<string, React.FC<{ className?: string }>> = {
+  FileCode, FileEdit, Eye, FolderOpen, Search, Terminal, Download,
+  GitBranch, ClipboardList, HelpCircle, Rocket, Send,
+};
+
+function getToolIcon(name: string, className = 'w-3 h-3'): React.ReactNode {
+  const iconName = TOOL_ICON_NAMES[name];
+  if (iconName) {
+    const Icon = ICON_COMPONENTS[iconName];
+    if (Icon) return <Icon className={className} />;
+  }
+  return <Wrench className={className} />;
+}
+
+function getToolDisplayName(toolCall: ToolCallInfo): string {
+  if (!toolCall.name) return 'Preparing tool...';
+  const baseName = TOOL_DISPLAY_NAMES[toolCall.name] || toolCall.name;
+  try {
+    const parsed = JSON.parse(toolCall.args);
+    const filePath = parsed.file_path || parsed.path || parsed.filename;
+    if (filePath) {
+      const fileName = filePath.split('/').pop();
+      return `${baseName} · ${fileName}`;
+    }
+    if (toolCall.name === 'bash' && parsed.command) {
+      const cmd = parsed.command.length > 40 ? parsed.command.slice(0, 40) + '…' : parsed.command;
+      return `${baseName} · ${cmd}`;
+    }
+    if ((toolCall.name === 'grep' || toolCall.name === 'glob') && parsed.pattern) {
+      return `${baseName} · "${parsed.pattern}"`;
+    }
+  } catch { /* args might be partial JSON during streaming */ }
+  return baseName;
+}
+
+// Tools that should remain as full interactive cards (not chain items)
+const NON_CHAIN_TOOLS = new Set(['question', 'plan_exit']);
+
+// Tools that get expandable chain items (show diff/content when expanded)
+const EXPANDABLE_CHAIN_TOOLS = new Set(['write_to_file', 'write', 'edit', 'multi_edit']);
+
+type ChainSegment =
+  | { type: 'chain'; items: GroupedPart[] }
+  | { type: 'part'; item: GroupedPart };
+
+function groupIntoChains(parts: GroupedPart[]): ChainSegment[] {
+  const segments: ChainSegment[] = [];
+  let currentChain: GroupedPart[] = [];
+
+  const flushChain = () => {
+    if (currentChain.length > 0) {
+      segments.push({ type: 'chain', items: [...currentChain] });
+      currentChain = [];
+    }
+  };
+
+  for (const group of parts) {
+    const part = group.part as any;
+
+    // Tool calls go into chains (except question/plan_exit which stay as cards)
+    if (part.type === 'tool_call') {
+      const toolName = part.toolCall?.name || '';
+      if (NON_CHAIN_TOOLS.has(toolName)) {
+        flushChain();
+        segments.push({ type: 'part', item: group });
+      } else if (toolName === 'set_status') {
+        // Filter out set_status entirely
+        continue;
+      } else {
+        currentChain.push(group);
+      }
+    } else {
+      // Text, reasoning, etc. break the chain
+      flushChain();
+      segments.push({ type: 'part', item: group });
+    }
+  }
+
+  flushChain();
+  return segments;
+}
 
 /**
  * Group a flat list of parts so that subagent content is nested inside
@@ -420,11 +556,14 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
         )}
       </AnimatePresence>
 
-      {/* Render parts — group subagent tool calls inside their delegate card */}
-      {/* Reasoning parts render inline as AgentThinkingIndicator blocks */}
-      {groupSubagentParts(deduplicatedParts).map((group) => (
-        <MessagePartView key={group.idx} part={group.part} nestedParts={group.nestedParts} statusText={group.statusText} subagentId={group.subagentId} allParts={deduplicatedParts.map(d => d.part)} todos={todos} sessionId={sessionId} onSend={onSend} onAnswer={onAnswer} isStreaming={message.streaming} messageId={message.id} thinkingSeconds={thinkingSeconds} />
-      ))}
+      {/* Render parts — group into timeline chains for tool calls */}
+      {groupIntoChains(groupSubagentParts(deduplicatedParts)).map((segment, segIdx) =>
+        segment.type === 'chain' ? (
+          <ToolChain key={`chain-${segIdx}`} items={segment.items} isStreaming={message.streaming} sessionId={sessionId} />
+        ) : (
+          <MessagePartView key={segment.item.idx} part={segment.item.part} nestedParts={segment.item.nestedParts} statusText={segment.item.statusText} subagentId={segment.item.subagentId} allParts={deduplicatedParts.map(d => d.part)} todos={todos} sessionId={sessionId} onSend={onSend} onAnswer={onAnswer} isStreaming={message.streaming} messageId={message.id} thinkingSeconds={thinkingSeconds} />
+        )
+      )}
 
       {/* Show generation swoop logo under the response if streaming content */}
       {isGeneratingContent && (
@@ -1164,15 +1303,181 @@ function SubagentCard({ toolCall, nestedParts, statusText: groupedStatusText, su
             transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
             className="overflow-hidden"
           >
-            <div className="mt-1 ml-3 pl-3 border-l-2 border-border/30 flex flex-col gap-2">
-              {/* Render nested parts — re-apply grouping for nested subagents */}
-              {groupSubagentParts(nestedParts.map((part, i) => ({ part, idx: i }))).map(({ part, idx, nestedParts: childNested, statusText: childStatus }) => (
-                <MessagePartView key={idx} part={part} nestedParts={childNested} statusText={childStatus} sessionId={sessionId} />
-              ))}
-              {/* Show subagent result text when no nested parts (subagent generated only text, no tool calls) */}
-              {nestedParts.length === 0 && isCompleted && toolCall.result && (
-                <div className="text-sm text-muted-foreground/80">
+            <div className="mt-1 ml-1">
+              {nestedParts.length > 0 ? (
+                <NestedToolChain parts={nestedParts} sessionId={sessionId} />
+              ) : isCompleted && toolCall.result ? (
+                <div className="text-sm text-muted-foreground/80 pl-2">
                   <MarkdownRenderer content={toolCall.result} />
+                </div>
+              ) : null}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ── ToolChain — timeline container for consecutive tool calls ──
+
+function ToolChain({ items, isStreaming, sessionId }: { items: GroupedPart[]; isStreaming?: boolean; sessionId?: string }) {
+  const allDone = items.every(g => {
+    const tc = (g.part as any).toolCall;
+    return tc?.status === 'completed' || tc?.status === 'failed';
+  });
+  const showDone = allDone && !isStreaming;
+
+  return (
+    <div className="relative pl-6 py-1">
+      {/* Vertical connecting line */}
+      <div className="absolute left-[9px] top-[14px] bottom-[14px] w-px bg-border/40" />
+      <div className="flex flex-col gap-0.5">
+        {items.map((group, i) => (
+          <ToolChainItem key={group.idx} group={group} isLast={i === items.length - 1 && !showDone} sessionId={sessionId} />
+        ))}
+        {showDone && (
+          <div className="relative flex items-center gap-2 py-1">
+            <div className="absolute -left-6 w-[18px] h-[18px] rounded-full bg-green-500/15 flex items-center justify-center">
+              <Check className="w-2.5 h-2.5 text-green-500" />
+            </div>
+            <span className="text-xs text-green-500/70 font-medium">Done</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ToolChainItem({ group, isLast, sessionId }: { group: GroupedPart; isLast: boolean; sessionId?: string }) {
+  const part = group.part as any;
+  const toolCall: ToolCallInfo = part.toolCall;
+  const isSubagent = toolCall.name?.startsWith('delegate_to_');
+  const isExpandable = EXPANDABLE_CHAIN_TOOLS.has(toolCall.name) || isSubagent;
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const isRunning = toolCall.status === 'running';
+  const isFailed = toolCall.status === 'failed';
+  const isCompleted = toolCall.status === 'completed';
+
+  // ── Display name ──
+  const displayName = getToolDisplayName(toolCall);
+
+  // ── Typewriter for display name ──
+  const wasBornDone = useRef(isCompleted || isFailed);
+  const hasAnimated = useRef(wasBornDone.current);
+  const isTyping = useRef(false);
+  const [typedName, setTypedName] = useState(wasBornDone.current ? displayName : '');
+
+  useEffect(() => {
+    if (wasBornDone.current || hasAnimated.current) { setTypedName(displayName); return; }
+    if (!toolCall.name || isTyping.current) return;
+    const debounce = setTimeout(() => {
+      const text = displayName;
+      let i = 0;
+      isTyping.current = true;
+      setTypedName('');
+      const speed = Math.max(12, Math.min(35, 400 / text.length));
+      const interval = setInterval(() => {
+        i++;
+        setTypedName(text.slice(0, i));
+        if (i >= text.length) {
+          clearInterval(interval);
+          hasAnimated.current = true;
+          isTyping.current = false;
+        }
+      }, speed);
+    }, 300);
+    return () => clearTimeout(debounce);
+  }, [displayName, toolCall.name]);
+
+  const shownName = typedName || (wasBornDone.current ? displayName : '\u00A0');
+
+  // ── Node icon (dot on the timeline) ──
+  const dotContent = isRunning
+    ? <Loader2 className="w-2.5 h-2.5 animate-spin text-foreground/60" />
+    : isFailed
+      ? <X className="w-2.5 h-2.5 text-red-500" />
+      : getToolIcon(toolCall.name, 'w-2.5 h-2.5');
+
+  // For subagents, handle nested parts
+  const nestedParts = group.nestedParts || [];
+  const agentKind = isSubagent ? toolCall.name?.replace('delegate_to_', '') : '';
+
+  // Auto-expand subagents while running
+  useEffect(() => {
+    if (isSubagent && isRunning && !isExpanded) setIsExpanded(true);
+    if (isSubagent && !isRunning && isExpanded && !wasBornDone.current) setIsExpanded(false);
+  }, [isRunning, isSubagent]);
+
+  return (
+    <div className="relative">
+      {/* Timeline node row */}
+      <div
+        onClick={isExpandable ? () => setIsExpanded(!isExpanded) : undefined}
+        className={clsx(
+          "relative flex items-center gap-2 py-1 min-h-[28px]",
+          isExpandable && "cursor-pointer hover:opacity-80",
+        )}
+      >
+        {/* Dot on timeline */}
+        <div className={clsx(
+          "absolute -left-6 w-[18px] h-[18px] rounded-full flex items-center justify-center",
+          isFailed ? "bg-red-500/15" : isRunning ? "bg-foreground/10" : "bg-foreground/[0.07]",
+        )}>
+          {dotContent}
+        </div>
+
+        {/* Tool name text */}
+        <span className={clsx(
+          "text-[13px] text-muted-foreground truncate",
+          isRunning && "animate-shimmer-text"
+        )}>
+          {shownName}
+        </span>
+
+        {/* Expand chevron for expandable items */}
+        {isExpandable && (
+          <motion.div
+            animate={{ rotate: isExpanded ? 90 : 0 }}
+            transition={{ duration: 0.15 }}
+            className="ml-auto shrink-0"
+          >
+            <ChevronRight className="w-3 h-3 text-muted-foreground/50" />
+          </motion.div>
+        )}
+      </div>
+
+      {/* Expanded content */}
+      <AnimatePresence initial={false}>
+        {isExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="ml-0 mb-1">
+              {isSubagent ? (
+                // Subagent nested content — render as a nested chain
+                <div className="mt-1">
+                  {nestedParts.length > 0 ? (
+                    <NestedToolChain parts={nestedParts} sessionId={sessionId} />
+                  ) : isCompleted && toolCall.result ? (
+                    <div className="text-xs text-muted-foreground/80 pl-1">
+                      <MarkdownRenderer content={toolCall.result} />
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                // Expandable tool (write/edit) — show the card body inline
+                <div className="mt-1">
+                  {toolCall.name === 'write_to_file' || toolCall.name === 'write' ? (
+                    <FileWriteCard toolCall={toolCall} sessionId={sessionId} />
+                  ) : (toolCall.name === 'edit' || toolCall.name === 'multi_edit') ? (
+                    <EditCard toolCall={toolCall} sessionId={sessionId} />
+                  ) : null}
                 </div>
               )}
             </div>
@@ -1183,62 +1488,26 @@ function SubagentCard({ toolCall, nestedParts, statusText: groupedStatusText, su
   );
 }
 
+// Renders nested parts (inside a subagent) as a mini tool chain
+function NestedToolChain({ parts, sessionId }: { parts: MessagePart[]; sessionId?: string }) {
+  const grouped = groupSubagentParts(parts.map((part, i) => ({ part, idx: i })));
+  const segments = groupIntoChains(grouped);
+
+  return (
+    <div className="flex flex-col gap-1">
+      {segments.map((seg, i) =>
+        seg.type === 'chain' ? (
+          <ToolChain key={i} items={seg.items} isStreaming={false} sessionId={sessionId} />
+        ) : (
+          <MessagePartView key={seg.item.idx} part={seg.item.part} nestedParts={seg.item.nestedParts} statusText={seg.item.statusText} sessionId={sessionId} />
+        )
+      )}
+    </div>
+  );
+}
+
 function ToolCallCard({ toolCall }: { toolCall: ToolCallInfo }) {
   const [isExpanded, setIsExpanded] = useState(false);
-
-  // ── Friendly display name map ──
-  const TOOL_DISPLAY_NAMES: Record<string, string> = {
-    write_to_file: 'Writing File',
-    write: 'Writing File',
-    edit: 'Editing File',
-    multi_edit: 'Editing Files',
-    read_file: 'Reading File',
-    read: 'Reading File',
-    ls: 'Listing Directory',
-    grep: 'Searching Code',
-    glob: 'Finding Files',
-    bash: 'Running Command',
-    websearch: 'Searching Web',
-    webfetch: 'Fetching Page',
-    lsp: 'Code Intelligence',
-    git_commit: 'Committing Changes',
-    git_push: 'Pushing to Remote',
-    pr_create: 'Creating Pull Request',
-    todoread: 'Checking Tasks',
-    todowrite: 'Updating Tasks',
-    question: 'Asking Question',
-    plan_enter: 'Entering Plan Mode',
-    plan_exit: 'Plan Approval',
-    task: 'Delegating Task',
-    delegate_to_explore: 'Exploring Codebase',
-    delegate_to_general: 'Running Subagent',
-  };
-
-  // ── Per-tool icon map ──
-  const TOOL_ICONS: Record<string, React.ReactNode> = {
-    write_to_file: <FileCode className="w-3.5 h-3.5" />,
-    write: <FileCode className="w-3.5 h-3.5" />,
-    edit: <FileEdit className="w-3.5 h-3.5" />,
-    multi_edit: <FileEdit className="w-3.5 h-3.5" />,
-    read_file: <Eye className="w-3.5 h-3.5" />,
-    read: <Eye className="w-3.5 h-3.5" />,
-    ls: <FolderOpen className="w-3.5 h-3.5" />,
-    grep: <Search className="w-3.5 h-3.5" />,
-    glob: <Search className="w-3.5 h-3.5" />,
-    bash: <Terminal className="w-3.5 h-3.5" />,
-    websearch: <Search className="w-3.5 h-3.5" />,
-    webfetch: <Download className="w-3.5 h-3.5" />,
-    lsp: <FileCode className="w-3.5 h-3.5" />,
-    git_commit: <GitBranch className="w-3.5 h-3.5" />,
-    git_push: <GitBranch className="w-3.5 h-3.5" />,
-    pr_create: <GitBranch className="w-3.5 h-3.5" />,
-    todoread: <ClipboardList className="w-3.5 h-3.5" />,
-    todowrite: <ClipboardList className="w-3.5 h-3.5" />,
-    question: <HelpCircle className="w-3.5 h-3.5" />,
-    plan_enter: <ClipboardList className="w-3.5 h-3.5" />,
-    plan_exit: <Rocket className="w-3.5 h-3.5" />,
-    task: <Send className="w-3.5 h-3.5" />,
-  };
 
   const statusIcon = {
     running: <Loader2 className="w-3.5 h-3.5 animate-spin text-foreground/50" />,
@@ -1247,35 +1516,10 @@ function ToolCallCard({ toolCall }: { toolCall: ToolCallInfo }) {
   }[toolCall.status];
 
   const isPreparing = !toolCall.name;
-
-  // Extract target file from args for a richer display name
-  const getDisplayName = (): string => {
-    if (!toolCall.name) return 'Preparing tool...';
-    const baseName = TOOL_DISPLAY_NAMES[toolCall.name] || toolCall.name;
-    try {
-      const parsed = JSON.parse(toolCall.args);
-      const filePath = parsed.file_path || parsed.path || parsed.filename;
-      if (filePath) {
-        const fileName = filePath.split('/').pop();
-        return `${baseName} · ${fileName}`;
-      }
-      // For bash, show the command
-      if (toolCall.name === 'bash' && parsed.command) {
-        const cmd = parsed.command.length > 40 ? parsed.command.slice(0, 40) + '…' : parsed.command;
-        return `${baseName} · ${cmd}`;
-      }
-      // For grep, show the pattern
-      if ((toolCall.name === 'grep' || toolCall.name === 'glob') && parsed.pattern) {
-        return `${baseName} · "${parsed.pattern}"`;
-      }
-    } catch { /* args might be partial JSON during streaming */ }
-    return baseName;
-  };
-
-  const displayName = getDisplayName();
+  const displayName = getToolDisplayName(toolCall);
   const toolIcon = isPreparing
     ? <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
-    : (TOOL_ICONS[toolCall.name] || <Wrench className="w-3.5 h-3.5" />);
+    : getToolIcon(toolCall.name, 'w-3.5 h-3.5');
 
   // ── Determine if this is a fresh tool (born during streaming) vs loaded from history ──
   const isAlreadyDone = toolCall.status === 'completed' || toolCall.status === 'failed';
