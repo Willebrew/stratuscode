@@ -1355,11 +1355,11 @@ function ToolChain({ items, showDone }: { items: GroupedPart[]; showDone?: boole
             className="absolute flex items-center justify-center rounded-full bg-background"
             style={{ left: '-28px', width: '18px', height: '18px' }}
           >
-            <div className="w-[18px] h-[18px] rounded-full flex items-center justify-center bg-green-500/15">
-              <Check className="w-2.5 h-2.5 text-green-500" />
+            <div className="w-[18px] h-[18px] rounded-full flex items-center justify-center bg-foreground/[0.06]">
+              <Check className="w-2.5 h-2.5 text-muted-foreground" />
             </div>
           </div>
-          <span className="text-[13px] text-green-600/70 dark:text-green-400/70">Done</span>
+          <span className="text-[13px] text-muted-foreground">Done</span>
         </div>
       )}
     </div>
