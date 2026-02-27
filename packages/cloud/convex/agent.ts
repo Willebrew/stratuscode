@@ -168,11 +168,16 @@ function buildSageConfig(
   baseUrl: string,
   providerType?: string,
   providerHeaders?: Record<string, string>,
-  sessionId?: string
+  sessionId?: string,
+  userReasoningEffort?: string
 ) {
   const supportsReasoning = modelSupportsReasoning(model);
+  const validEfforts = ["low", "medium", "high"] as const;
+  const effort = userReasoningEffort && validEfforts.includes(userReasoningEffort as any)
+    ? (userReasoningEffort as "low" | "medium" | "high")
+    : "high";
   const reasoningEffort: "low" | "medium" | "high" | "minimal" | undefined =
-    supportsReasoning ? "high" : undefined;
+    supportsReasoning ? effort : undefined;
 
   let headers = providerHeaders;
   if (baseUrl.includes("chatgpt.com/backend-api/codex")) {
@@ -557,7 +562,8 @@ export const sendMessage = internalAction({
     let tokenBuffer = "";
     let reasoningBuffer = "";
     let flushTimeout: ReturnType<typeof setTimeout> | null = null;
-    let stageCleared = false; // Clear "thinking" stage on first token/reasoning
+    let stageCleared = false; // Set "thinking" stage on first reasoning, clear on first text
+    let thinkingStageActive = false; // Track if we set stage to "thinking"
 
     // Subagent token batching — accumulates child LLM text for live status display
     const subagentTextBuffers: Record<string, string> = {};
@@ -759,7 +765,8 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
         baseUrl,
         providerType,
         providerHeaders,
-        String(args.sessionId)
+        String(args.sessionId),
+        args.reasoningEffort
       );
 
       // ── 6. Run processDirectly with batched callbacks ──
@@ -801,6 +808,11 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
           onToken: (token: string) => {
             if (!stageCleared) {
               stageCleared = true;
+              // Clear stage — text content is flowing (no reasoning)
+              ctx.runMutation(internal.streaming.updateStage, { sessionId: args.sessionId, stage: undefined });
+            } else if (thinkingStageActive) {
+              // Reasoning was happening, now text starts — clear thinking stage
+              thinkingStageActive = false;
               ctx.runMutation(internal.streaming.updateStage, { sessionId: args.sessionId, stage: undefined });
             }
             tokenBuffer += token;
@@ -814,7 +826,10 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
           onReasoning: (text: string) => {
             if (!stageCleared) {
               stageCleared = true;
-              ctx.runMutation(internal.streaming.updateStage, { sessionId: args.sessionId, stage: undefined });
+              thinkingStageActive = true;
+              // Set stage to "thinking" so frontend shows thinking indicator
+              // even before reasoning parts flush to the DB
+              ctx.runMutation(internal.streaming.updateStage, { sessionId: args.sessionId, stage: "thinking" });
             }
             reasoningBuffer += text;
             if (!flushTimeout) {

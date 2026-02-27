@@ -275,9 +275,10 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
     return _frozenTimers.get(timerKey) ?? _lastTicks.get(timerKey) ?? 0;
   });
 
-  // Record when thinking starts (sync in render) — only when reasoning
-  // tokens are actually flowing, not during booting or waiting for LLM
-  if (!isThinkingCompleted && !_startTimes.has(timerKey) && hasReasoningParts) {
+  // Record when thinking starts (sync in render) — either when the agent
+  // signals stage="thinking" or when reasoning tokens actually arrive
+  const isThinkingStage = message.stage === 'thinking';
+  if (!isThinkingCompleted && !_startTimes.has(timerKey) && (hasReasoningParts || isThinkingStage)) {
     _startTimes.set(timerKey, Date.now());
   }
 
@@ -320,7 +321,7 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
     tick();
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [timerKey, isThinkingCompleted, message.thinkingSeconds]);
+  }, [timerKey, isThinkingCompleted, message.thinkingSeconds, isThinkingStage, hasReasoningParts]);
 
   // Pick a fun random phrase for the generation indicator — stable per message
   const generatingPhrase = (() => {
@@ -346,22 +347,27 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
 
   return (
     <div className="flex flex-col gap-2 relative group pb-1">
-      {/* Show stage indicator: booting → waiting. Disappears once any parts arrive
-          (reasoning parts trigger AgentThinkingIndicator from the parts loop below) */}
+      {/* Show stage indicator: booting → waiting → thinking.
+          Disappears once reasoning parts arrive (AgentThinkingIndicator takes over). */}
       <AnimatePresence mode="popLayout">
         {message.streaming && !hasReasoningParts && !hasNonReasoningParts && (
           <motion.div
-            key={message.stage === 'booting' ? 'booting' : 'waiting'}
+            key={message.stage === 'booting' ? 'booting' : message.stage === 'thinking' ? 'thinking' : 'waiting'}
             initial={{ opacity: 0, filter: 'blur(4px)', scale: 0.95 }}
             animate={{ opacity: 1, filter: 'blur(0px)', scale: 1 }}
             exit={{ opacity: 0, filter: 'blur(4px)', scale: 1.05 }}
             transition={{ duration: 0.3, ease: 'easeOut' }}
             className="flex items-center gap-2 min-h-[32px]"
           >
-            <AnimatedStratusLogo mode="generating" size={20} />
-            <span className="text-[13px] text-muted-foreground">
+            <AnimatedStratusLogo mode={isThinkingStage ? 'thinking' : 'generating'} size={20} />
+            <span className="text-[13px] text-muted-foreground inline-flex items-center gap-1.5">
               {message.stage === 'booting' ? (
                 <WaveText text="Setting up environment..." />
+              ) : isThinkingStage ? (
+                <>
+                  <WaveText text="Thinking" />
+                  <span className="font-mono text-[11px] tabular-nums opacity-60">{thinkingSeconds}s</span>
+                </>
               ) : (
                 <WaveText text={generatingPhrase} />
               )}
