@@ -1114,21 +1114,29 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
       }
 
       // ── 8. Snapshot sandbox for fast resume (after status update) ──
+      // Guard: only snapshot if this is still our run — a new run may have
+      // already started using its own sandbox, and our mutations would
+      // overwrite its sandboxId/snapshotId.
 
-      try {
-        const snapshot = await sandbox.snapshot();
-        await ctx.runMutation(internal.sessions.setSnapshotId, {
-          id: args.sessionId,
-          snapshotId: snapshot.snapshotId,
-        });
-        // snapshot() stops the sandbox, so clear the sandboxId
-        await ctx.runMutation(internal.sessions.setSandboxId, {
-          id: args.sessionId,
-          sandboxId: undefined,
-        });
-      } catch (e) {
-        console.warn("[agent] Failed to snapshot sandbox:", e);
-        // Sandbox may still be running, that's okay — next turn will reconnect
+      if (await isMyRun()) {
+        try {
+          const snapshot = await sandbox.snapshot();
+          await ctx.runMutation(internal.sessions.setSnapshotId, {
+            id: args.sessionId,
+            snapshotId: snapshot.snapshotId,
+          });
+          // snapshot() stops the sandbox, so clear the sandboxId
+          await ctx.runMutation(internal.sessions.setSandboxId, {
+            id: args.sessionId,
+            sandboxId: undefined,
+          });
+          console.log(`[agent] Snapshot saved: ${snapshot.snapshotId}`);
+        } catch (e) {
+          console.warn("[agent] Failed to snapshot sandbox:", e);
+          // Sandbox may still be running, that's okay — next turn will reconnect
+        }
+      } else {
+        console.log("[agent] Skipping snapshot — new run started");
       }
     } catch (error) {
       // Clean up cancel polling on error path
@@ -1205,7 +1213,8 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
       }
 
       // Snapshot sandbox AFTER status update so UI responds immediately
-      if (sandbox) {
+      // Guard: only snapshot if still our run — otherwise we'd corrupt the new run's state
+      if (sandbox && stillMyRun) {
         try {
           const snapshot = await sandbox.snapshot();
           await ctx.runMutation(internal.sessions.setSnapshotId, {
@@ -1216,8 +1225,9 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
             id: args.sessionId,
             sandboxId: undefined,
           });
-        } catch {
-          // Best effort
+          console.log(`[agent] Snapshot saved (error path): ${snapshot.snapshotId}`);
+        } catch (e) {
+          console.warn("[agent] Failed to snapshot sandbox (error path):", e);
         }
       }
     }

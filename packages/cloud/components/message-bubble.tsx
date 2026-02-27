@@ -232,8 +232,7 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
       mergedReasoning += (mergedReasoning ? '\n' : '') + part.content;
     } else if (part.type === 'text') {
       // Skip raw error JSON that leaks from failed subagent/tool calls
-      const trimmed = part.content.trim();
-      if (trimmed.startsWith('{"error"') || trimmed.startsWith('{"code"')) continue;
+      if (isErrorJSON(part.content)) continue;
       mergedText += part.content;
     } else {
       otherParts.push({ part, idx: i });
@@ -382,7 +381,9 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
           >
             <AnimatedStratusLogo mode={isThinkingStage ? 'thinking' : 'generating'} size={20} />
             <span className="text-[13px] text-muted-foreground inline-flex items-center gap-1.5">
-              {isThinkingStage ? (
+              {message.stage === 'booting' ? (
+                <WaveText text="Setting up environment..." />
+              ) : isThinkingStage ? (
                 <>
                   <WaveText text="Thinking" />
                   <span className="font-mono text-[11px] tabular-nums opacity-60">{thinkingSeconds}s</span>
@@ -1058,7 +1059,10 @@ function SubagentCard({ toolCall, nestedParts, statusText: groupedStatusText, su
       const lastLine = lines[lines.length - 1]?.trim() || '';
       if (lastLine) return lastLine.length > 200 ? lastLine.slice(0, 197) + '...' : lastLine;
     }
-    if (isFailed) return 'Subagent failed';
+    if (isFailed) {
+      const errorMsg = parseErrorResult(toolCall.result || '');
+      return errorMsg ? `Failed: ${errorMsg.length > 120 ? errorMsg.slice(0, 117) + '...' : errorMsg}` : 'Subagent failed';
+    }
     if (isRunning) return 'Starting...';
     if (isCompleted) return taskFromArgs || 'Completed';
     return taskFromArgs || 'Working...';
@@ -1326,18 +1330,29 @@ function ToolCallCard({ toolCall }: { toolCall: ToolCallInfo }) {
                   {formatJSON(toolCall.args)}
                 </pre>
               </div>
-              {toolCall.result && (
-                <div>
-                  <div className="text-xs text-muted-foreground mb-1">Result</div>
-                  {isDiffContent(toolCall.result) ? (
-                    <InlineDiff diff={toolCall.result} defaultExpanded={false} />
-                  ) : (
-                    <pre className="text-xs bg-muted/50 rounded p-2 overflow-x-auto max-h-40">
-                      {formatJSON(toolCall.result)}
-                    </pre>
-                  )}
-                </div>
-              )}
+              {toolCall.result && (() => {
+                const errorMsg = parseErrorResult(toolCall.result);
+                if (errorMsg) {
+                  return (
+                    <div className="flex items-start gap-2 rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2">
+                      <X className="w-3.5 h-3.5 text-red-500 mt-0.5 shrink-0" />
+                      <span className="text-xs text-red-400">{errorMsg}</span>
+                    </div>
+                  );
+                }
+                return (
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-1">Result</div>
+                    {isDiffContent(toolCall.result) ? (
+                      <InlineDiff diff={toolCall.result} defaultExpanded={false} />
+                    ) : (
+                      <pre className="text-xs bg-muted/50 rounded p-2 overflow-x-auto max-h-40">
+                        {formatJSON(toolCall.result)}
+                      </pre>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           </motion.div>
         )}
@@ -1375,6 +1390,33 @@ function formatJSON(str: string): string {
     return JSON.stringify(JSON.parse(str), null, 2);
   } catch {
     return str;
+  }
+}
+
+/** Detect error JSON in a tool result string and extract a friendly message. */
+function parseErrorResult(str: string): string | null {
+  if (!str) return null;
+  const trimmed = str.trim();
+  if (!trimmed.startsWith('{')) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed.error) return typeof parsed.error === 'string' ? parsed.error : JSON.stringify(parsed.error);
+    if (parsed.message && (parsed.code || parsed.status)) return parsed.message;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Check if a string looks like raw error JSON that shouldn't render as text. */
+function isErrorJSON(str: string): boolean {
+  const t = str.trim();
+  if (!t.startsWith('{')) return false;
+  try {
+    const p = JSON.parse(t);
+    return !!(p.error || p.code || (p.message && p.status));
+  } catch {
+    return false;
   }
 }
 
