@@ -853,7 +853,7 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
               flushTimeout = setTimeout(async () => {
                 flushTimeout = null;
                 await flushTokens();
-              }, 50);
+              }, 250);
             }
           },
           onReasoning: (text: string) => {
@@ -870,7 +870,7 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
               flushTimeout = setTimeout(async () => {
                 flushTimeout = null;
                 await flushTokens();
-              }, 50);
+              }, 250);
             }
           },
           onToolCall: async (tc: any) => {
@@ -1030,7 +1030,7 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
               subagentFlushTimeout = setTimeout(async () => {
                 subagentFlushTimeout = null;
                 await flushSubagentStatus();
-              }, 150);
+              }, 500);
             }
           },
         },
@@ -1102,7 +1102,7 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
           parts.push({ type: "reasoning", content: streamState.reasoning });
         }
         const toolCalls = streamState?.toolCalls ? JSON.parse(streamState.toolCalls) : [];
-        const textContent = streamState?.content || result.content || "";
+        const textContent = result.content || "";
         for (const tc of toolCalls) {
           parts.push({
             type: "tool_call",
@@ -1123,10 +1123,17 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
       // Save the complete assistant message (include thinkingSeconds for UI timer).
       // Use the local variable (set synchronously in callbacks) instead of the
       // streaming state field which may not have committed yet (fire-and-forget).
+      // Derive text content from parts as fallback (content field is no longer
+      // updated during streaming to save bandwidth).
+      const textFromParts = parts
+        .filter((p: any) => p.type === "text")
+        .map((p: any) => p.content || "")
+        .join("");
+
       await ctx.runMutation(internal.messages.create, {
         sessionId: args.sessionId,
         role: "assistant",
-        content: result.content || streamState?.content || "",
+        content: result.content || textFromParts || "",
         parts,
         thinkingSeconds: thinkingElapsedSeconds,
       });
@@ -1215,36 +1222,24 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
         });
 
         // Now persist the partial message — it appears as a real message
-        if (isCancelled && streamState && (streamState.content || streamState.toolCalls !== "[]")) {
+        const cancelParts: any[] = [];
+        const cancelOrderedParts = streamState?.parts ? JSON.parse(streamState.parts) : [];
+        for (const p of cancelOrderedParts) {
+          if (p.type === "reasoning" || p.type === "text" || p.type === "tool_call" || p.type === "subagent_start" || p.type === "subagent_end") {
+            cancelParts.push(p);
+          }
+        }
+        if (isCancelled && cancelParts.length > 0) {
           try {
-            const parts: any[] = [];
-            const orderedParts = streamState.parts ? JSON.parse(streamState.parts) : null;
-            if (orderedParts && orderedParts.length > 0) {
-              for (const p of orderedParts) {
-                if (p.type === "reasoning" || p.type === "text" || p.type === "tool_call" || p.type === "subagent_start" || p.type === "subagent_end") {
-                  parts.push(p);
-                }
-              }
-            } else {
-              if (streamState.reasoning) {
-                parts.push({ type: "reasoning", content: streamState.reasoning });
-              }
-              const tcs = streamState.toolCalls ? JSON.parse(streamState.toolCalls) : [];
-              for (const tc of tcs) {
-                parts.push({
-                  type: "tool_call",
-                  toolCall: { id: tc.id, name: tc.name, args: tc.args, result: tc.result, status: tc.status || "completed" },
-                });
-              }
-              if (streamState.content) {
-                parts.push({ type: "text", content: streamState.content });
-              }
-            }
+            const cancelContent = cancelParts
+              .filter((p: any) => p.type === "text")
+              .map((p: any) => p.content || "")
+              .join("") || "(cancelled)";
             await ctx.runMutation(internal.messages.create, {
               sessionId: args.sessionId,
               role: "assistant",
-              content: streamState.content || "(cancelled)",
-              parts,
+              content: cancelContent,
+              parts: cancelParts,
               thinkingSeconds: thinkingElapsedSeconds,
             });
           } catch { /* best effort */ }

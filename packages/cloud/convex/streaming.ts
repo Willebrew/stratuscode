@@ -63,7 +63,6 @@ export const appendToken = internalMutation({
     }
 
     await ctx.db.patch(state._id, {
-      content: state.content + args.content,
       parts: JSON.stringify(parts),
       updatedAt: Date.now(),
     });
@@ -89,7 +88,6 @@ export const appendReasoning = internalMutation({
     }
 
     await ctx.db.patch(state._id, {
-      reasoning: state.reasoning + args.content,
       parts: JSON.stringify(parts),
       updatedAt: Date.now(),
     });
@@ -110,27 +108,18 @@ export const addToolCall = internalMutation({
       .unique();
     if (!state) return;
 
-    const toolCalls = JSON.parse(state.toolCalls);
+    const parts = state.parts ? JSON.parse(state.parts) : [];
 
     // If updateToolResult already added this tool call (race condition),
-    // just update the name/args on the existing entry and skip adding a duplicate.
-    const existing = toolCalls.find((t: any) => t.id === args.toolCallId);
-    if (existing) {
-      if (!existing.name) existing.name = args.toolName;
-      if (!existing.args || existing.args === "") existing.args = args.toolArgs;
-
-      // Also update in parts
-      const parts = state.parts ? JSON.parse(state.parts) : [];
-      for (const part of parts) {
-        if (part.type === "tool_call" && part.toolCall?.id === args.toolCallId) {
-          if (!part.toolCall.name) part.toolCall.name = args.toolName;
-          if (!part.toolCall.args || part.toolCall.args === "") part.toolCall.args = args.toolArgs;
-          break;
-        }
-      }
+    // just update the name/args on the existing entry.
+    const existingPart = parts.find(
+      (p: any) => p.type === "tool_call" && p.toolCall?.id === args.toolCallId
+    );
+    if (existingPart) {
+      if (!existingPart.toolCall.name) existingPart.toolCall.name = args.toolName;
+      if (!existingPart.toolCall.args || existingPart.toolCall.args === "") existingPart.toolCall.args = args.toolArgs;
 
       await ctx.db.patch(state._id, {
-        toolCalls: JSON.stringify(toolCalls),
         parts: JSON.stringify(parts),
         updatedAt: Date.now(),
       });
@@ -144,14 +133,9 @@ export const addToolCall = internalMutation({
       status: "running",
     };
 
-    toolCalls.push(toolCall);
-
-    // Add to ordered parts
-    const parts = state.parts ? JSON.parse(state.parts) : [];
     parts.push({ type: "tool_call", toolCall });
 
     await ctx.db.patch(state._id, {
-      toolCalls: JSON.stringify(toolCalls),
       parts: JSON.stringify(parts),
       updatedAt: Date.now(),
     });
@@ -172,39 +156,21 @@ export const updateToolResult = internalMutation({
       .withIndex("by_sessionId", (q) => q.eq("sessionId", args.sessionId))
       .unique();
     if (!state) return;
-    const toolCalls = JSON.parse(state.toolCalls);
-    const tc = toolCalls.find((t: any) => t.id === args.toolCallId);
-    if (tc) {
-      tc.result = args.result;
-      tc.status = "completed";
-      if (args.toolArgs) tc.args = args.toolArgs;
-    } else {
-      // Race condition: onToolResult arrived before onToolCall's addToolCall
-      // mutation committed (SAGE fires callbacks without awaiting them).
-      // Add the tool call directly as completed so it doesn't stay stuck.
-      toolCalls.push({
-        id: args.toolCallId,
-        name: args.toolName || "",
-        args: args.toolArgs || "",
-        result: args.result,
-        status: "completed",
-      });
-    }
 
-    // Also update in ordered parts
     const parts = state.parts ? JSON.parse(state.parts) : [];
-    let foundInParts = false;
+    let found = false;
     for (const part of parts) {
       if (part.type === "tool_call" && part.toolCall?.id === args.toolCallId) {
         part.toolCall.result = args.result;
         part.toolCall.status = "completed";
         if (args.toolArgs) part.toolCall.args = args.toolArgs;
-        foundInParts = true;
+        found = true;
         break;
       }
     }
-    if (!foundInParts) {
-      // Same race condition — add to parts as completed
+    if (!found) {
+      // Race condition: onToolResult arrived before onToolCall's addToolCall
+      // mutation committed. Add the tool call directly as completed.
       parts.push({
         type: "tool_call",
         toolCall: {
@@ -218,7 +184,6 @@ export const updateToolResult = internalMutation({
     }
 
     await ctx.db.patch(state._id, {
-      toolCalls: JSON.stringify(toolCalls),
       parts: JSON.stringify(parts),
       updatedAt: Date.now(),
     });
@@ -395,10 +360,6 @@ export const updateToolCallArgs = internalMutation({
       .unique();
     if (!state) return;
 
-    const toolCalls = JSON.parse(state.toolCalls);
-    const tc = toolCalls.find((t: any) => t.id === toolCallId);
-    if (tc) tc.args = newArgs;
-
     const parts = state.parts ? JSON.parse(state.parts) : [];
     for (const part of parts) {
       if (part.type === "tool_call" && part.toolCall?.id === toolCallId) {
@@ -408,7 +369,6 @@ export const updateToolCallArgs = internalMutation({
     }
 
     await ctx.db.patch(state._id, {
-      toolCalls: JSON.stringify(toolCalls),
       parts: JSON.stringify(parts),
       updatedAt: Date.now(),
     });

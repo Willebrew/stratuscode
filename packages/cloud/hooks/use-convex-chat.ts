@@ -219,20 +219,36 @@ export function useConvexChat(
 
     const dbCount = (dbMessages || []).length;
 
+    // Derive text content from parts (content/reasoning fields are no longer
+    // updated during streaming to save bandwidth).
+    const deriveContent = (): string => {
+      const partsArr = streamingState?.parts ? JSON.parse(streamingState.parts) : [];
+      return partsArr
+        .filter((p: any) => p.type === 'text')
+        .map((p: any) => p.content || '')
+        .join('');
+    };
+
+    // Check if parts have any meaningful content (text, tool calls, reasoning)
+    const partsHaveContent = (): boolean => {
+      const partsArr = streamingState?.parts ? JSON.parse(streamingState.parts) : [];
+      return partsArr.length > 0;
+    };
+
     if (streamingState?.isStreaming) {
       // Currently streaming — show live message and track DB count
       streamingDbCountRef.current = dbCount;
       completed.push({
         id: 'streaming',
         role: 'assistant',
-        content: streamingState.content || '',
+        content: deriveContent(),
         parts: buildStreamingParts(),
         streaming: true,
         thinkingSeconds: typeof streamingState.thinkingSeconds === 'number' ? streamingState.thinkingSeconds : undefined,
         stage: streamingState.stage ?? undefined,
       });
     } else if (
-      (streamingState?.content || streamingState?.reasoning)
+      partsHaveContent()
       && dbCount <= streamingDbCountRef.current
     ) {
       // Streaming just ended but the persisted assistant message hasn't arrived
@@ -240,7 +256,7 @@ export function useConvexChat(
       completed.push({
         id: 'streaming',
         role: 'assistant',
-        content: streamingState.content || '',
+        content: deriveContent(),
         parts: buildStreamingParts(),
         streaming: false,
         thinkingSeconds: typeof streamingState.thinkingSeconds === 'number' ? streamingState.thinkingSeconds : undefined,
