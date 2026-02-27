@@ -231,6 +231,9 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
     if (part.type === 'reasoning') {
       mergedReasoning += (mergedReasoning ? '\n' : '') + part.content;
     } else if (part.type === 'text') {
+      // Skip raw error JSON that leaks from failed subagent/tool calls
+      const trimmed = part.content.trim();
+      if (trimmed.startsWith('{"error"') || trimmed.startsWith('{"code"')) continue;
       mergedText += part.content;
     } else {
       otherParts.push({ part, idx: i });
@@ -379,9 +382,7 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
           >
             <AnimatedStratusLogo mode={isThinkingStage ? 'thinking' : 'generating'} size={20} />
             <span className="text-[13px] text-muted-foreground inline-flex items-center gap-1.5">
-              {message.stage === 'booting' ? (
-                <WaveText text="Setting up environment..." />
-              ) : isThinkingStage ? (
+              {isThinkingStage ? (
                 <>
                   <WaveText text="Thinking" />
                   <span className="font-mono text-[11px] tabular-nums opacity-60">{thinkingSeconds}s</span>
