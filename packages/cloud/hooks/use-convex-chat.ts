@@ -244,8 +244,8 @@ export function useConvexChat(
         content: deriveContent(),
         parts: buildStreamingParts(),
         streaming: true,
-        thinkingSeconds: typeof streamingState.thinkingSeconds === 'number' ? streamingState.thinkingSeconds : undefined,
-        stage: streamingState.stage ?? undefined,
+        thinkingSeconds: typeof streamingState?.thinkingSeconds === 'number' ? streamingState.thinkingSeconds : undefined,
+        stage: streamingState?.stage ?? undefined,
       });
     } else if (
       partsHaveContent()
@@ -259,7 +259,7 @@ export function useConvexChat(
         content: deriveContent(),
         parts: buildStreamingParts(),
         streaming: false,
-        thinkingSeconds: typeof streamingState.thinkingSeconds === 'number' ? streamingState.thinkingSeconds : undefined,
+        thinkingSeconds: typeof streamingState?.thinkingSeconds === 'number' ? streamingState.thinkingSeconds : undefined,
       });
     }
 
