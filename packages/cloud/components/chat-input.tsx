@@ -202,11 +202,21 @@ export function ChatInput({
           </AnimatePresence>
 
           {/* Inline todo/plan panel */}
-          {todos.length > 0 && (
-            <div className="mb-2 border-b border-white/10 pb-2">
-              <TodoPanel todos={todos} />
-            </div>
-          )}
+          <AnimatePresence>
+            {todos.length > 0 && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+                className="overflow-hidden"
+              >
+                <div className="mb-2 border-b border-white/10 pb-2">
+                  <TodoPanel todos={todos} />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Attached files display + hidden file input */}
           {sessionId && (

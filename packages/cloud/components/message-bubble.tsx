@@ -341,20 +341,33 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
       hash = ((hash << 5) - hash) + seed.charCodeAt(i);
       hash |= 0;
     }
-    return phrases[Math.abs(hash) % phrases.length];
+    return phrases[Math.abs(hash) % phrases.length]!;
   })();
 
   return (
     <div className="flex flex-col gap-2 relative group pb-1">
       {/* Show stage-appropriate indicator when streaming but no parts yet */}
-      {message.streaming && !hasReasoningParts && !hasNonReasoningParts && (
-        <div className="flex items-center gap-2 text-foreground/40 min-h-[32px]">
-          <AnimatedStratusLogo mode="generating" size={20} />
-          <span className="text-sm font-medium">
-            {message.stage === 'booting' ? 'Setting up environment...' : generatingPhrase}
-          </span>
-        </div>
-      )}
+      <AnimatePresence mode="popLayout">
+        {message.streaming && !hasReasoningParts && !hasNonReasoningParts && (
+          <motion.div
+            key={message.stage === 'booting' ? 'booting' : 'waiting'}
+            initial={{ opacity: 0, filter: 'blur(4px)', scale: 0.95 }}
+            animate={{ opacity: 1, filter: 'blur(0px)', scale: 1 }}
+            exit={{ opacity: 0, filter: 'blur(4px)', scale: 1.05 }}
+            transition={{ duration: 0.3, ease: 'easeOut' }}
+            className="flex items-center gap-2 min-h-[32px]"
+          >
+            <AnimatedStratusLogo mode="generating" size={20} />
+            <span className="text-[13px] text-muted-foreground">
+              {message.stage === 'booting' ? (
+                <WaveText text="Setting up environment..." />
+              ) : (
+                <WaveText text={generatingPhrase} />
+              )}
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Render parts — group subagent tool calls inside their delegate card */}
       {/* Reasoning parts render inline as AgentThinkingIndicator blocks */}
