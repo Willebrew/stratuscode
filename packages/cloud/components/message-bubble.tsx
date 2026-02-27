@@ -1331,17 +1331,17 @@ function ToolChain({ items, isStreaming }: { items: GroupedPart[]; isStreaming?:
   const showDone = allDone && !isStreaming;
 
   return (
-    <div className="relative pl-6 py-1">
-      {/* Vertical connecting line */}
-      <div className="absolute left-[9px] top-[14px] bottom-[14px] w-px bg-border/40" />
-      <div className="flex flex-col gap-0.5">
+    <div className="relative pl-7 py-1">
+      {/* Vertical connecting line — runs through center of dots */}
+      <div className="absolute left-[11px] top-[18px] bottom-[18px] w-[2px] rounded-full bg-border/60" />
+      <div className="flex flex-col">
         {items.map((group) => (
           <ToolChainItem key={group.idx} group={group} />
         ))}
         {showDone && (
-          <div className="relative flex items-center gap-2 py-1">
-            <div className="absolute -left-6 w-[18px] h-[18px] rounded-full bg-green-500/15 flex items-center justify-center">
-              <Check className="w-2.5 h-2.5 text-green-500" />
+          <div className="relative flex items-center gap-2.5 py-1 min-h-[28px]">
+            <div className="absolute -left-7 w-[22px] h-[22px] rounded-full bg-green-500/15 flex items-center justify-center">
+              <Check className="w-3 h-3 text-green-500" />
             </div>
             <span className="text-xs text-green-500/70 font-medium">Done</span>
           </div>
@@ -1398,10 +1398,10 @@ function ToolChainItem({ group }: { group: GroupedPart }) {
       : getToolIcon(toolCall.name, 'w-2.5 h-2.5');
 
   return (
-    <div className="relative flex items-center gap-2 py-1 min-h-[28px]">
+    <div className="relative flex items-center gap-2.5 py-1 min-h-[28px]">
       {/* Dot on timeline */}
       <div className={clsx(
-        "absolute -left-6 w-[18px] h-[18px] rounded-full flex items-center justify-center",
+        "absolute -left-7 w-[22px] h-[22px] rounded-full flex items-center justify-center",
         isFailed ? "bg-red-500/15" : isRunning ? "bg-foreground/10" : "bg-foreground/[0.07]",
       )}>
         {dotContent}
