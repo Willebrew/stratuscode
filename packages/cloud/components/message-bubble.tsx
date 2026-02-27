@@ -1169,6 +1169,12 @@ function SubagentCard({ toolCall, nestedParts, statusText: groupedStatusText, su
               {groupSubagentParts(nestedParts.map((part, i) => ({ part, idx: i }))).map(({ part, idx, nestedParts: childNested, statusText: childStatus }) => (
                 <MessagePartView key={idx} part={part} nestedParts={childNested} statusText={childStatus} sessionId={sessionId} />
               ))}
+              {/* Show subagent result text when no nested parts (subagent generated only text, no tool calls) */}
+              {nestedParts.length === 0 && isCompleted && toolCall.result && (
+                <div className="text-sm text-muted-foreground/80">
+                  <MarkdownRenderer content={toolCall.result} />
+                </div>
+              )}
             </div>
           </motion.div>
         )}
