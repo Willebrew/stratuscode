@@ -346,7 +346,8 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
 
   return (
     <div className="flex flex-col gap-2 relative group pb-1">
-      {/* Show stage-appropriate indicator when streaming but no parts yet */}
+      {/* Show stage indicator: booting → waiting. Disappears once any parts arrive
+          (reasoning parts trigger AgentThinkingIndicator from the parts loop below) */}
       <AnimatePresence mode="popLayout">
         {message.streaming && !hasReasoningParts && !hasNonReasoningParts && (
           <motion.div
