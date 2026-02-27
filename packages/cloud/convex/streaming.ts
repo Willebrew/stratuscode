@@ -116,8 +116,12 @@ export const addToolCall = internalMutation({
       (p: any) => p.type === "tool_call" && p.toolCall?.id === args.toolCallId
     );
     if (existingPart) {
-      if (!existingPart.toolCall.name) existingPart.toolCall.name = args.toolName;
-      if (!existingPart.toolCall.args || existingPart.toolCall.args === "") existingPart.toolCall.args = args.toolArgs;
+      if (!existingPart.toolCall.name || (args.toolName && args.toolName !== existingPart.toolCall.name)) {
+        existingPart.toolCall.name = args.toolName;
+      }
+      // Always update args if caller provides non-empty final args
+      // (onToolCall sends complete args after streaming is done)
+      if (args.toolArgs) existingPart.toolCall.args = args.toolArgs;
 
       await ctx.db.patch(state._id, {
         parts: JSON.stringify(parts),

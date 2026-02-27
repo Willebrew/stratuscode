@@ -817,6 +817,21 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
         "write", "edit", "create", "multi_edit",
       ]);
 
+      // Throttle state for streaming tool call args
+      const toolCallArgTimers = new Map<string, ReturnType<typeof setTimeout>>();
+      const toolCallArgBuffers = new Map<string, string>();
+      const toolCallArgFlush = async (toolCallId: string) => {
+        const accumulated = toolCallArgBuffers.get(toolCallId);
+        if (accumulated !== undefined) {
+          toolCallArgBuffers.delete(toolCallId);
+          await retryMutation(() => ctx.runMutation(internal.streaming.updateToolCallArgs, {
+            sessionId: args.sessionId,
+            toolCallId,
+            args: accumulated,
+          }));
+        }
+      };
+
       const result: any = await processDirectly({
         systemPrompt,
         messages,
@@ -873,6 +888,39 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
               }, 250);
             }
           },
+          onToolCallStart: async (tc: any) => {
+            // Tool call detected — create entry immediately so UI shows it
+            // while args are still streaming from the LLM
+
+            // Record thinking seconds if thinking was active (ends on tool call)
+            if (thinkingStageActive && thinkingStartedAt > 0) {
+              thinkingStageActive = false;
+              thinkingElapsedSeconds = Math.max(1, Math.round((Date.now() - thinkingStartedAt) / 1000));
+              ctx.runMutation(internal.streaming.setThinkingSeconds, { sessionId: args.sessionId, seconds: thinkingElapsedSeconds });
+              ctx.runMutation(internal.streaming.updateStage, { sessionId: args.sessionId, stage: undefined });
+            } else if (!stageCleared) {
+              stageCleared = true;
+              ctx.runMutation(internal.streaming.updateStage, { sessionId: args.sessionId, stage: undefined });
+            }
+
+            await flushTokens();
+            await retryMutation(() => ctx.runMutation(internal.streaming.addToolCall, {
+              sessionId: args.sessionId,
+              toolCallId: tc.id,
+              toolName: tc.name || "",
+              toolArgs: "",
+            }));
+          },
+          onToolCallChunk: (chunk: any) => {
+            // Throttle: buffer accumulated args and flush every 300ms
+            toolCallArgBuffers.set(chunk.id, chunk.accumulated);
+            if (!toolCallArgTimers.has(chunk.id)) {
+              toolCallArgTimers.set(chunk.id, setTimeout(async () => {
+                toolCallArgTimers.delete(chunk.id);
+                await toolCallArgFlush(chunk.id);
+              }, 300));
+            }
+          },
           onToolCall: async (tc: any) => {
             // Check for cancellation before starting a new tool call
             const sess = await ctx.runQuery(internal.sessions.getInternal, { id: args.sessionId });
@@ -891,6 +939,12 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
             // Flush pending tokens before tool call
             await flushTokens();
 
+            // Flush any remaining buffered args for this tool call
+            const timer = toolCallArgTimers.get(tc.id);
+            if (timer) { clearTimeout(timer); toolCallArgTimers.delete(tc.id); }
+            await toolCallArgFlush(tc.id);
+
+            // Update with final complete args (addToolCall deduplicates if entry already exists)
             await retryMutation(() => ctx.runMutation(internal.streaming.addToolCall, {
               sessionId: args.sessionId,
               toolCallId: tc.id,
