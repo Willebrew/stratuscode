@@ -843,7 +843,7 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
               thinkingStageActive = false;
               ctx.runMutation(internal.streaming.updateStage, { sessionId: args.sessionId, stage: undefined });
               if (thinkingStartedAt > 0) {
-                thinkingElapsedSeconds = Math.round((Date.now() - thinkingStartedAt) / 1000);
+                thinkingElapsedSeconds = Math.max(1, Math.round((Date.now() - thinkingStartedAt) / 1000));
                 // Fire-and-forget: update streaming state for live UI display
                 ctx.runMutation(internal.streaming.setThinkingSeconds, { sessionId: args.sessionId, seconds: thinkingElapsedSeconds });
               }
@@ -883,7 +883,7 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
             // Record thinking seconds if thinking was active (ends on tool call too)
             if (thinkingStageActive && thinkingStartedAt > 0) {
               thinkingStageActive = false;
-              thinkingElapsedSeconds = Math.round((Date.now() - thinkingStartedAt) / 1000);
+              thinkingElapsedSeconds = Math.max(1, Math.round((Date.now() - thinkingStartedAt) / 1000));
               await ctx.runMutation(internal.streaming.setThinkingSeconds, { sessionId: args.sessionId, seconds: thinkingElapsedSeconds });
               await ctx.runMutation(internal.streaming.updateStage, { sessionId: args.sessionId, stage: undefined });
             }
@@ -1055,12 +1055,16 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
       // Guard: if a new run started while we were finishing, bail out
       if (!await isMyRun()) return;
 
-      await ctx.runMutation(internal.streaming.finish, { sessionId: args.sessionId });
-
-      // Build parts array for the final message
+      // Read streaming state BEFORE finishing. prepareSend (triggered when the
+      // user sends a new message) deletes the old streaming_state doc. If we
+      // call finish first, there's a window where prepareSend can run between
+      // finish and getInternal, causing us to read an empty/new doc and losing
+      // all accumulated parts, tool calls, and text.
       const streamState = await ctx.runQuery(internal.streaming.getInternal, {
         sessionId: args.sessionId,
       });
+
+      await ctx.runMutation(internal.streaming.finish, { sessionId: args.sessionId });
 
       const parts: any[] = [];
 
