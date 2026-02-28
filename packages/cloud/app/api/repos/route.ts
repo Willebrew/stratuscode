@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Octokit } from '@octokit/rest';
-import { isAuthenticated } from '@/lib/simple-auth';
+import { isAuthenticated } from '@/lib/auth-helpers';
 
 export interface RepoInfo {
   id: number;

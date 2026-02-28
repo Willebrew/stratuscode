@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ConvexHttpClient } from 'convex/browser';
 import { api } from '@/convex/_generated/api';
+import { getUserId } from '@/lib/auth-helpers';
 
 export async function POST(request: NextRequest) {
   try {
@@ -23,9 +24,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const userId = await getUserId();
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Not authenticated' },
+        { status: 401 }
+      );
+    }
+
     const client = new ConvexHttpClient(convexUrl);
     await client.mutation(api.codex_auth.save, {
-      userId: 'owner',
+      userId,
       accessToken,
       refreshToken,
       accountId,

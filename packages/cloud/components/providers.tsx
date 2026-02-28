@@ -3,6 +3,7 @@
 import { ConvexProvider, ConvexReactClient } from 'convex/react';
 import { useMemo } from 'react';
 import { ToastProvider } from './toast';
+import { AuthProvider } from '@/contexts/AuthContext';
 
 let cachedClient: ConvexReactClient | null = null;
 
@@ -17,11 +18,19 @@ function getConvexClient(): ConvexReactClient | null {
 export function Providers({ children }: { children: React.ReactNode }) {
   const convex = useMemo(() => getConvexClient(), []);
 
-  if (!convex) return <ToastProvider>{children}</ToastProvider>;
+  if (!convex) {
+    return (
+      <AuthProvider>
+        <ToastProvider>{children}</ToastProvider>
+      </AuthProvider>
+    );
+  }
 
   return (
-    <ConvexProvider client={convex}>
-      <ToastProvider>{children}</ToastProvider>
-    </ConvexProvider>
+    <AuthProvider>
+      <ConvexProvider client={convex}>
+        <ToastProvider>{children}</ToastProvider>
+      </ConvexProvider>
+    </AuthProvider>
   );
 }

@@ -7,6 +7,7 @@ import { MobileDrawer } from '@/components/mobile-drawer';
 import { AppHeader } from '@/components/app-header';
 import { SidebarProvider, useSidebar } from '@/components/sidebar-context';
 import { SendFnProvider, useSendFn } from '@/components/send-fn-context';
+import { useAuth } from '@/contexts/AuthContext';
 import type { Id } from '@/convex/_generated/dataModel';
 
 const ease = [0.4, 0, 0.2, 1] as const;
@@ -16,7 +17,9 @@ function ChatLayoutInner({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { close, desktopCollapsed, isExiting } = useSidebar();
   const { sendFn } = useSendFn();
+  const { user } = useAuth();
   const sessionId = params.sessionId as Id<'sessions'> | undefined;
+  const userId = user?.id ?? 'anonymous';
 
   const handleSelectSession = (id: Id<'sessions'>) => {
     router.push(`/chat/${id}`);
@@ -48,7 +51,7 @@ function ChatLayoutInner({ children }: { children: React.ReactNode }) {
         style={{ transition: desktopCollapsed !== undefined ? 'width 200ms cubic-bezier(0.4,0,0.2,1)' : undefined }}
       >
         <SessionSidebar
-          userId="owner"
+          userId={userId}
           currentSessionId={sessionId ?? null}
           onSelectSession={handleSelectSession}
           onNewSession={handleNewSession}
@@ -79,7 +82,7 @@ function ChatLayoutInner({ children }: { children: React.ReactNode }) {
       {/* Mobile drawer — rendered last so backdrop overlays everything including header */}
       <MobileDrawer>
         <SessionSidebar
-          userId="owner"
+          userId={userId}
           currentSessionId={sessionId ?? null}
           onSelectSession={handleSelectSession}
           onNewSession={handleNewSession}

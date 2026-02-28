@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { exchangeCodexCode, getPkceVerifier } from '@/lib/codex-auth';
 import { ConvexHttpClient } from 'convex/browser';
 import { api } from '@/convex/_generated/api';
+import { getUserId } from '@/lib/auth-helpers';
 
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get('code');
@@ -31,11 +32,12 @@ export async function GET(request: NextRequest) {
 
   // Save tokens to Convex DB (server-side only, no cookies)
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (convexUrl) {
+  const userId = await getUserId();
+  if (convexUrl && userId) {
     try {
       const client = new ConvexHttpClient(convexUrl);
       await client.mutation(api.codex_auth.save, {
-        userId: 'owner',
+        userId,
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
         accountId: tokens.accountId,

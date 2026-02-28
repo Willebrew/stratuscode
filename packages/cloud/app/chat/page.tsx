@@ -1,20 +1,15 @@
+'use client';
+
 import { Suspense } from 'react';
-import { redirect } from 'next/navigation';
-import { isAuthenticated } from '@/lib/simple-auth';
 import { ChatPageRouter } from './chat-page-router';
+import ProtectedRoute from '@/components/ProtectedRoute';
 
-export const dynamic = 'force-dynamic';
-
-export default async function ChatPage() {
-  const authenticated = await isAuthenticated();
-
-  if (!authenticated) {
-    redirect('/login');
-  }
-
+export default function ChatPage() {
   return (
-    <Suspense>
-      <ChatPageRouter />
-    </Suspense>
+    <ProtectedRoute>
+      <Suspense>
+        <ChatPageRouter />
+      </Suspense>
+    </ProtectedRoute>
   );
 }

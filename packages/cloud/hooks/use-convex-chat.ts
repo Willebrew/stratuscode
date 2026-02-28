@@ -4,6 +4,7 @@ import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import type { Id } from '../convex/_generated/dataModel';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
 
 export type MessagePart =
   | { type: 'reasoning'; content: string }
@@ -61,6 +62,8 @@ export function useConvexChat(
   sessionId: Id<'sessions'> | null,
   options: UseConvexChatOptions = {}
 ): UseConvexChatReturn {
+  const { user } = useAuth();
+
   // ─── Reactive queries ───
 
   const session = useQuery(
@@ -425,11 +428,11 @@ export function useConvexChat(
       await setRatingMutation({
         messageId: messageId as Id<'messages'>,
         sessionId,
-        userId: 'owner',
+        userId: user?.id ?? 'anonymous',
         rating,
       });
     },
-    [sessionId, setRatingMutation]
+    [sessionId, setRatingMutation, user]
   );
 
   return {

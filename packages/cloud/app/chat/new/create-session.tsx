@@ -5,6 +5,7 @@ import { api } from '@/convex/_generated/api';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef } from 'react';
 import { Loader2 } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface CreateSessionProps {
   owner: string;
@@ -16,9 +17,10 @@ export function CreateSession({ owner, repo, branch }: CreateSessionProps) {
   const createSession = useMutation(api.sessions.create);
   const router = useRouter();
   const createdRef = useRef(false);
+  const { user } = useAuth();
 
   useEffect(() => {
-    if (createdRef.current) return;
+    if (createdRef.current || !user) return;
     createdRef.current = true;
 
     // Use saved model preference from settings, falling back to default
@@ -27,7 +29,7 @@ export function CreateSession({ owner, repo, branch }: CreateSessionProps) {
       : 'gpt-5-mini';
 
     createSession({
-      userId: 'owner',
+      userId: user.id,
       owner,
       repo,
       branch,
@@ -35,7 +37,7 @@ export function CreateSession({ owner, repo, branch }: CreateSessionProps) {
     }).then((sessionId) => {
       router.replace(`/chat/${sessionId}`);
     });
-  }, [createSession, owner, repo, branch, router]);
+  }, [createSession, owner, repo, branch, router, user]);
 
   return (
     <div className="h-dvh flex items-center justify-center">

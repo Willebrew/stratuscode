@@ -1,32 +1,36 @@
-import { redirect } from 'next/navigation';
-import { isAuthenticated } from '@/lib/simple-auth';
+'use client';
+
+import { useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 import { CreateSession } from './create-session';
+import ProtectedRoute from '@/components/ProtectedRoute';
 
-export const dynamic = 'force-dynamic';
+function NewChatContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
 
-interface NewChatPageProps {
-  searchParams: Promise<{ owner?: string; repo?: string; branch?: string }>;
-}
+  const owner = searchParams.get('owner');
+  const repo = searchParams.get('repo');
+  const branch = searchParams.get('branch');
 
-export default async function NewChatPage({ searchParams }: NewChatPageProps) {
-  const authenticated = await isAuthenticated();
-
-  if (!authenticated) {
-    redirect('/login');
-  }
-
-  const params = await searchParams;
-  const { owner, repo, branch } = params;
+  useEffect(() => {
+    if (!owner || !repo || !branch) {
+      router.replace('/chat');
+    }
+  }, [owner, repo, branch, router]);
 
   if (!owner || !repo || !branch) {
-    redirect('/chat');
+    return null;
   }
 
+  return <CreateSession owner={owner} repo={repo} branch={branch} />;
+}
+
+export default function NewChatPage() {
   return (
-    <CreateSession
-      owner={owner}
-      repo={repo}
-      branch={branch}
-    />
+    <ProtectedRoute>
+      <NewChatContent />
+    </ProtectedRoute>
   );
 }

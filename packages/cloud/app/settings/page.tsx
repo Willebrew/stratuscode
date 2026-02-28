@@ -7,6 +7,7 @@ import { ChevronLeft, LogOut, Moon, Sun, Monitor, Link2, Loader2, Settings, Chec
 import { StratusLogo } from '@/components/stratus-logo';
 import { useMutation } from 'convex/react';
 import { api } from '../../convex/_generated/api';
+import { useAuth } from '@/contexts/AuthContext';
 
 const ease = [0.4, 0, 0.2, 1] as const;
 
@@ -100,6 +101,7 @@ export default function SettingsPage() {
   const [codexError, setCodexError] = useState('');
   const [deviceCode, setDeviceCode] = useState<{ userCode: string; verificationUrl: string; deviceAuthId: string; interval: number } | null>(null);
   const saveCodexAuth = useMutation(api.codex_auth.save);
+  const { user } = useAuth();
   const [selectedModel, setSelectedModel] = useState<string>('gpt-5.3-codex');
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set());
 
@@ -139,7 +141,8 @@ export default function SettingsPage() {
     setSigningOut(true);
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
-      router.push('/login');
+      const nqlAuthUrl = process.env.NEXT_PUBLIC_NQL_AUTH_URL || 'https://auth.neuroquestlabs.ai';
+      window.location.href = `${nqlAuthUrl}/api/auth/logout?redirect=${encodeURIComponent(window.location.origin)}`;
     } catch {
       setSigningOut(false);
     }
@@ -360,7 +363,7 @@ export default function SettingsPage() {
                               if (result.tokens) {
                                 try {
                                   await saveCodexAuth({
-                                    userId: 'owner',
+                                    userId: user?.id ?? 'anonymous',
                                     accessToken: result.tokens.accessToken,
                                     refreshToken: result.tokens.refreshToken,
                                     accountId: result.tokens.accountId,
