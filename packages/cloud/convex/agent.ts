@@ -749,6 +749,28 @@ export const sendMessage = internalAction({
         sessionBranch,
         workDir,
         alphaMode: args.alphaMode,
+        recoverSandbox: async () => {
+          console.log("[agent] Sandbox gone mid-run, creating fresh sandbox...");
+          const freshSandbox = await createFreshSandbox(
+            session.owner,
+            session.repo,
+            session.branch,
+            githubToken,
+            sessionBranch
+          );
+          // Update session with new sandbox ID
+          await ctx.runMutation(internal.sessions.setSandboxId, {
+            id: args.sessionId,
+            sandboxId: freshSandbox.sandboxId,
+          });
+          // Refresh git remote token
+          const freshRepoUrl = `https://x-access-token:${githubToken}@github.com/${session.owner}/${session.repo}.git`;
+          await freshSandbox.runCommand("bash", ["-c", `cd '${workDir}' && git remote set-url origin '${freshRepoUrl}'`]);
+          // Also update the outer `sandbox` variable for post-loop snapshot
+          sandbox = freshSandbox;
+          console.log(`[agent] Recovered with fresh sandbox ${freshSandbox.sandboxId}`);
+          return freshSandbox;
+        },
       };
 
       const registry = createToolRegistry();

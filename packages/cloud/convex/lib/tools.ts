@@ -24,6 +24,8 @@ export interface ConvexSandboxInfo {
   sessionBranch: string;
   workDir: string;
   alphaMode?: boolean;
+  /** Called when a 410 (Gone) error is detected — should recreate the sandbox and return it */
+  recoverSandbox?: () => Promise<Sandbox>;
 }
 
 interface ConvexToolContext {
@@ -32,6 +34,11 @@ interface ConvexToolContext {
 }
 
 // ─── Helper ───
+
+function isSandboxGone(error: any): boolean {
+  const msg = String(error?.message || "");
+  return msg.includes("410") || msg.includes("Gone") || msg.includes("Sandbox is not running");
+}
 
 async function sandboxExec(
   sandbox: Sandbox,
@@ -45,6 +52,50 @@ async function sandboxExec(
     stdout: await result.stdout(),
     stderr: await result.stderr(),
   };
+}
+
+/**
+ * sandboxExec with automatic 410 recovery.
+ * On sandbox gone, calls info.recoverSandbox(), swaps info.sandbox, and retries once.
+ */
+async function safeSandboxExec(
+  info: ConvexSandboxInfo,
+  command: string,
+  cwd?: string
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  try {
+    return await safeSandboxExec(info, command, cwd);
+  } catch (error: any) {
+    if (isSandboxGone(error) && info.recoverSandbox) {
+      console.log("[tools] Sandbox gone (410), recovering...");
+      info.sandbox = await info.recoverSandbox();
+      info.sandboxId = info.sandbox.sandboxId;
+      return await safeSandboxExec(info, command, cwd);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Run a raw sandbox command with automatic 410 recovery.
+ * For tools that call info.sandbox.runCommand directly (e.g. write_to_file).
+ */
+async function safeSandboxRunCommand(
+  info: ConvexSandboxInfo,
+  cmd: string,
+  args: string[]
+): Promise<any> {
+  try {
+    return await info.sandbox.runCommand(cmd, args);
+  } catch (error: any) {
+    if (isSandboxGone(error) && info.recoverSandbox) {
+      console.log("[tools] Sandbox gone (410), recovering...");
+      info.sandbox = await info.recoverSandbox();
+      info.sandboxId = info.sandbox.sandboxId;
+      return await info.sandbox.runCommand(cmd, args);
+    }
+    throw error;
+  }
 }
 
 // ─── Registration ───
@@ -108,8 +159,8 @@ IMPORTANT:
       const { command, cwd } = args;
       const workingDir = cwd || info.workDir;
       try {
-        const { exitCode, stdout, stderr } = await sandboxExec(
-          info.sandbox,
+        const { exitCode, stdout, stderr } = await safeSandboxExec(
+          info,
           command,
           workingDir
         );
@@ -157,9 +208,9 @@ function createReadTool(info: ConvexSandboxInfo): Tool {
       } else {
         cmd = `cat -n '${file_path}'`;
       }
-      const { exitCode, stdout, stderr } = await sandboxExec(info.sandbox, cmd, info.workDir);
+      const { exitCode, stdout, stderr } = await safeSandboxExec(info, cmd, info.workDir);
       if (exitCode !== 0) throw new Error(stderr || `File not found: ${file_path}`);
-      const { stdout: totalOut } = await sandboxExec(info.sandbox, `wc -l < '${file_path}'`, info.workDir);
+      const { stdout: totalOut } = await safeSandboxExec(info, `wc -l < '${file_path}'`, info.workDir);
       const totalLines = parseInt(totalOut.trim(), 10) || 0;
       if (offset || limit) {
         return `File: ${file_path} (lines ${offset || 1}-${(offset || 1) + (limit || totalLines) - 1} of ${totalLines})\n\n${stdout}`;
@@ -188,17 +239,17 @@ function createWriteFileTool(info: ConvexSandboxInfo): Tool {
       const absolutePath = TargetFile.startsWith("/") ? TargetFile : `${info.workDir}/${TargetFile}`;
       try {
         const dir = absolutePath.substring(0, absolutePath.lastIndexOf("/"));
-        await info.sandbox.runCommand("mkdir", ["-p", dir]);
-        const result = await info.sandbox.runCommand("bash", ["-c", `cat > '${absolutePath}' << 'EOF'\n${CodeContent}\nEOF`]);
+        await safeSandboxRunCommand(info, "mkdir", ["-p", dir]);
+        const result = await safeSandboxRunCommand(info, "bash", ["-c", `cat > '${absolutePath}' << 'EOF'\n${CodeContent}\nEOF`]);
         if (result.exitCode !== 0) {
           return JSON.stringify({ error: (await result.stderr()) || "Failed to write file" });
         }
         let diff = "";
         try {
-          const diffResult = await info.sandbox.runCommand("bash", ["-c", `cd '${info.workDir}' && git diff -- '${absolutePath}'`]);
+          const diffResult = await safeSandboxRunCommand(info, "bash", ["-c", `cd '${info.workDir}' && git diff -- '${absolutePath}'`]);
           diff = await diffResult.stdout();
           if (!diff) {
-            const diffNewResult = await info.sandbox.runCommand("bash", ["-c", `cd '${info.workDir}' && git diff --no-index /dev/null '${absolutePath}'`]);
+            const diffNewResult = await safeSandboxRunCommand(info, "bash", ["-c", `cd '${info.workDir}' && git diff --no-index /dev/null '${absolutePath}'`]);
             diff = await diffNewResult.stdout();
           }
         } catch {}
@@ -237,7 +288,7 @@ IMPORTANT:
     async execute(args: any) {
       const { file_path, old_string, new_string, replace_all = false } = args;
       if (old_string === new_string) throw new Error("old_string and new_string are identical.");
-      const { exitCode, stdout: content } = await sandboxExec(info.sandbox, `cat '${file_path}'`, info.workDir);
+      const { exitCode, stdout: content } = await safeSandboxExec(info, `cat '${file_path}'`, info.workDir);
       if (exitCode !== 0) throw new Error(`File not found: ${file_path}`);
       let count = 0;
       let pos = 0;
@@ -246,10 +297,10 @@ IMPORTANT:
       if (count > 1 && !replace_all) throw new Error(`old_string found ${count} times. Make it more specific, or set replace_all: true.`);
       const newContent = replace_all ? content.split(old_string).join(new_string) : content.replace(old_string, new_string);
       const writeCmd = `cat > '${file_path}' << 'STRATUSCODE_EOF'\n${newContent}\nSTRATUSCODE_EOF`;
-      const writeResult = await sandboxExec(info.sandbox, writeCmd, info.workDir);
+      const writeResult = await safeSandboxExec(info, writeCmd, info.workDir);
       if (writeResult.exitCode !== 0) throw new Error(`Failed to write file: ${writeResult.stderr}`);
       let diff = "";
-      try { diff = (await sandboxExec(info.sandbox, `cd '${info.workDir}' && git diff -- '${file_path}'`, info.workDir)).stdout; } catch {}
+      try { diff = (await safeSandboxExec(info, `cd '${info.workDir}' && git diff -- '${file_path}'`, info.workDir)).stdout; } catch {}
       const lineDiff = newContent.split("\n").length - content.split("\n").length;
       return JSON.stringify({
         success: true, file: file_path, replacements: replace_all ? count : 1, lineChange: lineDiff, diff,
@@ -287,7 +338,7 @@ function createMultiEditTool(info: ConvexSandboxInfo): Tool {
     timeout: 30000,
     async execute(args: any) {
       const { file_path, edits } = args;
-      const { exitCode, stdout: content } = await sandboxExec(info.sandbox, `cat '${file_path}'`, info.workDir);
+      const { exitCode, stdout: content } = await safeSandboxExec(info, `cat '${file_path}'`, info.workDir);
       if (exitCode !== 0) throw new Error(`File not found: ${file_path}`);
       let current = content;
       for (let i = 0; i < edits.length; i++) {
@@ -297,10 +348,10 @@ function createMultiEditTool(info: ConvexSandboxInfo): Tool {
         current = replace_all ? current.split(old_string).join(new_string) : current.replace(old_string, new_string);
       }
       const writeCmd = `cat > '${file_path}' << 'STRATUSCODE_EOF'\n${current}\nSTRATUSCODE_EOF`;
-      const writeResult = await sandboxExec(info.sandbox, writeCmd, info.workDir);
+      const writeResult = await safeSandboxExec(info, writeCmd, info.workDir);
       if (writeResult.exitCode !== 0) throw new Error(`Failed to write file: ${writeResult.stderr}`);
       let diff = "";
-      try { diff = (await sandboxExec(info.sandbox, `cd '${info.workDir}' && git diff -- '${file_path}'`, info.workDir)).stdout; } catch {}
+      try { diff = (await safeSandboxExec(info, `cd '${info.workDir}' && git diff -- '${file_path}'`, info.workDir)).stdout; } catch {}
       return JSON.stringify({ success: true, file: file_path, editsApplied: edits.length, diff, message: `Applied ${edits.length} edits to ${file_path}` });
     },
   };
@@ -340,7 +391,7 @@ function createGrepTool(info: ConvexSandboxInfo): Tool {
       }
       const excludes = "--exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist --exclude-dir=build";
       const cmd = `grep ${grepFlags} ${excludes}${includeFlags} '${query.replace(/'/g, "'\\''")}' '${search_path}' 2>/dev/null || true`;
-      const { stdout } = await sandboxExec(info.sandbox, cmd, info.workDir);
+      const { stdout } = await safeSandboxExec(info, cmd, info.workDir);
       if (!stdout.trim()) return JSON.stringify({ query, matchingFiles: 0, message: "No matches found" });
       if (match_per_line) return stdout;
       const files = stdout.trim().split("\n").filter(Boolean);
@@ -376,7 +427,7 @@ function createGlobTool(info: ConvexSandboxInfo): Tool {
       else if (fileType === "directory") findArgs += " -type d";
       const namePattern = pattern.includes("/") ? pattern.split("/").pop()! : pattern;
       findArgs += ` -name '${namePattern}' | head -100`;
-      const { stdout } = await sandboxExec(info.sandbox, `find ${findArgs} 2>/dev/null || true`, info.workDir);
+      const { stdout } = await safeSandboxExec(info, `find ${findArgs} 2>/dev/null || true`, info.workDir);
       const results = stdout.trim().split("\n").filter(Boolean);
       return JSON.stringify({ pattern, searchDirectory: search_directory, total: results.length, truncated: results.length >= 100, results: results.map((p) => ({ path: p, type: "file" })) });
     },
@@ -396,7 +447,7 @@ function createLsTool(info: ConvexSandboxInfo): Tool {
     },
     timeout: 15000,
     async execute(args: any) {
-      const { exitCode, stdout, stderr } = await sandboxExec(info.sandbox, `ls -la '${args.directory}'`, info.workDir);
+      const { exitCode, stdout, stderr } = await safeSandboxExec(info, `ls -la '${args.directory}'`, info.workDir);
       if (exitCode !== 0) throw new Error(stderr || `Directory not found: ${args.directory}`);
       return stdout;
     },
@@ -497,8 +548,8 @@ function createGitCommitTool(info: ConvexSandboxInfo): Tool {
         return JSON.stringify({ error: "User confirmation required. Use the question tool to ask the user to confirm this commit.", needsConfirmation: true });
       }
       try {
-        await info.sandbox.runCommand("bash", ["-c", `cd '${info.workDir}' && git add -A`]);
-        const result = await info.sandbox.runCommand("bash", ["-c", `cd '${info.workDir}' && git commit -m '${message.replace(/'/g, "'\\''")}'`]);
+        await safeSandboxRunCommand(info, "bash", ["-c", `cd '${info.workDir}' && git add -A`]);
+        const result = await safeSandboxRunCommand(info, "bash", ["-c", `cd '${info.workDir}' && git commit -m '${message.replace(/'/g, "'\\''")}'`]);
         const stdout = await result.stdout();
         const stderr = await result.stderr();
         if (result.exitCode !== 0) return JSON.stringify({ error: stderr || stdout || "Failed to commit" });
@@ -530,7 +581,7 @@ function createGitPushTool(info: ConvexSandboxInfo): Tool {
         return JSON.stringify({ error: "User confirmation required.", needsConfirmation: true });
       }
       try {
-        const result = await info.sandbox.runCommand("bash", ["-c", `cd '${info.workDir}' && git push -u origin '${info.sessionBranch}'`]);
+        const result = await safeSandboxRunCommand(info, "bash", ["-c", `cd '${info.workDir}' && git push -u origin '${info.sessionBranch}'`]);
         const stdout = await result.stdout();
         const stderr = await result.stderr();
         if (result.exitCode !== 0) return JSON.stringify({ error: stderr || stdout || "Failed to push" });
