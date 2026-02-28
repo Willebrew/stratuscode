@@ -33,20 +33,51 @@ export async function isAuthenticated(): Promise<boolean> {
 }
 
 /**
- * Get the authenticated user's ID by querying nql-auth's session endpoint.
- * Returns null if not authenticated.
+ * Get the authenticated user's ID.
+ * First tries the local user data cookie, then falls back to nql-auth.
  */
 export async function getUserId(): Promise<string | null> {
   const session = await getServerSession();
   if (!session) return null;
 
+  const secret = process.env.BETTER_AUTH_SECRET;
+  if (!secret) return null;
+
+  // Try local user data cookie first
+  const cookieStore = await cookies();
+  const userRaw =
+    cookieStore.get("__Secure-stratuscode.user")?.value ||
+    cookieStore.get("stratuscode.user")?.value;
+
+  if (userRaw) {
+    const lastDot = userRaw.lastIndexOf(".");
+    if (lastDot !== -1) {
+      const payload = userRaw.substring(0, lastDot);
+      const sig = userRaw.substring(lastDot + 1);
+      const expectedSig = createHmac("sha256", secret)
+        .update(payload)
+        .digest("base64");
+      if (sig === expectedSig) {
+        try {
+          const userData = JSON.parse(
+            Buffer.from(payload, "base64").toString("utf-8")
+          );
+          if (userData?.id) return userData.id;
+        } catch {
+          // Fall through to nql-auth
+        }
+      }
+    }
+  }
+
+  // Fallback: fetch from nql-auth
   const nqlAuthUrl =
     process.env.NQL_AUTH_URL || "https://auth.neuroquestlabs.ai";
 
   try {
     const res = await fetch(`${nqlAuthUrl}/api/auth/get-session`, {
       headers: {
-        Cookie: `better-auth.session_token=${session.raw}`,
+        Cookie: `better-auth.session_token=${session.raw}; __Secure-better-auth.session_token=${session.raw}`,
       },
     });
     if (!res.ok) return null;
