@@ -3,11 +3,10 @@
 import React, {
   createContext,
   useContext,
-  useState,
-  useEffect,
   useCallback,
   ReactNode,
 } from "react";
+import { authClient } from "@/lib/auth-client";
 
 interface User {
   id: string;
@@ -40,37 +39,24 @@ export function useAuth() {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data: session, isPending, refetch } = authClient.useSession();
 
-  const fetchUser = useCallback(async () => {
-    try {
-      const res = await fetch("/api/auth/me");
-      if (!res.ok) {
-        setUser(null);
-        return;
+  const user: User | null = session?.user
+    ? {
+        id: session.user.id,
+        email: session.user.email,
+        name: session.user.name,
       }
-      const data = await res.json();
-      setUser(data.user || null);
-    } catch {
-      setUser(null);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchUser();
-  }, [fetchUser]);
+    : null;
 
   const refreshAuth = useCallback(async () => {
-    setLoading(true);
-    await fetchUser();
-  }, [fetchUser]);
+    await refetch();
+  }, [refetch]);
 
   const signOut = useCallback(async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    setUser(null);
+    // Invalidate session in shared PostgreSQL via Better Auth
+    await authClient.signOut();
+    // Redirect to nql-auth to clear the central session
     const nqlAuthUrl =
       process.env.NEXT_PUBLIC_NQL_AUTH_URL ||
       "https://auth.neuroquestlabs.ai";
@@ -79,7 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value: AuthContextType = {
     user,
-    loading,
+    loading: isPending,
     isAuthenticated: !!user,
     refreshAuth,
     signOut,
