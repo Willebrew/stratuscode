@@ -393,32 +393,35 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
               ))}
             </div>
           )}
-          {isEditing ? (
-            <div className="rounded-2xl px-4 sm:px-5 py-3 sm:py-3.5 bg-foreground/90 text-background ring-2 ring-primary/50">
-              <textarea
-                ref={editTextareaRef}
-                className="w-full bg-transparent resize-none outline-none text-background text-[15px] leading-relaxed min-h-[40px]"
-                value={editText}
-                onChange={(e) => {
-                  setEditText(e.target.value);
-                  e.target.style.height = 'auto';
-                  e.target.style.height = e.target.scrollHeight + 'px';
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmitEdit(); }
-                  if (e.key === 'Escape') handleCancelEdit();
-                }}
-              />
-              <div className="flex justify-end gap-2 mt-2 border-t border-background/10 pt-2">
-                <button onClick={handleCancelEdit} className="text-xs px-2.5 py-1 rounded-md hover:bg-background/10 text-background/60 transition-colors">Cancel</button>
-                <button onClick={handleSubmitEdit} className="text-xs px-2.5 py-1 rounded-md bg-background/20 hover:bg-background/30 text-background transition-colors">Send</button>
-              </div>
-            </div>
-          ) : (
-            <div className="rounded-2xl px-4 sm:px-5 py-3 sm:py-3.5 bg-foreground text-background">
+          <div className="rounded-2xl px-4 sm:px-5 py-3 sm:py-3.5 bg-foreground text-background">
+            {isEditing ? (
+              <>
+                <textarea
+                  ref={editTextareaRef}
+                  className="w-full bg-transparent resize-none outline-none text-inherit text-[15px] leading-relaxed min-h-[24px] placeholder:text-background/40"
+                  value={editText}
+                  onChange={(e) => {
+                    setEditText(e.target.value);
+                    e.target.style.height = 'auto';
+                    e.target.style.height = e.target.scrollHeight + 'px';
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmitEdit(); }
+                    if (e.key === 'Escape') handleCancelEdit();
+                  }}
+                />
+                <div className="flex justify-end items-center gap-2 mt-2 pt-2 border-t border-background/10">
+                  <button onClick={handleCancelEdit} className="text-[11px] px-2.5 py-1 rounded-md text-background/50 hover:text-background/80 transition-colors">Cancel</button>
+                  <button onClick={handleSubmitEdit} className="text-[11px] px-2.5 py-1 rounded-md bg-background/15 hover:bg-background/25 text-background/90 transition-colors flex items-center gap-1">
+                    <Send className="w-3 h-3" />
+                    Send
+                  </button>
+                </div>
+              </>
+            ) : (
               <MarkdownRenderer content={message.content} />
-            </div>
-          )}
+            )}
+          </div>
           {/* User message action buttons */}
           {!isEditing && (
             <div className="flex justify-end mt-1">
@@ -679,11 +682,8 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
             </div>
           )}
 
-          {/* Action buttons — always visible when feedback is active */}
-          <div className={clsx(
-            "flex items-center gap-1.5 text-muted-foreground/40 transition-opacity duration-200",
-            thumbState ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-          )}>
+          {/* Action buttons — appear on hover */}
+          <div className="flex items-center gap-1.5 text-muted-foreground/40 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
             <button
               onClick={handleCopy}
               className="p-1.5 hover:bg-secondary/40 hover:text-foreground rounded-md transition-colors"
