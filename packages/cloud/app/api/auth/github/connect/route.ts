@@ -1,8 +1,8 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { isAuthenticated } from '@/lib/auth-helpers';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const authenticated = await isAuthenticated();
   if (!authenticated) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -26,7 +26,8 @@ export async function GET() {
     maxAge: 10 * 60, // 10 minutes
   });
 
-  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/auth/github/callback`;
+  const origin = request.nextUrl.origin;
+  const redirectUri = `${origin}/api/auth/github/callback`;
 
   const params = new URLSearchParams({
     client_id: clientId,
