@@ -18,8 +18,8 @@ function signCookieValue(value: string, secret: string): string {
  * GET /api/auth/sso?code=XXX&redirect=/chat
  *
  * SSO callback endpoint. Called by nql-auth after successful login.
- * Exchanges the one-time SSO code for a session token, signs it
- * to match Better Auth's cookie format, and redirects to the final path.
+ * Exchanges the one-time SSO code for a session token + user data,
+ * stores both as signed cookies, and redirects to the final path.
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
     }
 
     const data = await response.json();
-    const { sessionToken } = data;
+    const { sessionToken, user } = data;
 
     if (!sessionToken) {
       const errorUrl = new URL("/login", NEXT_PUBLIC_NQL_AUTH_URL);
@@ -60,25 +60,48 @@ export async function GET(request: NextRequest) {
       throw new Error("BETTER_AUTH_SECRET is not configured");
     }
 
-    const signedToken = signCookieValue(sessionToken, secret);
-
     const redirectUrl = new URL(redirectPath, request.nextUrl.origin);
     const res = NextResponse.redirect(redirectUrl);
 
     const isSecure =
       request.nextUrl.protocol === "https:" ||
       process.env.NODE_ENV === "production";
-    const cookieName = isSecure
+
+    // Session token cookie (HMAC-signed)
+    const sessionCookieName = isSecure
       ? "__Secure-better-auth.session_token"
       : "better-auth.session_token";
 
-    res.cookies.set(cookieName, signedToken, {
+    res.cookies.set(sessionCookieName, signCookieValue(sessionToken, secret), {
       httpOnly: true,
       secure: isSecure,
       sameSite: "lax",
       path: "/",
       maxAge: 7 * 24 * 60 * 60,
     });
+
+    // User data cookie (HMAC-signed base64 JSON)
+    if (user) {
+      const userJson = Buffer.from(
+        JSON.stringify({
+          id: user.id,
+          email: user.email,
+          name: user.name,
+        })
+      ).toString("base64");
+
+      const userCookieName = isSecure
+        ? "__Secure-stratuscode.user"
+        : "stratuscode.user";
+
+      res.cookies.set(userCookieName, signCookieValue(userJson, secret), {
+        httpOnly: true,
+        secure: isSecure,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 7 * 24 * 60 * 60,
+      });
+    }
 
     return res;
   } catch {

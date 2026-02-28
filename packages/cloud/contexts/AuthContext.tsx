@@ -1,7 +1,13 @@
 "use client";
 
-import React, { createContext, useContext, ReactNode } from "react";
-import { authClient } from "@/lib/auth-client";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  ReactNode,
+} from "react";
 
 interface User {
   id: string;
@@ -34,30 +40,46 @@ export function useAuth() {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const session = authClient.useSession();
-  const { data: sessionData, isPending } = session;
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const rawUser = sessionData?.user;
-  const user: User | null = rawUser
-    ? {
-        id: rawUser.id,
-        email: rawUser.email || undefined,
-        name: rawUser.name || undefined,
+  const fetchUser = useCallback(async () => {
+    try {
+      const res = await fetch("/api/auth/me");
+      if (!res.ok) {
+        setUser(null);
+        return;
       }
-    : null;
+      const data = await res.json();
+      setUser(data.user || null);
+    } catch {
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const refreshAuth = async () => {
-    await session.refetch();
-  };
+  useEffect(() => {
+    fetchUser();
+  }, [fetchUser]);
 
-  const signOut = async () => {
-    await authClient.signOut();
-    window.location.reload();
-  };
+  const refreshAuth = useCallback(async () => {
+    setLoading(true);
+    await fetchUser();
+  }, [fetchUser]);
+
+  const signOut = useCallback(async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
+    setUser(null);
+    const nqlAuthUrl =
+      process.env.NEXT_PUBLIC_NQL_AUTH_URL ||
+      "https://auth.neuroquestlabs.ai";
+    window.location.href = `${nqlAuthUrl}/sign-out`;
+  }, []);
 
   const value: AuthContextType = {
     user,
-    loading: isPending,
+    loading,
     isAuthenticated: !!user,
     refreshAuth,
     signOut,
