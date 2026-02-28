@@ -1,13 +1,7 @@
 "use client";
 
-import React, {
-  createContext,
-  useContext,
-  ReactNode,
-  useState,
-  useEffect,
-  useCallback,
-} from "react";
+import React, { createContext, useContext, ReactNode } from "react";
+import { authClient } from "@/lib/auth-client";
 
 interface User {
   id: string;
@@ -21,8 +15,6 @@ interface AuthContextType {
   isAuthenticated: boolean;
   refreshAuth: () => Promise<void>;
   signOut: () => Promise<void>;
-  sessionError: Error | null;
-  isRetrying: boolean;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -31,8 +23,6 @@ const AuthContext = createContext<AuthContextType>({
   isAuthenticated: false,
   refreshAuth: async () => {},
   signOut: async () => {},
-  sessionError: null,
-  isRetrying: false,
 });
 
 export function useAuth() {
@@ -43,86 +33,34 @@ export function useAuth() {
   return context;
 }
 
-const MAX_RETRIES = 3;
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [sessionError, setSessionError] = useState<Error | null>(null);
-  const [retryCount, setRetryCount] = useState(0);
+  const session = authClient.useSession();
+  const { data: sessionData, isPending } = session;
 
-  const fetchSession = useCallback(async () => {
-    try {
-      const res = await fetch("/api/auth/get-session", {
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        throw new Error(`Session fetch failed: ${res.status}`);
+  const rawUser = sessionData?.user;
+  const user: User | null = rawUser
+    ? {
+        id: rawUser.id,
+        email: rawUser.email || undefined,
+        name: rawUser.name || undefined,
       }
+    : null;
 
-      const data = await res.json();
+  const refreshAuth = async () => {
+    await session.refetch();
+  };
 
-      if (data?.user) {
-        setUser({
-          id: data.user.id,
-          email: data.user.email || undefined,
-          name: data.user.name || undefined,
-        });
-        setSessionError(null);
-        setRetryCount(0);
-      } else {
-        setUser(null);
-      }
-    } catch (err) {
-      console.error("[AuthContext] session fetch error:", err);
-
-      if (retryCount < MAX_RETRIES) {
-        setRetryCount((prev) => prev + 1);
-        // Retry will be triggered by the useEffect dependency on retryCount
-      } else {
-        setSessionError(err as Error);
-        setUser(null);
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [retryCount]);
-
-  // Initial fetch + retry logic
-  useEffect(() => {
-    if (retryCount === 0) {
-      fetchSession();
-    } else if (retryCount <= MAX_RETRIES) {
-      const delay = Math.min(1000 * Math.pow(2, retryCount - 1), 4000);
-      const timer = setTimeout(fetchSession, delay);
-      return () => clearTimeout(timer);
-    }
-  }, [retryCount, fetchSession]);
-
-  const isRetrying = retryCount > 0 && retryCount <= MAX_RETRIES;
-
-  const refreshAuth = useCallback(async () => {
-    setLoading(true);
-    setRetryCount(0);
-  }, []);
-
-  const signOut = useCallback(async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    const nqlAuthUrl =
-      process.env.NEXT_PUBLIC_NQL_AUTH_URL ||
-      "https://auth.neuroquestlabs.ai";
-    window.location.href = `${nqlAuthUrl}/api/auth/logout?redirect=${encodeURIComponent(window.location.origin)}`;
-  }, []);
+  const signOut = async () => {
+    await authClient.signOut();
+    window.location.reload();
+  };
 
   const value: AuthContextType = {
     user,
-    loading: loading || isRetrying,
+    loading: isPending,
     isAuthenticated: !!user,
     refreshAuth,
     signOut,
-    sessionError,
-    isRetrying,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

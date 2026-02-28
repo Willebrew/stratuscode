@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from '@/lib/auth-helpers';
+import { getSessionToken } from '@/lib/auth-helpers';
 
 export async function GET() {
-  const session = await getServerSession();
+  const token = await getSessionToken();
 
-  if (!session) {
+  if (!token) {
     return NextResponse.json({ authenticated: false });
   }
 
