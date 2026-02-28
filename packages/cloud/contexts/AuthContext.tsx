@@ -1,7 +1,13 @@
 "use client";
 
-import React, { createContext, useContext, ReactNode, useState, useEffect } from "react";
-import { authClient } from "@/lib/auth-client";
+import React, {
+  createContext,
+  useContext,
+  ReactNode,
+  useState,
+  useEffect,
+  useCallback,
+} from "react";
 
 interface User {
   id: string;
@@ -39,88 +45,80 @@ export function useAuth() {
 
 const MAX_RETRIES = 3;
 
-const isTransientError = (err: unknown): boolean => {
-  if (!err) return false;
-  const msg = String(err).toLowerCase();
-  return (
-    msg.includes("500") ||
-    msg.includes("network") ||
-    msg.includes("timeout") ||
-    msg.includes("fetch") ||
-    msg.includes("internal server error")
-  );
-};
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const session = authClient.useSession();
-  const [retryCount, setRetryCount] = useState(0);
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
   const [sessionError, setSessionError] = useState<Error | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
-  const {
-    data: sessionData,
-    isPending,
-    error: sessionFetchError,
-    refetch,
-  } = session;
+  const fetchSession = useCallback(async () => {
+    try {
+      const res = await fetch("/api/auth/get-session", {
+        credentials: "include",
+      });
 
-  // Retry logic for transient session fetch errors
-  useEffect(() => {
-    if (
-      sessionFetchError &&
-      isTransientError(sessionFetchError) &&
-      retryCount < MAX_RETRIES
-    ) {
-      const delay = Math.min(1000 * Math.pow(2, retryCount), 4000);
-      const timer = setTimeout(() => {
+      if (!res.ok) {
+        throw new Error(`Session fetch failed: ${res.status}`);
+      }
+
+      const data = await res.json();
+
+      if (data?.user) {
+        setUser({
+          id: data.user.id,
+          email: data.user.email || undefined,
+          name: data.user.name || undefined,
+        });
+        setSessionError(null);
+        setRetryCount(0);
+      } else {
+        setUser(null);
+      }
+    } catch (err) {
+      console.error("[AuthContext] session fetch error:", err);
+
+      if (retryCount < MAX_RETRIES) {
         setRetryCount((prev) => prev + 1);
-        refetch();
-      }, delay);
+        // Retry will be triggered by the useEffect dependency on retryCount
+      } else {
+        setSessionError(err as Error);
+        setUser(null);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [retryCount]);
+
+  // Initial fetch + retry logic
+  useEffect(() => {
+    if (retryCount === 0) {
+      fetchSession();
+    } else if (retryCount <= MAX_RETRIES) {
+      const delay = Math.min(1000 * Math.pow(2, retryCount - 1), 4000);
+      const timer = setTimeout(fetchSession, delay);
       return () => clearTimeout(timer);
     }
+  }, [retryCount, fetchSession]);
 
-    if (sessionData?.user) {
-      setRetryCount(0);
-      setSessionError(null);
-    }
+  const isRetrying = retryCount > 0 && retryCount <= MAX_RETRIES;
 
-    if (sessionFetchError && retryCount >= MAX_RETRIES) {
-      setSessionError(sessionFetchError as Error);
-    }
-  }, [sessionFetchError, sessionData, retryCount, refetch]);
+  const refreshAuth = useCallback(async () => {
+    setLoading(true);
+    setRetryCount(0);
+  }, []);
 
-  const isRetrying =
-    !!sessionFetchError &&
-    isTransientError(sessionFetchError) &&
-    retryCount < MAX_RETRIES;
-
-  const rawUser = sessionData?.user;
-  const user: User | null = rawUser
-    ? {
-        id: rawUser.id,
-        email: rawUser.email,
-        name: rawUser.name || undefined,
-      }
-    : null;
-
-  const loading = isPending || isRetrying;
-  const isAuthenticated = !!sessionData?.user;
-
-  const refreshAuth = async () => {
-    await session.refetch();
-  };
-
-  const signOut = async () => {
-    await authClient.signOut();
+  const signOut = useCallback(async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
     const nqlAuthUrl =
       process.env.NEXT_PUBLIC_NQL_AUTH_URL ||
       "https://auth.neuroquestlabs.ai";
     window.location.href = `${nqlAuthUrl}/api/auth/logout?redirect=${encodeURIComponent(window.location.origin)}`;
-  };
+  }, []);
 
   const value: AuthContextType = {
     user,
-    loading,
-    isAuthenticated,
+    loading: loading || isRetrying,
+    isAuthenticated: !!user,
     refreshAuth,
     signOut,
     sessionError,
