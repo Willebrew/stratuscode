@@ -1,26 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createHmac } from "crypto";
 
 const NQL_AUTH_URL =
   process.env.NQL_AUTH_URL || "https://auth.neuroquestlabs.ai";
-
-/**
- * Verify HMAC signature and extract the raw session token.
- */
-function verifyAndExtractToken(raw: string): string | null {
-  const secret = process.env.BETTER_AUTH_SECRET;
-  if (!secret) return null;
-
-  const lastDot = raw.lastIndexOf(".");
-  if (lastDot === -1) return null;
-
-  const token = raw.substring(0, lastDot);
-  const sig = raw.substring(lastDot + 1);
-  const expected = createHmac("sha256", secret).update(token).digest("base64");
-
-  if (sig !== expected) return null;
-  return token;
-}
 
 /**
  * Proxy Better Auth API requests to nql-auth.
@@ -31,18 +12,14 @@ function verifyAndExtractToken(raw: string): string | null {
  *
  * Specific routes (sso, logout, session, codex/*) take priority over
  * this catch-all. Everything else is proxied to nql-auth with the
- * verified session token forwarded as a cookie.
+ * signed session cookie forwarded as-is (same BETTER_AUTH_SECRET).
  */
 async function proxyToNqlAuth(request: NextRequest) {
-  // Read local signed cookie
-  const raw =
+  // Read local signed cookie — forward as-is since nql-auth shares
+  // the same BETTER_AUTH_SECRET and expects HMAC-signed cookies.
+  const signedToken =
     request.cookies.get("__Secure-better-auth.session_token")?.value ||
     request.cookies.get("better-auth.session_token")?.value;
-
-  let rawToken: string | null = null;
-  if (raw) {
-    rawToken = verifyAndExtractToken(raw);
-  }
 
   // Build the nql-auth URL with the same path
   const url = new URL(
@@ -55,9 +32,16 @@ async function proxyToNqlAuth(request: NextRequest) {
   const contentType = request.headers.get("content-type");
   if (contentType) headers["Content-Type"] = contentType;
 
-  // Forward the raw session token as a cookie to nql-auth
-  if (rawToken) {
-    headers["Cookie"] = `better-auth.session_token=${rawToken}`;
+  // nql-auth validates trustedOrigins via the Origin header
+  const origin =
+    request.headers.get("origin") ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    "https://stratuscode.dev";
+  headers["Origin"] = origin;
+
+  // Forward the signed session cookie to nql-auth
+  if (signedToken) {
+    headers["Cookie"] = `better-auth.session_token=${signedToken}`;
   }
 
   const fetchOptions: RequestInit = {
