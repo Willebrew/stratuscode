@@ -24,6 +24,8 @@ export interface ConvexSandboxInfo {
   sessionBranch: string;
   workDir: string;
   alphaMode?: boolean;
+  /** Per-user GitHub OAuth token for API operations (PR creation, etc.) */
+  githubToken: string;
   /** Called when a 410 (Gone) error is detected — should recreate the sandbox and return it */
   recoverSandbox?: () => Promise<Sandbox>;
 }
@@ -615,10 +617,8 @@ function createPRCreateTool(info: ConvexSandboxInfo): Tool {
       if (!info.alphaMode && !confirmed) {
         return JSON.stringify({ error: "User confirmation required.", needsConfirmation: true });
       }
-      const githubToken = process.env.GITHUB_TOKEN;
-      if (!githubToken) return JSON.stringify({ error: "GitHub token not configured" });
       try {
-        const octokit = new Octokit({ auth: githubToken });
+        const octokit = new Octokit({ auth: info.githubToken });
         const { data: pr } = await octokit.pulls.create({
           owner: info.owner, repo: info.repo, title, body,
           head: info.sessionBranch, base: info.branch,

@@ -3,6 +3,11 @@
   "globalEnv": [
     "AUTH_PASSWORD",
     "AUTH_SECRET",
+    "BETTER_AUTH_SECRET",
+    "BETTER_AUTH_URL",
+    "DATABASE_URL",
+    "GITHUB_CLIENT_ID",
+    "GITHUB_CLIENT_SECRET",
     "OPENAI_API_KEY",
     "STRATUSCODE_MODEL"
   ],

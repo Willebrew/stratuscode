@@ -554,8 +554,9 @@ export const sendMessage = internalAction({
     // Status already set to 'running' and user message already persisted
     // by the public `send` action before scheduling this internal action.
 
-    const githubToken = process.env.GITHUB_TOKEN;
-    if (!githubToken) throw new Error("GITHUB_TOKEN not configured");
+    const githubAuth = await ctx.runQuery(internal.github_auth.get, { userId: session.userId });
+    if (!githubAuth) throw new Error("GitHub not connected — user must authorize GitHub first");
+    const githubToken = githubAuth.accessToken;
 
     const model = args.model || session.model || "gpt-5.3-codex";
 
@@ -749,6 +750,7 @@ export const sendMessage = internalAction({
         sessionBranch,
         workDir,
         alphaMode: args.alphaMode,
+        githubToken,
         recoverSandbox: async () => {
           console.log("[agent] Sandbox gone mid-run, creating fresh sandbox...");
           const freshSandbox = await createFreshSandbox(

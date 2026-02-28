@@ -29,6 +29,11 @@ export function useRepos(): UseReposReturn {
       const response = await fetch(`/api/repos?${params.toString()}`);
       if (!response.ok) {
         const data = await response.json();
+        if (response.status === 403 && data.error === 'github_not_connected') {
+          // Redirect to GitHub connect flow
+          window.location.href = '/api/auth/github/connect';
+          return;
+        }
         throw new Error(data.error || 'Failed to fetch repositories');
       }
 

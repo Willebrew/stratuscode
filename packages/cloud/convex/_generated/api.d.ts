@@ -14,6 +14,7 @@ import type * as attachments from "../attachments.js";
 import type * as codex_auth from "../codex_auth.js";
 import type * as crons from "../crons.js";
 import type * as feedback from "../feedback.js";
+import type * as github_auth from "../github_auth.js";
 import type * as lib_tools from "../lib/tools.js";
 import type * as messages from "../messages.js";
 import type * as session_actions from "../session_actions.js";
@@ -34,6 +35,7 @@ declare const fullApi: ApiFromModules<{
   codex_auth: typeof codex_auth;
   crons: typeof crons;
   feedback: typeof feedback;
+  github_auth: typeof github_auth;
   "lib/tools": typeof lib_tools;
   messages: typeof messages;
   session_actions: typeof session_actions;

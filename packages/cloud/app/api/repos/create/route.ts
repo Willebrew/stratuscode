@@ -1,20 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Octokit } from '@octokit/rest';
-import { isAuthenticated } from '@/lib/auth-helpers';
+import { getUserId } from '@/lib/auth-helpers';
+import { getGitHubTokenForUser } from '@/lib/github-token';
 
 export async function POST(request: NextRequest) {
-  const authenticated = await isAuthenticated();
+  const userId = await getUserId();
 
-  if (!authenticated) {
+  if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const githubToken = process.env.GITHUB_TOKEN;
-  if (!githubToken) {
-    return NextResponse.json({ error: 'GitHub token not configured' }, { status: 500 });
+  const github = await getGitHubTokenForUser(userId);
+  if (!github) {
+    return NextResponse.json({ error: 'github_not_connected' }, { status: 403 });
   }
 
-  const octokit = new Octokit({ auth: githubToken });
+  const octokit = new Octokit({ auth: github.accessToken });
 
   let body: { name?: string; description?: string; private?: boolean };
   try {

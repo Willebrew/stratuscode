@@ -91,6 +91,17 @@ export default defineSchema({
   })
     .index("by_sessionId", ["sessionId"]),
 
+  // GitHub OAuth tokens — stored per-user for GitHub API access
+  github_auth: defineTable({
+    userId: v.string(),
+    accessToken: v.string(),
+    login: v.string(), // GitHub username
+    githubId: v.number(), // GitHub user ID
+    name: v.optional(v.string()),
+    updatedAt: v.number(),
+  })
+    .index("by_userId", ["userId"]),
+
   // Codex OAuth tokens — stored per-user so Convex actions can access them
   // (cookies aren't accessible from Convex server-side actions)
   codex_auth: defineTable({
