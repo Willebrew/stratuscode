@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHmac } from "crypto";
 
 const NQL_AUTH_URL =
   process.env.NQL_AUTH_URL || "https://auth.neuroquestlabs.ai";
@@ -6,14 +7,19 @@ const NQL_AUTH_URL =
 const NEXT_PUBLIC_NQL_AUTH_URL =
   process.env.NEXT_PUBLIC_NQL_AUTH_URL || "https://auth.neuroquestlabs.ai";
 
+function signCookieValue(value: string, secret: string): string {
+  const signature = createHmac("sha256", secret)
+    .update(value)
+    .digest("base64");
+  return `${value}.${signature}`;
+}
+
 /**
  * GET /api/auth/sso?code=XXX&redirect=/chat
  *
  * SSO callback endpoint. Called by nql-auth after successful login.
- * Exchanges the one-time SSO code for a session token, sets the cookie,
- * and redirects to the final path.
- *
- * Matches the pattern used by neuroquest-labs-site.
+ * Exchanges the one-time SSO code for a session token, signs it
+ * to match Better Auth's cookie format, and redirects to the final path.
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
@@ -25,7 +31,6 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Exchange the one-time code for a session token
     const response = await fetch(`${NQL_AUTH_URL}/api/sso/exchange`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -50,15 +55,26 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(errorUrl);
     }
 
-    // Build redirect response
+    const secret = process.env.BETTER_AUTH_SECRET;
+    if (!secret) {
+      throw new Error("BETTER_AUTH_SECRET is not configured");
+    }
+
+    const signedToken = signCookieValue(sessionToken, secret);
+
     const redirectUrl = new URL(redirectPath, request.nextUrl.origin);
     const res = NextResponse.redirect(redirectUrl);
 
-    // Set session cookie — raw token, httpOnly: false so better-auth
-    // client can read it. Matches neuroquest-labs-site pattern.
-    res.cookies.set("better-auth.session_token", sessionToken, {
-      httpOnly: false,
-      secure: true,
+    const isSecure =
+      request.nextUrl.protocol === "https:" ||
+      process.env.NODE_ENV === "production";
+    const cookieName = isSecure
+      ? "__Secure-better-auth.session_token"
+      : "better-auth.session_token";
+
+    res.cookies.set(cookieName, signedToken, {
+      httpOnly: true,
+      secure: isSecure,
       sameSite: "lax",
       path: "/",
       maxAge: 7 * 24 * 60 * 60,
