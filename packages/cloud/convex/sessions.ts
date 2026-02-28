@@ -285,6 +285,10 @@ export const purgeSessionData = internalMutation({
       await ctx.db.delete(a._id);
     }
 
+    // Feedback
+    const feedbacks = await ctx.db.query("feedback").withIndex("by_sessionId", (q) => q.eq("sessionId", args.id)).collect();
+    for (const f of feedbacks) await ctx.db.delete(f._id);
+
     // Streaming state
     const streamingState = await ctx.db.query("streaming_state").withIndex("by_sessionId", (q) => q.eq("sessionId", args.id)).unique();
     if (streamingState) await ctx.db.delete(streamingState._id);

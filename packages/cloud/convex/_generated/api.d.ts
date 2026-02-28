@@ -13,6 +13,7 @@ import type * as agent_state from "../agent_state.js";
 import type * as attachments from "../attachments.js";
 import type * as codex_auth from "../codex_auth.js";
 import type * as crons from "../crons.js";
+import type * as feedback from "../feedback.js";
 import type * as lib_tools from "../lib/tools.js";
 import type * as messages from "../messages.js";
 import type * as session_actions from "../session_actions.js";
@@ -32,6 +33,7 @@ declare const fullApi: ApiFromModules<{
   attachments: typeof attachments;
   codex_auth: typeof codex_auth;
   crons: typeof crons;
+  feedback: typeof feedback;
   "lib/tools": typeof lib_tools;
   messages: typeof messages;
   session_actions: typeof session_actions;

@@ -19,6 +19,10 @@ interface MessageListProps {
   sessionId?: string;
   onSend?: (message: string) => void;
   onAnswer?: (answer: string) => void;
+  onRetry?: (messageId: string) => Promise<void>;
+  onEdit?: (messageId: string, newContent: string) => Promise<void>;
+  onRate?: (messageId: string, rating: 'up' | 'down') => Promise<void>;
+  isLoading?: boolean;
   bottomPadding?: number;
 }
 
@@ -28,7 +32,7 @@ const SANDBOX_LABELS: Record<SandboxStatus, string> = {
   ready: '',
 };
 
-export function MessageList({ messages, messagesLoading, sandboxStatus = 'idle', todos, sessionId, onSend, onAnswer, bottomPadding }: MessageListProps) {
+export function MessageList({ messages, messagesLoading, sandboxStatus = 'idle', todos, sessionId, onSend, onAnswer, onRetry, onEdit, onRate, isLoading, bottomPadding }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -52,6 +56,20 @@ export function MessageList({ messages, messagesLoading, sandboxStatus = 'idle',
     }
     return map;
   }, [allAttachments]);
+
+  // Single subscription for ALL session feedback — same O(1) pattern as attachments
+  const allFeedback = useQuery(
+    api.feedback.listForSession,
+    sessionId ? { sessionId: sessionId as Id<'sessions'> } : 'skip'
+  );
+  const feedbackByMessage = useMemo(() => {
+    const map = new Map<string, { rating: string; comment?: string }>();
+    if (!allFeedback) return map;
+    for (const f of allFeedback) {
+      map.set(f.messageId as string, { rating: f.rating, comment: f.comment });
+    }
+    return map;
+  }, [allFeedback]);
 
   const isStreaming = useMemo(() => messages.some(m => m.streaming), [messages]);
 
@@ -140,8 +158,13 @@ export function MessageList({ messages, messagesLoading, sandboxStatus = 'idle',
             todos={todos}
             sessionId={sessionId}
             attachments={attachmentsByMessage.get(message.id)}
+            feedback={feedbackByMessage.get(message.id)}
             onSend={onSend}
             onAnswer={onAnswer}
+            onRetry={onRetry}
+            onEdit={onEdit}
+            onRate={onRate}
+            isLoading={isLoading}
           />
         ))}
         {showBootStatus && (

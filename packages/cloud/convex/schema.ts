@@ -103,6 +103,19 @@ export default defineSchema({
   })
     .index("by_userId", ["userId"]),
 
+  // Feedback — thumbs up/down ratings on assistant messages
+  feedback: defineTable({
+    messageId: v.id("messages"),
+    sessionId: v.id("sessions"),
+    userId: v.string(),
+    rating: v.string(), // 'up' | 'down'
+    comment: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_messageId", ["messageId"])
+    .index("by_sessionId", ["sessionId"])
+    .index("by_userId", ["userId"]),
+
   // Attachments — file uploads (images, code files)
   attachments: defineTable({
     sessionId: v.id("sessions"),

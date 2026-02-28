@@ -5,6 +5,9 @@ import clsx from 'clsx';
 import { useState, useEffect, useRef, memo } from 'react';
 import { ChevronRight, Loader2, Check, X, Wrench, HelpCircle, FileCode, Rocket, Download, Paperclip, Copy, ThumbsUp, ThumbsDown, RotateCcw, FileEdit, FolderOpen, Search, Terminal, Eye, GitBranch, ClipboardList, Send } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useMutation } from 'convex/react';
+import { api } from '../convex/_generated/api';
+import type { Id } from '../convex/_generated/dataModel';
 import { MarkdownRenderer } from './markdown-renderer';
 import { InlineDiff } from './inline-diff';
 import { AgentThinkingIndicator, WaveText } from './agent-thinking-indicator';
@@ -302,8 +305,13 @@ interface MessageBubbleProps {
   todos?: TodoItem[];
   sessionId?: string;
   attachments?: AttachmentInfo[];
+  feedback?: { rating: string; comment?: string };
   onSend?: (message: string) => void;
   onAnswer?: (answer: string) => void;
+  onRetry?: (messageId: string) => Promise<void>;
+  onEdit?: (messageId: string, newContent: string) => Promise<void>;
+  onRate?: (messageId: string, rating: 'up' | 'down') => Promise<void>;
+  isLoading?: boolean;
 }
 
 // Module-level timer stores — persist across component remounts
@@ -311,10 +319,19 @@ const _frozenTimers = new Map<string, number>();   // messageId → frozen secon
 const _startTimes = new Map<string, number>();     // messageId → Date.now() when thinking started
 const _lastTicks = new Map<string, number>();      // messageId → last displayed seconds value
 
-export const MessageBubble = memo(function MessageBubble({ index, isLast, message, todos, sessionId, attachments, onSend, onAnswer }: MessageBubbleProps) {
+export const MessageBubble = memo(function MessageBubble({ index, isLast, message, todos, sessionId, attachments, feedback, onSend, onAnswer, onRetry, onEdit, onRate, isLoading }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const [isCopied, setIsCopied] = useState(false);
-  const [thumbState, setThumbState] = useState<'up' | 'down' | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState('');
+  const [showCommentInput, setShowCommentInput] = useState(false);
+  const [commentText, setCommentText] = useState('');
+  const editTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const addCommentMutation = useMutation(api.feedback.addComment);
+
+  // Derive thumb state from backend feedback (not local state)
+  const thumbState = feedback?.rating === 'up' ? 'up' : feedback?.rating === 'down' ? 'down' : null;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content);
@@ -322,13 +339,41 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
     setTimeout(() => setIsCopied(false), 2000);
   };
 
+  const handleStartEdit = () => {
+    setEditText(message.content);
+    setIsEditing(true);
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    setEditText('');
+  };
+
+  const handleSubmitEdit = () => {
+    if (!editText.trim()) return;
+    onEdit?.(message.id, editText.trim());
+    setIsEditing(false);
+    setEditText('');
+  };
+
+  // Auto-resize textarea when editing
+  useEffect(() => {
+    if (isEditing && editTextareaRef.current) {
+      const el = editTextareaRef.current;
+      el.style.height = 'auto';
+      el.style.height = el.scrollHeight + 'px';
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    }
+  }, [isEditing]);
+
   if (isUser) {
     return (
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.2 }}
-        className="flex justify-end"
+        className="flex justify-end group"
       >
         <div className="max-w-[85%] sm:max-w-[70%]">
           {attachments && attachments.length > 0 && (
@@ -344,9 +389,55 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
               ))}
             </div>
           )}
-          <div className="rounded-2xl px-4 sm:px-5 py-3 sm:py-3.5 bg-foreground text-background">
-            <MarkdownRenderer content={message.content} />
-          </div>
+          {isEditing ? (
+            <div className="rounded-2xl px-4 sm:px-5 py-3 sm:py-3.5 bg-foreground/90 text-background ring-2 ring-primary/50">
+              <textarea
+                ref={editTextareaRef}
+                className="w-full bg-transparent resize-none outline-none text-background text-[15px] leading-relaxed min-h-[40px]"
+                value={editText}
+                onChange={(e) => {
+                  setEditText(e.target.value);
+                  e.target.style.height = 'auto';
+                  e.target.style.height = e.target.scrollHeight + 'px';
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmitEdit(); }
+                  if (e.key === 'Escape') handleCancelEdit();
+                }}
+              />
+              <div className="flex justify-end gap-2 mt-2 border-t border-background/10 pt-2">
+                <button onClick={handleCancelEdit} className="text-xs px-2.5 py-1 rounded-md hover:bg-background/10 text-background/60 transition-colors">Cancel</button>
+                <button onClick={handleSubmitEdit} className="text-xs px-2.5 py-1 rounded-md bg-background/20 hover:bg-background/30 text-background transition-colors">Send</button>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-2xl px-4 sm:px-5 py-3 sm:py-3.5 bg-foreground text-background">
+              <MarkdownRenderer content={message.content} />
+            </div>
+          )}
+          {/* User message action buttons */}
+          {!isEditing && (
+            <div className="flex justify-end mt-1">
+              <div className="flex items-center gap-1 text-muted-foreground/40 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                <button
+                  onClick={handleCopy}
+                  className="p-1 hover:bg-secondary/40 hover:text-foreground rounded-md transition-colors"
+                  title="Copy"
+                >
+                  {isCopied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+                {!isLoading && (
+                  <button
+                    onClick={handleStartEdit}
+                    className="p-1 hover:bg-secondary/40 hover:text-foreground rounded-md transition-colors"
+                    title="Edit"
+                  >
+                    <FileEdit className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </motion.div>
     );
@@ -594,26 +685,67 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
               {isCopied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
             </button>
             <button
-              onClick={() => setThumbState(thumbState === 'up' ? null : 'up')}
+              onClick={() => onRate?.(message.id, 'up')}
               className={clsx("p-1.5 rounded-md transition-colors", thumbState === 'up' ? "bg-secondary/60 text-foreground" : "hover:bg-secondary/40 hover:text-foreground")}
               title="Good response"
             >
               <ThumbsUp className="w-4 h-4" />
             </button>
             <button
-              onClick={() => setThumbState(thumbState === 'down' ? null : 'down')}
+              onClick={() => {
+                onRate?.(message.id, 'down');
+                if (thumbState !== 'down') setShowCommentInput(true);
+                else setShowCommentInput(false);
+              }}
               className={clsx("p-1.5 rounded-md transition-colors", thumbState === 'down' ? "bg-secondary/60 text-foreground" : "hover:bg-secondary/40 hover:text-foreground")}
               title="Bad response"
             >
               <ThumbsDown className="w-4 h-4" />
             </button>
-            <button
-              className="p-1.5 hover:bg-secondary/40 hover:text-foreground rounded-md transition-colors ml-1"
-              title="Retry"
-            >
-              <RotateCcw className="w-4 h-4" />
-            </button>
+            {!isLoading && message.id !== 'streaming' && (
+              <button
+                onClick={() => onRetry?.(message.id)}
+                className="p-1.5 hover:bg-secondary/40 hover:text-foreground rounded-md transition-colors ml-1"
+                title="Retry"
+              >
+                <RotateCcw className="w-4 h-4" />
+              </button>
+            )}
           </div>
+        </div>
+      )}
+      {/* Comment input after thumbs-down */}
+      {showCommentInput && thumbState === 'down' && (
+        <div className="flex items-center gap-2 mt-1 ml-1 animate-fade-in">
+          <input
+            type="text"
+            className="flex-1 text-xs bg-secondary/30 border border-border/30 rounded-md px-2.5 py-1.5 text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-border/60 transition-colors"
+            placeholder="What went wrong? (optional)"
+            value={commentText}
+            onChange={(e) => setCommentText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                if (commentText.trim()) {
+                  addCommentMutation({ messageId: message.id as Id<'messages'>, comment: commentText.trim() }).catch(() => {});
+                }
+                setShowCommentInput(false);
+                setCommentText('');
+              }
+              if (e.key === 'Escape') {
+                setShowCommentInput(false);
+                setCommentText('');
+              }
+            }}
+          />
+          <button
+            onClick={() => {
+              setShowCommentInput(false);
+              setCommentText('');
+            }}
+            className="text-xs text-muted-foreground/40 hover:text-foreground p-1 rounded-md transition-colors"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
     </div>

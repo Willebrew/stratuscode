@@ -52,6 +52,9 @@ export interface UseConvexChatReturn {
   sendMessage: (message: string, options?: { alphaMode?: boolean; model?: string; reasoningEffort?: string; attachmentIds?: string[]; agentMode?: string }) => Promise<void>;
   answerQuestion: (answer: string) => Promise<void>;
   requestCancel: () => Promise<void>;
+  retryMessage: (messageId: string) => Promise<void>;
+  editMessage: (messageId: string, newContent: string) => Promise<void>;
+  rateMessage: (messageId: string, rating: 'up' | 'down') => Promise<void>;
 }
 
 export function useConvexChat(
@@ -90,6 +93,8 @@ export function useConvexChat(
   const forceResetMutation = useMutation(api.sessions.forceReset);
   const answerMutation = useMutation(api.streaming.answerQuestion);
   const recoverStaleMutation = useMutation(api.sessions.recoverStaleSession);
+  const truncateFromMessageMutation = useMutation(api.messages.truncateFromMessage);
+  const setRatingMutation = useMutation(api.feedback.setRating);
 
   // ─── Stale session recovery ───
   // When a Convex action crashes (transient error / OOM / timeout), the
@@ -350,6 +355,83 @@ export function useConvexChat(
     await cancelMutation({ id: sessionId });
   }, [sessionId, cancelMutation]);
 
+  // Retry: delete the assistant message and re-run the preceding user message
+  const retryMessage = useCallback(
+    async (messageId: string) => {
+      if (!sessionId || isLoading) return;
+
+      // Find the assistant message being retried and the preceding user message
+      const msgs = dbMessages || [];
+      const msgIndex = msgs.findIndex((m: any) => m._id === messageId);
+      if (msgIndex === -1) return;
+
+      let userMessage: any = null;
+      for (let i = msgIndex - 1; i >= 0; i--) {
+        if ((msgs as any[])[i].role === 'user') {
+          userMessage = (msgs as any[])[i];
+          break;
+        }
+      }
+      if (!userMessage) return;
+
+      // Delete assistant message + everything after it, rebuild agent_state
+      await truncateFromMessageMutation({
+        sessionId,
+        messageId: messageId as Id<'messages'>,
+        inclusive: true,
+      });
+
+      // Re-send — user message still exists, so skip sendUserMessage
+      const title = userMessage.content.slice(0, 80) + (userMessage.content.length > 80 ? '...' : '');
+      await prepareSendMutation({
+        id: sessionId,
+        title,
+        lastMessage: userMessage.content.slice(0, 200),
+      });
+
+      sendAction({
+        sessionId,
+        message: userMessage.content,
+      }).catch((e) => {
+        console.error('[retryMessage] Action failed, resetting session:', e);
+        forceResetMutation({ id: sessionId }).catch(() => {});
+      });
+    },
+    [sessionId, isLoading, dbMessages, truncateFromMessageMutation, prepareSendMutation, sendAction, forceResetMutation]
+  );
+
+  // Edit: delete from the user message onward, send new content
+  const editMessage = useCallback(
+    async (messageId: string, newContent: string) => {
+      if (!sessionId || isLoading) return;
+
+      // Delete this user message + everything after
+      await truncateFromMessageMutation({
+        sessionId,
+        messageId: messageId as Id<'messages'>,
+        inclusive: true,
+      });
+
+      // Send new content through the normal full flow
+      await sendMessage(newContent);
+    },
+    [sessionId, isLoading, truncateFromMessageMutation, sendMessage]
+  );
+
+  // Rate: toggle thumbs up/down on an assistant message
+  const rateMessage = useCallback(
+    async (messageId: string, rating: 'up' | 'down') => {
+      if (!sessionId) return;
+      await setRatingMutation({
+        messageId: messageId as Id<'messages'>,
+        sessionId,
+        userId: 'owner',
+        rating,
+      });
+    },
+    [sessionId, setRatingMutation]
+  );
+
   return {
     messages,
     messagesLoading,
@@ -363,5 +445,8 @@ export function useConvexChat(
     sendMessage,
     answerQuestion,
     requestCancel,
+    retryMessage,
+    editMessage,
+    rateMessage,
   };
 }

@@ -25,6 +25,9 @@ export function ChatInterface({ sessionId: sessionIdStr }: ChatInterfaceProps) {
     sendMessage,
     answerQuestion,
     requestCancel,
+    retryMessage,
+    editMessage,
+    rateMessage,
   } = useConvexChat(convexSessionId);
 
   const [alphaMode, setAlphaMode] = useState(false);
@@ -80,6 +83,10 @@ export function ChatInterface({ sessionId: sessionIdStr }: ChatInterfaceProps) {
         sessionId={sessionIdStr}
         onSend={handleSend}
         onAnswer={answerQuestion}
+        onRetry={retryMessage}
+        onEdit={editMessage}
+        onRate={rateMessage}
+        isLoading={isLoading}
         bottomPadding={inputHeight}
       />
 
