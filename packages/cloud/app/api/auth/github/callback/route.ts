@@ -9,7 +9,10 @@ export async function GET(request: NextRequest) {
   const state = request.nextUrl.searchParams.get('state');
   const origin = request.nextUrl.origin;
 
+  console.log('[github-callback] Starting callback, origin:', origin);
+
   if (!code || !state) {
+    console.log('[github-callback] Missing code or state');
     return NextResponse.redirect(
       new URL('/chat?github_error=missing_params', origin)
     );
@@ -19,6 +22,8 @@ export async function GET(request: NextRequest) {
   const cookieStore = await cookies();
   const storedState = cookieStore.get('github_oauth_state')?.value;
   cookieStore.delete('github_oauth_state');
+
+  console.log('[github-callback] State match:', storedState === state, 'stored:', !!storedState);
 
   if (!storedState || storedState !== state) {
     return NextResponse.redirect(
@@ -42,6 +47,7 @@ export async function GET(request: NextRequest) {
   });
 
   if (!tokenRes.ok) {
+    console.log('[github-callback] Token exchange HTTP failed:', tokenRes.status);
     return NextResponse.redirect(
       new URL('/chat?github_error=token_exchange_failed', origin)
     );
@@ -49,13 +55,14 @@ export async function GET(request: NextRequest) {
 
   const tokenData = await tokenRes.json();
   if (tokenData.error) {
-    console.error('GitHub OAuth error:', tokenData.error_description);
+    console.error('[github-callback] Token exchange error:', tokenData.error, tokenData.error_description);
     return NextResponse.redirect(
       new URL('/chat?github_error=token_exchange_failed', origin)
     );
   }
 
   const accessToken: string = tokenData.access_token;
+  console.log('[github-callback] Got access token, length:', accessToken?.length);
 
   // Fetch GitHub user profile
   const userRes = await fetch('https://api.github.com/user', {
@@ -66,23 +73,32 @@ export async function GET(request: NextRequest) {
   });
 
   if (!userRes.ok) {
+    console.log('[github-callback] Profile fetch failed:', userRes.status);
     return NextResponse.redirect(
       new URL('/chat?github_error=profile_fetch_failed', origin)
     );
   }
 
   const githubUser = await userRes.json();
+  console.log('[github-callback] GitHub user:', githubUser.login, 'id:', githubUser.id);
 
   // Get authenticated StratusCode user
   const userId = await getUserId();
+  console.log('[github-callback] StratusCode userId:', userId);
+
   if (!userId) {
+    // Log all cookies for debugging
+    const allCookies = cookieStore.getAll().map(c => c.name);
+    console.log('[github-callback] No userId! Available cookies:', allCookies);
     return NextResponse.redirect(
-      new URL('/login?github_error=not_authenticated', origin)
+      new URL('/chat?github_error=not_authenticated', origin)
     );
   }
 
   // Store in Convex
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  console.log('[github-callback] Convex URL:', convexUrl);
+
   if (!convexUrl) {
     return NextResponse.redirect(
       new URL('/chat?github_error=convex_not_configured', origin)
@@ -98,8 +114,9 @@ export async function GET(request: NextRequest) {
       githubId: githubUser.id,
       name: githubUser.name || undefined,
     });
+    console.log('[github-callback] Saved to Convex successfully');
   } catch (e) {
-    console.error('Failed to save GitHub tokens to Convex:', e);
+    console.error('[github-callback] Failed to save to Convex:', e);
     return NextResponse.redirect(
       new URL('/chat?github_error=save_failed', origin)
     );
