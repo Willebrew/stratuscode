@@ -379,7 +379,7 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
         transition={{ duration: 0.2 }}
         className="flex justify-end group"
       >
-        <div className="max-w-[85%] sm:max-w-[70%]">
+        <div className={isEditing ? "w-full" : "max-w-[85%] sm:max-w-[70%]"}>
           {attachments && attachments.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mb-1.5 justify-end">
               {attachments.map((a) => (
@@ -398,7 +398,7 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
               <div>
                 <textarea
                   ref={editTextareaRef}
-                  className="w-full bg-transparent resize-none outline-none text-inherit text-[15px] leading-relaxed"
+                  className="w-full bg-transparent resize-none outline-none text-inherit text-[15px] leading-relaxed min-h-[120px]"
                   value={editText}
                   onChange={(e) => {
                     setEditText(e.target.value);
