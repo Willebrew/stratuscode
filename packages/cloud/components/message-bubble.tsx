@@ -447,8 +447,10 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
     return 0;
   });
 
-  // Record when thinking starts
-  if (!isThinkingCompleted && !_startTimes.has(timerKey) && (hasReasoningParts || isThinkingStage)) {
+  // Record when thinking starts — only when reasoning parts arrive (not on stage
+  // change, which arrives earlier via Convex subscription and would make the
+  // frontend timer run ahead of the backend's authoritative calculation).
+  if (!isThinkingCompleted && !_startTimes.has(timerKey) && hasReasoningParts) {
     _startTimes.set(timerKey, Date.now());
   }
 
@@ -1305,9 +1307,12 @@ function SubagentCard({ toolCall, nestedParts, statusText: groupedStatusText, su
             <div className="mt-1 ml-1 flex flex-col gap-2">
               {nestedParts.length > 0 ? (() => {
                 const segments = groupIntoChains(groupSubagentParts(nestedParts.map((part, i) => ({ part, idx: i }))));
+                // Only show "Done" if the subagent_end part has actually arrived
+                const hasSubagentEnd = nestedParts.some(p => (p as any).type === 'subagent_end');
+                const showChainDone = isCompleted && hasSubagentEnd;
                 return segments.map((seg, i) =>
                   seg.type === 'chain' ? (
-                    <ToolChain key={`sc-${i}`} items={seg.items} showDone={isCompleted && i === segments.length - 1} />
+                    <ToolChain key={`sc-${i}`} items={seg.items} showDone={showChainDone && i === segments.length - 1} />
                   ) : (
                     <MessagePartView key={seg.item.idx} part={seg.item.part} nestedParts={seg.item.nestedParts} statusText={seg.item.statusText} sessionId={sessionId} />
                   )
