@@ -330,8 +330,12 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
 
   const addCommentMutation = useMutation(api.feedback.addComment);
 
-  // Derive thumb state from backend feedback (not local state)
-  const thumbState = feedback?.rating === 'up' ? 'up' : feedback?.rating === 'down' ? 'down' : null;
+  // Optimistic thumb state — instant UI, synced from backend feedback
+  const [optimisticThumb, setOptimisticThumb] = useState<'up' | 'down' | null>(null);
+  const backendThumb = feedback?.rating === 'up' ? 'up' as const : feedback?.rating === 'down' ? 'down' as const : null;
+  // Once backend catches up, clear optimistic override
+  useEffect(() => { setOptimisticThumb(null); }, [backendThumb]);
+  const thumbState = optimisticThumb ?? backendThumb;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content);
@@ -675,8 +679,11 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
             </div>
           )}
 
-          {/* Action buttons sitting horizontally to the right of the logo space */}
-          <div className="flex items-center gap-1.5 text-muted-foreground/40 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+          {/* Action buttons — always visible when feedback is active */}
+          <div className={clsx(
+            "flex items-center gap-1.5 text-muted-foreground/40 transition-opacity duration-200",
+            thumbState ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+          )}>
             <button
               onClick={handleCopy}
               className="p-1.5 hover:bg-secondary/40 hover:text-foreground rounded-md transition-colors"
@@ -685,22 +692,37 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
               {isCopied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
             </button>
             <button
-              onClick={() => onRate?.(message.id, 'up')}
-              className={clsx("p-1.5 rounded-md transition-colors", thumbState === 'up' ? "bg-secondary/60 text-foreground" : "hover:bg-secondary/40 hover:text-foreground")}
+              onClick={() => {
+                setOptimisticThumb(thumbState === 'up' ? null : 'up');
+                onRate?.(message.id, 'up');
+              }}
+              className={clsx(
+                "p-1.5 rounded-md transition-colors",
+                thumbState === 'up'
+                  ? "bg-green-500/20 text-green-400"
+                  : "hover:bg-secondary/40 hover:text-foreground"
+              )}
               title="Good response"
             >
-              <ThumbsUp className="w-4 h-4" />
+              <ThumbsUp className={clsx("w-4 h-4", thumbState === 'up' && "fill-current")} />
             </button>
             <button
               onClick={() => {
+                const wasDown = thumbState === 'down';
+                setOptimisticThumb(wasDown ? null : 'down');
                 onRate?.(message.id, 'down');
-                if (thumbState !== 'down') setShowCommentInput(true);
+                if (!wasDown) setShowCommentInput(true);
                 else setShowCommentInput(false);
               }}
-              className={clsx("p-1.5 rounded-md transition-colors", thumbState === 'down' ? "bg-secondary/60 text-foreground" : "hover:bg-secondary/40 hover:text-foreground")}
+              className={clsx(
+                "p-1.5 rounded-md transition-colors",
+                thumbState === 'down'
+                  ? "bg-red-500/20 text-red-400"
+                  : "hover:bg-secondary/40 hover:text-foreground"
+              )}
               title="Bad response"
             >
-              <ThumbsDown className="w-4 h-4" />
+              <ThumbsDown className={clsx("w-4 h-4", thumbState === 'down' && "fill-current")} />
             </button>
             {!isLoading && message.id !== 'streaming' && (
               <button
