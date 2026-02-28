@@ -1,8 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+
+const NQL_AUTH_URL =
+  process.env.NQL_AUTH_URL || "https://auth.neuroquestlabs.ai";
 
 export async function POST(request: NextRequest) {
-  // Use Better Auth's sign-out to invalidate the session in PostgreSQL
-  await auth.api.signOut({ headers: request.headers });
+  // Proxy sign-out to nql-auth to invalidate the session in PostgreSQL
+  try {
+    await fetch(`${NQL_AUTH_URL}/api/auth/sign-out`, {
+      method: "POST",
+      headers: {
+        cookie: request.headers.get("cookie") || "",
+        "content-type": "application/json",
+      },
+      cache: "no-store",
+    });
+  } catch {
+    // Best-effort — session cookie is cleared client-side regardless
+  }
   return NextResponse.json({ success: true });
 }

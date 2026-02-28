@@ -1,6 +1,5 @@
 import { cookies } from "next/headers";
 import { createHmac } from "crypto";
-import { prisma } from "@/lib/prisma";
 
 /**
  * Read the raw signed cookie value from the request.
@@ -50,35 +49,33 @@ export async function getSessionToken(): Promise<string | null> {
 }
 
 /**
- * Get the authenticated user's ID by querying the shared PostgreSQL database.
+ * Get the authenticated user's ID by calling the nql-auth session endpoint.
+ * This avoids requiring direct PostgreSQL access from Vercel.
  */
 export async function getUserId(): Promise<string | null> {
   const raw = await getRawCookie();
-  if (!raw) {
-    console.log("[getUserId] No raw cookie found");
-    return null;
-  }
+  if (!raw) return null;
 
   const token = verifyAndExtractToken(raw);
-  if (!token) {
-    console.log("[getUserId] HMAC verification failed. Secret present:", !!process.env.BETTER_AUTH_SECRET, "cookie length:", raw.length);
-    return null;
-  }
+  if (!token) return null;
 
-  console.log("[getUserId] Token verified, querying DB...");
+  const nqlAuthUrl =
+    process.env.NQL_AUTH_URL || "https://auth.neuroquestlabs.ai";
 
   try {
-    const session = await prisma.session.findUnique({
-      where: { token },
-      select: { userId: true, expiresAt: true },
+    const res = await fetch(`${nqlAuthUrl}/api/auth/get-session`, {
+      headers: {
+        Cookie: `__Secure-better-auth.session_token=${raw}`,
+      },
+      cache: "no-store",
     });
 
-    console.log("[getUserId] DB result: found:", !!session, "expired:", session ? session.expiresAt < new Date() : "N/A");
+    if (!res.ok) return null;
 
-    if (!session || session.expiresAt < new Date()) return null;
-    return session.userId;
+    const data = await res.json();
+    return data?.user?.id ?? null;
   } catch (e) {
-    console.error("[getUserId] DB error:", e);
+    console.error("[getUserId] nql-auth request failed:", e);
     return null;
   }
 }

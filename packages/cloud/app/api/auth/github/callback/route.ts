@@ -57,19 +57,9 @@ export async function GET(request: NextRequest) {
   }
 
   const githubUser = await userRes.json();
-  console.log('[github-callback] GitHub user:', githubUser.login);
-
-  // Debug: log cookie state
-  const rawCookie =
-    cookieStore.get('__Secure-better-auth.session_token')?.value ||
-    cookieStore.get('better-auth.session_token')?.value ||
-    null;
-  const allCookieNames = cookieStore.getAll().map(c => c.name);
-  console.log('[github-callback] Session cookie present:', !!rawCookie, 'All cookies:', allCookieNames);
 
   // Get authenticated StratusCode user
   const userId = await getUserId();
-  console.log('[github-callback] userId:', userId);
 
   if (!userId) {
     return NextResponse.redirect(new URL('/chat?github_error=not_authenticated', origin));
