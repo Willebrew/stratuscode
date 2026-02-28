@@ -9,8 +9,8 @@ const NQL_AUTH_URL =
  *
  * Proxy for Better Auth's get-session endpoint.
  * authClient.useSession() calls this automatically.
- * We verify the local cookie, then forward the raw token to nql-auth
- * which runs the actual Better Auth server and returns user data.
+ * We verify the local cookie signature, then forward the full signed
+ * cookie to nql-auth which runs the actual Better Auth server.
  */
 export async function GET() {
   const session = await getServerSession();
@@ -20,9 +20,10 @@ export async function GET() {
   }
 
   try {
+    // Forward the full signed cookie value so nql-auth can validate it
     const res = await fetch(`${NQL_AUTH_URL}/api/auth/get-session`, {
       headers: {
-        Cookie: `better-auth.session_token=${session.token}`,
+        Cookie: `better-auth.session_token=${session.raw}`,
       },
     });
 

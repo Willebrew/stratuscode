@@ -24,7 +24,7 @@ export async function getServerSession() {
   const expected = createHmac("sha256", secret).update(token).digest("base64");
   if (sig !== expected) return null;
 
-  return { authenticated: true, token };
+  return { authenticated: true, token, raw };
 }
 
 export async function isAuthenticated(): Promise<boolean> {
@@ -46,7 +46,7 @@ export async function getUserId(): Promise<string | null> {
   try {
     const res = await fetch(`${nqlAuthUrl}/api/auth/get-session`, {
       headers: {
-        Cookie: `better-auth.session_token=${session.token}`,
+        Cookie: `better-auth.session_token=${session.raw}`,
       },
     });
     if (!res.ok) return null;
