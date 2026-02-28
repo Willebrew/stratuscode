@@ -393,43 +393,43 @@ export const MessageBubble = memo(function MessageBubble({ index, isLast, messag
               ))}
             </div>
           )}
-          {isEditing ? (
-            <div className="rounded-2xl bg-foreground text-background flex items-end gap-2 px-4 sm:px-5 py-2.5 sm:py-3">
-              <textarea
-                ref={editTextareaRef}
-                className="flex-1 bg-transparent resize-none outline-none text-inherit text-[15px] leading-relaxed min-h-[24px] max-h-[200px] py-0.5"
-                value={editText}
-                onChange={(e) => {
-                  setEditText(e.target.value);
-                  e.target.style.height = 'auto';
-                  e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmitEdit(); }
-                  if (e.key === 'Escape') handleCancelEdit();
-                }}
-              />
-              <div className="flex items-center gap-1.5 shrink-0 pb-0.5">
-                <button
-                  onClick={handleCancelEdit}
-                  className="text-[11px] px-2 py-1 rounded-md text-background/40 hover:text-background/70 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSubmitEdit}
-                  disabled={!editText.trim()}
-                  className="w-7 h-7 rounded-full bg-background text-foreground flex items-center justify-center hover:bg-background/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  <ArrowUp className="w-3.5 h-3.5" />
-                </button>
+          <div className="rounded-2xl px-4 sm:px-5 py-3 sm:py-3.5 bg-foreground text-background">
+            {isEditing ? (
+              <div>
+                <textarea
+                  ref={editTextareaRef}
+                  className="w-full bg-transparent resize-none outline-none text-inherit text-[15px] leading-relaxed"
+                  value={editText}
+                  onChange={(e) => {
+                    setEditText(e.target.value);
+                    e.target.style.height = 'auto';
+                    e.target.style.height = e.target.scrollHeight + 'px';
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmitEdit(); }
+                    if (e.key === 'Escape') handleCancelEdit();
+                  }}
+                />
+                <div className="flex items-center justify-end gap-1.5 mt-2">
+                  <button
+                    onClick={handleCancelEdit}
+                    className="text-[11px] px-2 py-1 rounded-md text-background/40 hover:text-background/70 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSubmitEdit}
+                    disabled={!editText.trim()}
+                    className="w-7 h-7 rounded-full bg-background text-foreground flex items-center justify-center hover:bg-background/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <ArrowUp className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="rounded-2xl px-4 sm:px-5 py-3 sm:py-3.5 bg-foreground text-background">
+            ) : (
               <MarkdownRenderer content={message.content} />
-            </div>
-          )}
+            )}
+          </div>
           {/* User message action buttons */}
           {!isEditing && (
             <div className="flex justify-end mt-1">
