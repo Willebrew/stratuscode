@@ -141,7 +141,7 @@ async function createFreshSandbox(
   const sandbox = await Sandbox.create({
     ...getSandboxCredentials(),
     runtime: "node22",
-    timeout: 800_000,
+    timeout: 3_600_000, // 1 hour
   });
 
   const workDir = "/vercel/sandbox";
@@ -640,7 +640,7 @@ export const sendMessage = internalAction({
           sandbox = await Sandbox.create({
             ...getSandboxCredentials(),
             source: { type: "snapshot", snapshotId: session.snapshotId },
-            timeout: 800_000,
+            timeout: 3_600_000, // 1 hour
           });
           console.log(`[agent] Resumed from snapshot ${session.snapshotId}`);
         } catch (e) {
@@ -975,6 +975,9 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
             }));
           },
           onToolResult: async (tc: any, result: string) => {
+            // Keep sandbox alive during long runs — extend by 1 hour after each tool
+            try { await sandboxInfo.sandbox.extendTimeout(3_600_000); } catch {}
+
             const toolName = tc.function?.name || "";
             const toolArgs = tc.function?.arguments || "";
 
@@ -1242,15 +1245,16 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
       // progress, the new run sees status="snapshotting" and falls through
       // to a fresh clone (losing all files). Instead, keep the sandbox
       // running — next run reconnects instantly via Sandbox.get(sandboxId).
-      // The sandbox stays alive for ~13 minutes (the timeout set at creation).
+      // Extend timeout by 1 hour so sandbox survives idle time between messages.
       // If it expires, the next run will do a fresh clone (cold start).
+      try { await sandbox!.extendTimeout(3_600_000); } catch {}
       if (await isMyRun()) {
         await ctx.runMutation(internal.sessions.updateStatus, {
           id: args.sessionId,
           status: "idle",
         });
       }
-      console.log(`[agent] Success — sandbox ${sandbox.sandboxId} kept alive for reconnection`);
+      console.log(`[agent] Success — sandbox ${sandbox!.sandboxId} kept alive for reconnection (extended 1h)`);
     } catch (error) {
       // Clean up cancel polling on error path
       if (cancelCheckInterval) clearInterval(cancelCheckInterval);

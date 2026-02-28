@@ -64,13 +64,13 @@ async function safeSandboxExec(
   cwd?: string
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   try {
-    return await safeSandboxExec(info, command, cwd);
+    return await sandboxExec(info.sandbox, command, cwd);
   } catch (error: any) {
     if (isSandboxGone(error) && info.recoverSandbox) {
       console.log("[tools] Sandbox gone (410), recovering...");
       info.sandbox = await info.recoverSandbox();
       info.sandboxId = info.sandbox.sandboxId;
-      return await safeSandboxExec(info, command, cwd);
+      return await sandboxExec(info.sandbox, command, cwd);
     }
     throw error;
   }
