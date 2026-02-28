@@ -1,5 +1,6 @@
 'use client';
 
+import { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
@@ -30,7 +31,9 @@ function NewChatContent() {
 export default function NewChatPage() {
   return (
     <ProtectedRoute>
-      <NewChatContent />
+      <Suspense>
+        <NewChatContent />
+      </Suspense>
     </ProtectedRoute>
   );
 }
