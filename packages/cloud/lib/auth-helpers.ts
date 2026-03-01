@@ -55,25 +55,20 @@ export async function getSessionToken(): Promise<string | null> {
 }
 
 /**
- * Get the authenticated user's ID by calling the nql-auth session endpoint.
- * Strips the HMAC signature before sending to nql-auth, which expects
- * the raw session token (not StratusCode's custom HMAC wrapper).
+ * Get the authenticated user's ID by calling nql-auth's session endpoint.
  */
 export async function getUserId(): Promise<string | null> {
-  const raw = await getRawCookie();
-  if (!raw) return null;
-
-  const token = verifyAndExtractToken(raw);
+  const token = await getSessionToken();
   if (!token) return null;
 
   const nqlAuthUrl =
     process.env.NQL_AUTH_URL || "https://auth.neuroquestlabs.ai";
 
   try {
-    const res = await fetch(`${nqlAuthUrl}/api/auth/get-session`, {
-      headers: {
-        Cookie: `__Secure-better-auth.session_token=${token}`,
-      },
+    const res = await fetch(`${nqlAuthUrl}/api/sso/session`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
       cache: "no-store",
     });
 

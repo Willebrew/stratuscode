@@ -3,10 +3,11 @@
 import React, {
   createContext,
   useContext,
+  useState,
+  useEffect,
   useCallback,
   ReactNode,
 } from "react";
-import { authClient } from "@/lib/auth-client";
 
 interface User {
   id: string;
@@ -39,24 +40,45 @@ export function useAuth() {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const { data: session, isPending, refetch } = authClient.useSession();
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const user: User | null = session?.user
-    ? {
-        id: session.user.id,
-        email: session.user.email,
-        name: session.user.name,
+  const fetchUser = useCallback(async () => {
+    try {
+      const res = await fetch("/api/auth/session");
+      if (!res.ok) {
+        setUser(null);
+        return;
       }
-    : null;
+      const data = await res.json();
+      if (data?.user) {
+        setUser({
+          id: data.user.id,
+          email: data.user.email,
+          name: data.user.name,
+        });
+      } else {
+        setUser(null);
+      }
+    } catch {
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchUser();
+  }, [fetchUser]);
 
   const refreshAuth = useCallback(async () => {
-    await refetch();
-  }, [refetch]);
+    setLoading(true);
+    await fetchUser();
+  }, [fetchUser]);
 
   const signOut = useCallback(async () => {
-    // Invalidate session in shared PostgreSQL via Better Auth
-    await authClient.signOut();
-    // Redirect to nql-auth to clear the central session
+    await fetch("/api/auth/logout", { method: "POST" });
+    setUser(null);
     const nqlAuthUrl =
       process.env.NEXT_PUBLIC_NQL_AUTH_URL ||
       "https://auth.neuroquestlabs.ai";
@@ -65,7 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value: AuthContextType = {
     user,
-    loading: isPending,
+    loading,
     isAuthenticated: !!user,
     refreshAuth,
     signOut,
