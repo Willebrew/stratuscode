@@ -67,6 +67,7 @@ export const PROVIDER_CONFIGS: Record<string, Omit<ProviderConfig, 'apiKey'> & {
       'x-opencode-client': 'cli',
     },
     models: [
+      { id: 'minimax-m2.5-free', name: 'MiniMax M2.5 Free', free: true, contextWindow: 128_000 },
       { id: 'minimax-m2.1-free', name: 'MiniMax M2.1 Free', free: true, contextWindow: 128_000 },
       { id: 'trinity-large-preview-free', name: 'Trinity Large Preview', free: true, contextWindow: 128_000 },
       { id: 'kimi-k2.5-free', name: 'Kimi K2.5 Free', free: true, contextWindow: 128_000 },
