@@ -1,25 +1,46 @@
 import { NextRequest, NextResponse } from "next/server";
+import { verifyAndExtractToken } from "@/lib/auth-helpers";
 
 const NQL_AUTH_URL =
   process.env.NQL_AUTH_URL || "https://auth.neuroquestlabs.ai";
 
+const SESSION_COOKIE_NAMES = [
+  "__Secure-better-auth.session_token",
+  "better-auth.session_token",
+];
+
 /**
  * Proxy Better Auth API requests to the central nql-auth service.
- * This avoids needing direct PostgreSQL access from Vercel.
  *
- * Handles: get-session, sign-out, and any other Better Auth endpoints
- * that authClient calls.
+ * StratusCode's SSO route wraps the session token with an HMAC signature:
+ *   cookie = {raw_token}.{hmac}
+ * But nql-auth expects the raw token. So we strip the HMAC before forwarding.
  */
 async function proxyToNqlAuth(request: NextRequest): Promise<NextResponse> {
   const url = new URL(request.url);
-  // e.g. /api/auth/get-session → /api/auth/get-session
   const targetUrl = `${NQL_AUTH_URL}${url.pathname}${url.search}`;
 
+  // Build a new cookie string with the HMAC stripped from session tokens
+  const cookies = request.cookies.getAll();
+  const cookieParts: string[] = [];
+
+  for (const c of cookies) {
+    if (SESSION_COOKIE_NAMES.includes(c.name)) {
+      const rawToken = verifyAndExtractToken(c.value);
+      if (rawToken) {
+        cookieParts.push(`${c.name}=${rawToken}`);
+      }
+    } else {
+      cookieParts.push(`${c.name}=${c.value}`);
+    }
+  }
+
   const headers = new Headers();
-  // Forward the session cookie
-  const cookie = request.headers.get("cookie");
-  if (cookie) headers.set("cookie", cookie);
-  headers.set("content-type", request.headers.get("content-type") || "application/json");
+  if (cookieParts.length > 0) {
+    headers.set("cookie", cookieParts.join("; "));
+  }
+  const ct = request.headers.get("content-type");
+  if (ct) headers.set("content-type", ct);
 
   const res = await fetch(targetUrl, {
     method: request.method,

@@ -1,22 +1,28 @@
 import { cookies } from "next/headers";
 import { createHmac } from "crypto";
 
+const SESSION_COOKIE_NAMES = [
+  "__Secure-better-auth.session_token",
+  "better-auth.session_token",
+] as const;
+
 /**
  * Read the raw signed cookie value from the request.
  */
 async function getRawCookie(): Promise<string | null> {
   const cookieStore = await cookies();
-  return (
-    cookieStore.get("__Secure-better-auth.session_token")?.value ||
-    cookieStore.get("better-auth.session_token")?.value ||
-    null
-  );
+  for (const name of SESSION_COOKIE_NAMES) {
+    const val = cookieStore.get(name)?.value;
+    if (val) return val;
+  }
+  return null;
 }
 
 /**
  * Verify HMAC signature and extract the raw session token.
+ * Cookie format: {token}.{hmac_base64}
  */
-function verifyAndExtractToken(raw: string): string | null {
+export function verifyAndExtractToken(raw: string): string | null {
   const secret = process.env.BETTER_AUTH_SECRET;
   if (!secret) return null;
 
@@ -50,7 +56,8 @@ export async function getSessionToken(): Promise<string | null> {
 
 /**
  * Get the authenticated user's ID by calling the nql-auth session endpoint.
- * This avoids requiring direct PostgreSQL access from Vercel.
+ * Strips the HMAC signature before sending to nql-auth, which expects
+ * the raw session token (not StratusCode's custom HMAC wrapper).
  */
 export async function getUserId(): Promise<string | null> {
   const raw = await getRawCookie();
@@ -65,7 +72,7 @@ export async function getUserId(): Promise<string | null> {
   try {
     const res = await fetch(`${nqlAuthUrl}/api/auth/get-session`, {
       headers: {
-        Cookie: `__Secure-better-auth.session_token=${raw}`,
+        Cookie: `__Secure-better-auth.session_token=${token}`,
       },
       cache: "no-store",
     });
