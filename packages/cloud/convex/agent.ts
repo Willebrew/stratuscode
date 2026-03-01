@@ -376,9 +376,12 @@ async function resolveProviderForModel(
   }
 
   // Direct Anthropic API (claude-* models without vendor prefix)
-  if (m.startsWith("claude-") && process.env.ANTHROPIC_API_KEY) {
+  if (m.startsWith("claude-")) {
+    const userKey = await ctx.runQuery(internal.user_api_keys.get, { userId, provider: "anthropic" });
+    const apiKey = userKey?.apiKey || process.env.ANTHROPIC_API_KEY || "";
+    if (!apiKey) throw new Error("No Anthropic API key configured. Add your key in Settings.");
     return {
-      apiKey: process.env.ANTHROPIC_API_KEY,
+      apiKey,
       baseUrl: "https://api.anthropic.com/v1",
       providerType: "chat-completions",
     };
@@ -386,8 +389,11 @@ async function resolveProviderForModel(
 
   // OpenRouter models (vendor/model format, e.g. "anthropic/claude-sonnet-4")
   if (model.includes("/")) {
+    const userKey = await ctx.runQuery(internal.user_api_keys.get, { userId, provider: "openrouter" });
+    const apiKey = userKey?.apiKey || process.env.OPENROUTER_API_KEY || "";
+    if (!apiKey) throw new Error("No OpenRouter API key configured. Add your key in Settings.");
     return {
-      apiKey: process.env.OPENROUTER_API_KEY || "",
+      apiKey,
       baseUrl: "https://openrouter.ai/api/v1",
       providerType: "chat-completions",
       headers: {
@@ -408,11 +414,25 @@ async function resolveProviderForModel(
   }
 
   // Default: standard OpenAI API
-  return {
-    apiKey: process.env.OPENAI_API_KEY || "",
-    baseUrl: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
-    providerType: "chat-completions",
-  };
+  {
+    const userKey = await ctx.runQuery(internal.user_api_keys.get, { userId, provider: "openai" });
+    const customKey = await ctx.runQuery(internal.user_api_keys.get, { userId, provider: "custom" });
+    // Custom provider takes priority if user configured one
+    if (customKey?.apiKey && customKey?.baseUrl) {
+      return {
+        apiKey: customKey.apiKey,
+        baseUrl: customKey.baseUrl,
+        providerType: "chat-completions",
+      };
+    }
+    const apiKey = userKey?.apiKey || process.env.OPENAI_API_KEY || "";
+    if (!apiKey) throw new Error("No OpenAI API key configured. Add your key in Settings.");
+    return {
+      apiKey,
+      baseUrl: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
+      providerType: "chat-completions",
+    };
+  }
 }
 
 // ─── Title generation ───

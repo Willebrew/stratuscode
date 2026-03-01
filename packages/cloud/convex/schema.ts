@@ -114,6 +114,17 @@ export default defineSchema({
   })
     .index("by_userId", ["userId"]),
 
+  // Per-user LLM API keys — users provide their own keys per provider
+  user_api_keys: defineTable({
+    userId: v.string(),
+    provider: v.string(), // "openai" | "anthropic" | "openrouter" | "custom"
+    apiKey: v.string(),
+    baseUrl: v.optional(v.string()), // Only for "custom" provider
+    updatedAt: v.number(),
+  })
+    .index("by_userId", ["userId"])
+    .index("by_userId_provider", ["userId", "provider"]),
+
   // Feedback — thumbs up/down ratings on assistant messages
   feedback: defineTable({
     messageId: v.id("messages"),

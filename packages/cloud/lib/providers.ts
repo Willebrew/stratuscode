@@ -121,74 +121,40 @@ export const PROVIDER_CONFIGS: Record<string, Omit<ProviderConfig, 'apiKey'> & {
 };
 
 /**
- * Get available providers based on configured environment variables.
- * Codex is always included — auth is handled server-side in the Convex agent
- * via tokens stored in the Convex DB.
+ * Get available providers — all providers are always available since users
+ * supply their own API keys (stored in Convex DB, resolved by the agent).
+ * Env vars serve only as dev fallback.
  */
 export function getAvailableProviders(): ProviderConfig[] {
   const available: ProviderConfig[] = [];
 
   for (const [id, config] of Object.entries(PROVIDER_CONFIGS)) {
-    // Codex: always available (tokens resolved server-side by the agent)
-    if (id === 'openai-codex') {
-      available.push({
-        id,
-        label: config.label,
-        apiKey: process.env.CODEX_ACCESS_TOKEN || 'server-managed',
-        baseUrl: config.baseUrl,
-        type: config.type,
-        headers: config.headers,
-        models: config.models,
-      });
-      continue;
-    }
-
-    // OpenCode Zen has a default API key for free models (empty string is valid)
-    const apiKey = process.env[config.envKey] || config.apiKey;
-    if (apiKey !== undefined) {
-      available.push({
-        id,
-        label: config.label,
-        apiKey,
-        baseUrl: id === 'custom' ? (process.env.CUSTOM_BASE_URL || config.baseUrl) : config.baseUrl,
-        type: config.type,
-        headers: config.headers,
-        models: config.models,
-      });
-    }
+    available.push({
+      id,
+      label: config.label,
+      apiKey: process.env[config.envKey] || config.apiKey || 'user-managed',
+      baseUrl: id === 'custom' ? (process.env.CUSTOM_BASE_URL || config.baseUrl) : config.baseUrl,
+      type: config.type,
+      headers: config.headers,
+      models: config.models,
+    });
   }
 
   return available;
 }
 
 /**
- * Get provider config by ID
+ * Get provider config by ID — always returns config since keys are
+ * resolved per-user by the Convex agent at runtime.
  */
 export function getProvider(providerId: string): ProviderConfig | null {
   const config = PROVIDER_CONFIGS[providerId];
   if (!config) return null;
 
-  // Codex: always return config (tokens resolved server-side by the agent)
-  if (providerId === 'openai-codex') {
-    return {
-      id: providerId,
-      label: config.label,
-      apiKey: process.env.CODEX_ACCESS_TOKEN || 'server-managed',
-      baseUrl: config.baseUrl,
-      type: config.type,
-      headers: config.headers,
-      models: config.models,
-    };
-  }
-
-  // OpenCode Zen and other providers may have default API keys (empty string is valid)
-  const apiKey = process.env[config.envKey] || config.apiKey;
-  if (apiKey === undefined) return null;
-
   return {
     id: providerId,
     label: config.label,
-    apiKey,
+    apiKey: process.env[config.envKey] || config.apiKey || 'user-managed',
     baseUrl: providerId === 'custom' ? (process.env.CUSTOM_BASE_URL || config.baseUrl) : config.baseUrl,
     type: config.type,
     headers: config.headers,

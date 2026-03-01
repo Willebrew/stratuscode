@@ -3,9 +3,9 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { ChevronLeft, LogOut, Moon, Sun, Monitor, Link2, Loader2, Settings, Check, Cpu } from 'lucide-react';
+import { ChevronLeft, LogOut, Moon, Sun, Monitor, Link2, Loader2, Settings, Check, Cpu, Key, X } from 'lucide-react';
 import { StratusLogo } from '@/components/stratus-logo';
-import { useMutation } from 'convex/react';
+import { useMutation, useQuery } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -104,6 +104,54 @@ export default function SettingsPage() {
   const { user } = useAuth();
   const [selectedModel, setSelectedModel] = useState<string>('gpt-5.3-codex');
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set());
+
+  // API Keys state
+  const userId = user?.id ?? '';
+  const configuredKeys = useQuery(api.user_api_keys.getConfigured, userId ? { userId } : 'skip');
+  const saveApiKey = useMutation(api.user_api_keys.save);
+  const removeApiKey = useMutation(api.user_api_keys.remove);
+  const [apiKeyInputs, setApiKeyInputs] = useState<Record<string, string>>({});
+  const [customBaseUrl, setCustomBaseUrl] = useState('');
+  const [savingProvider, setSavingProvider] = useState<string | null>(null);
+  const [removingProvider, setRemovingProvider] = useState<string | null>(null);
+
+  const API_KEY_PROVIDERS = [
+    { id: 'openai', label: 'OpenAI', placeholder: 'sk-...' },
+    { id: 'anthropic', label: 'Anthropic', placeholder: 'sk-ant-...' },
+    { id: 'openrouter', label: 'OpenRouter', placeholder: 'sk-or-...' },
+    { id: 'custom', label: 'Custom (OpenAI-compatible)', placeholder: 'API key' },
+  ] as const;
+
+  const isProviderConfigured = (providerId: string) =>
+    configuredKeys?.some((k) => k.provider === providerId) ?? false;
+
+  const handleSaveApiKey = async (providerId: string) => {
+    const key = apiKeyInputs[providerId]?.trim();
+    if (!key || !userId) return;
+    setSavingProvider(providerId);
+    try {
+      await saveApiKey({
+        userId,
+        provider: providerId,
+        apiKey: key,
+        baseUrl: providerId === 'custom' ? customBaseUrl.trim() || undefined : undefined,
+      });
+      setApiKeyInputs((prev) => ({ ...prev, [providerId]: '' }));
+      if (providerId === 'custom') setCustomBaseUrl('');
+    } finally {
+      setSavingProvider(null);
+    }
+  };
+
+  const handleRemoveApiKey = async (providerId: string) => {
+    if (!userId) return;
+    setRemovingProvider(providerId);
+    try {
+      await removeApiKey({ userId, provider: providerId });
+    } finally {
+      setRemovingProvider(null);
+    }
+  };
 
   // Load saved model preference on mount
   useEffect(() => {
@@ -270,6 +318,79 @@ export default function SettingsPage() {
                               );
                             })}
                           </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* API Keys */}
+              <div className="rounded-xl border border-border/50 bg-background p-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <Key className="w-4 h-4 text-muted-foreground" />
+                  <div className="text-sm font-medium">API Keys</div>
+                </div>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Add your own API keys to use paid models. Free models (Zen) work without a key.
+                </p>
+                <div className="space-y-3">
+                  {API_KEY_PROVIDERS.map((provider) => {
+                    const configured = isProviderConfigured(provider.id);
+                    const isSaving = savingProvider === provider.id;
+                    const isRemoving = removingProvider === provider.id;
+                    return (
+                      <div key={provider.id} className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium text-foreground">{provider.label}</span>
+                          <div className="flex items-center gap-1.5">
+                            {configured ? (
+                              <>
+                                <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                                <span className="text-[10px] text-green-500 font-medium">Configured</span>
+                              </>
+                            ) : (
+                              <>
+                                <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30" />
+                                <span className="text-[10px] text-muted-foreground">Not set</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex gap-1.5">
+                          <input
+                            type="password"
+                            placeholder={configured ? '••••••••' : provider.placeholder}
+                            value={apiKeyInputs[provider.id] || ''}
+                            onChange={(e) => setApiKeyInputs((prev) => ({ ...prev, [provider.id]: e.target.value }))}
+                            className="flex-1 rounded-lg border border-border/50 bg-secondary/30 px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/20 transition-colors"
+                          />
+                          <button
+                            onClick={() => handleSaveApiKey(provider.id)}
+                            disabled={!apiKeyInputs[provider.id]?.trim() || isSaving}
+                            className="px-3 py-1.5 rounded-lg border border-border/50 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                          >
+                            {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Save'}
+                          </button>
+                          {configured && (
+                            <button
+                              onClick={() => handleRemoveApiKey(provider.id)}
+                              disabled={isRemoving}
+                              className="px-1.5 py-1.5 rounded-lg border border-border/50 text-muted-foreground hover:text-red-500 hover:border-red-500/30 transition-colors disabled:opacity-30"
+                              title="Remove key"
+                            >
+                              {isRemoving ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
+                            </button>
+                          )}
+                        </div>
+                        {provider.id === 'custom' && (
+                          <input
+                            type="text"
+                            placeholder="Base URL (e.g. http://localhost:8080/v1)"
+                            value={customBaseUrl}
+                            onChange={(e) => setCustomBaseUrl(e.target.value)}
+                            className="w-full rounded-lg border border-border/50 bg-secondary/30 px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/20 transition-colors"
+                          />
                         )}
                       </div>
                     );

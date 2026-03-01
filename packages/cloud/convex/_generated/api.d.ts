@@ -21,6 +21,7 @@ import type * as session_actions from "../session_actions.js";
 import type * as sessions from "../sessions.js";
 import type * as streaming from "../streaming.js";
 import type * as todos from "../todos.js";
+import type * as user_api_keys from "../user_api_keys.js";
 
 import type {
   ApiFromModules,
@@ -42,6 +43,7 @@ declare const fullApi: ApiFromModules<{
   sessions: typeof sessions;
   streaming: typeof streaming;
   todos: typeof todos;
+  user_api_keys: typeof user_api_keys;
 }>;
 
 /**
