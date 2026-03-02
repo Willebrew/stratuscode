@@ -77,12 +77,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [fetchUser]);
 
   const signOut = useCallback(async () => {
+    // Revoke ALL sessions for this user across all NQL apps (shared DB)
+    try {
+      await fetch("/api/auth/revoke-all-sessions", {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch {}
+
     await fetch("/api/auth/logout", { method: "POST" });
     setUser(null);
     const nqlAuthUrl =
       process.env.NEXT_PUBLIC_NQL_AUTH_URL ||
       "https://auth.neuroquestlabs.ai";
-    window.location.href = `${nqlAuthUrl}/sign-out`;
+    window.location.href = `${nqlAuthUrl}/api/auth/logout?redirect=${encodeURIComponent(window.location.origin)}`;
   }, []);
 
   const value: AuthContextType = {
