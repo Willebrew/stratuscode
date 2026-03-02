@@ -2,7 +2,7 @@
  * Safety Module for StratusCode Agent
  *
  * Configures and exports a SAGE safety manager with injection detection,
- * PII redaction, and content filtering for the agent pipeline.
+ * PII redaction, content filtering, and optional Groq ML-based safety.
  */
 
 import {
@@ -10,6 +10,7 @@ import {
   createInjectionGuard,
   createPIIGuard,
   createContentFilter,
+  createGroqSafeguardGuard,
   type SafetyContext,
   type AggregatedSafetyResult,
 } from "@willebrew/sage-core/safety";
@@ -19,20 +20,42 @@ let _manager: ReturnType<typeof createSafetyManager> | null = null;
 
 export function getSafetyManager() {
   if (!_manager) {
+    const guards = [
+      createInjectionGuard({ minSeverity: "medium" }),
+      createPIIGuard({
+        detectTypes: ["ssn", "credit_card", "api_key", "password", "bank_account"],
+        redactTypes: ["ssn", "credit_card", "api_key", "password", "bank_account"],
+        redactionStrategy: "mask",
+        minConfidence: 0.8,
+      }),
+      createContentFilter({
+        enableCategories: [
+          "violence",
+          "self_harm",
+          "illegal_activity",
+          "hate_speech",
+          "harassment",
+          "deceptive",
+        ],
+        minSeverity: "high",
+      }),
+    ];
+
+    // Add Groq ML safeguard when API key is available
+    const groqKey = process.env.GROQ_API_KEY;
+    if (groqKey) {
+      guards.push(
+        createGroqSafeguardGuard({
+          apiKey: groqKey,
+          confidenceThreshold: 0.7,
+          timeout: 5000,
+          blockOnViolation: true,
+        })
+      );
+    }
+
     _manager = createSafetyManager({
-      guards: [
-        createInjectionGuard({ minSeverity: "medium" }),
-        createPIIGuard({
-          detectTypes: ["ssn", "credit_card", "api_key", "password", "bank_account"],
-          redactTypes: ["ssn", "credit_card", "api_key", "password", "bank_account"],
-          redactionStrategy: "mask",
-          minConfidence: 0.8,
-        }),
-        createContentFilter({
-          enableCategories: ["violence", "self_harm", "illegal_activity", "hate_speech"],
-          minSeverity: "high",
-        }),
-      ],
+      guards,
       defaultAction: "warn",
       blockSeverity: "critical",
       sanitize: true,
