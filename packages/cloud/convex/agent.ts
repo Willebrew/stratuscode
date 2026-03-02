@@ -15,6 +15,7 @@ import { Sandbox } from "@vercel/sandbox";
 import { processDirectly, createToolRegistry } from "@willebrew/sage-core";
 import { buildSystemPrompt, BUILT_IN_AGENTS, modelSupportsReasoning, patchGlobalFetch, getSubagentDefinitions } from "@stratuscode/shared";
 import { registerSandboxToolsConvex, type ConvexSandboxInfo } from "./lib/tools";
+import { getSafetyManager, buildSafetyContext, formatSafetyBlock } from "./lib/safety";
 
 // Ensure Codex fetch patch is applied in the Convex action runtime
 patchGlobalFetch();
@@ -757,6 +758,27 @@ export const sendMessage = internalAction({
         messageContent += "\n\n" + BUILD_SWITCH_REMINDER(planFilePath);
       }
 
+      // ── Safety: check user input ──
+      const safety = getSafetyManager();
+      const inputCtx = buildSafetyContext({
+        userId: session.userId,
+        sessionId: String(args.sessionId),
+        contentType: "user_input",
+      });
+      const inputCheck = await safety.check(messageContent, inputCtx);
+      if (inputCheck.blocked) {
+        await ctx.runMutation(internal.streaming.finish, { sessionId: args.sessionId });
+        await ctx.runMutation(internal.sessions.updateStatus, {
+          id: args.sessionId,
+          status: "error",
+          errorMessage: formatSafetyBlock(inputCheck),
+        });
+        return;
+      }
+      if (inputCheck.sanitized) {
+        messageContent = inputCheck.sanitized;
+      }
+
       const messages = [...previousMessages, { role: "user", content: messageContent }];
 
       // ── 4. Build tool registry ──
@@ -1003,11 +1025,23 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
             const toolName = tc.function?.name || "";
             const toolArgs = tc.function?.arguments || "";
 
+            // Safety: sanitize tool results (PII redaction)
+            let safeResult = result;
+            try {
+              const toolCtx = buildSafetyContext({
+                userId: session.userId,
+                sessionId: String(args.sessionId),
+                contentType: "tool_output",
+                toolName,
+              });
+              safeResult = await safety.sanitize(safeResult, toolCtx);
+            } catch { /* best effort — don't break tool flow */ }
+
             await retryMutation(() => ctx.runMutation(internal.streaming.updateToolResult, {
               sessionId: args.sessionId,
               toolCallId: tc.id,
               toolName,
-              result: result.slice(0, 5000),
+              result: safeResult.slice(0, 5000),
               toolArgs,
             }));
 
@@ -1231,10 +1265,21 @@ You are in standard mode. For destructive/irreversible actions (git commit, git 
         .map((p: any) => p.content || "")
         .join("");
 
+      // Safety: sanitize assistant response before persisting
+      let safeContent = result.content || textFromParts || "";
+      try {
+        const responseCtx = buildSafetyContext({
+          userId: session.userId,
+          sessionId: String(args.sessionId),
+          contentType: "assistant_response",
+        });
+        safeContent = await safety.sanitize(safeContent, responseCtx);
+      } catch { /* best effort */ }
+
       await ctx.runMutation(internal.messages.create, {
         sessionId: args.sessionId,
         role: "assistant",
-        content: result.content || textFromParts || "",
+        content: safeContent,
         parts,
         thinkingSeconds: thinkingElapsedSeconds,
       });
